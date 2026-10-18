@@ -1530,20 +1530,28 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                    0, (pb2 + 1 : U32))
       +s2 : IS = IS{U.sr_t(lb), U.sr_nx(lb), is_lnt(s1), is_nlx(s1),
                     is_wm(s1), is_ht(s1), is_natn(s1), is_strn(s1), is_qt_t(s1)}
-      +samety = L.tri_is_yes(eq_ex(256n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
-                                   is_ex(s2), is_lnt(s2),
-                                   U.ex_at(is_ex(s2), U.sr_i(la)),
-                                   U.ex_at(is_ex(s2), U.sr_i(lb))))
-      +tynode = U.ex_at(is_ex(s2), U.sr_i(la))
-      +isprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s2), is_lnt(s2), nt,
-                                            lp, tynode, ctx)))
-      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s2),
+      # The two types are REDUCED before being compared and before their
+      # universe is asked for. `106_proofIrrelevanceWhnf` is the case: the
+      # variables' type is `constType (Sort u) Prop`, which is a proposition
+      # only after unfolding, and `sl` does not unfold.
+      +wa2 = whd(s2, mt, lp, vt, U.sr_i(la))
+      +wb2 = whd(ir_st(wa2), mt, lp, vt, U.sr_i(lb))
+      +s3 : IS = ir_st(wb2)
+      +samety = L.tri_is_yes(eq_ex(256n,
+                                   U32.is_eq(ir_ty(wa2), ir_ty(wb2)),
+                                   is_ex(s3), is_lnt(s3),
+                                   U.ex_at(is_ex(s3), ir_ty(wa2)),
+                                   U.ex_at(is_ex(s3), ir_ty(wb2))))
+      +tynode = U.ex_at(is_ex(s3), ir_ty(wa2))
+      +isprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s3), is_lnt(s3),
+                                            nt, lp, tynode, ctx)))
+      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s3),
                                                      tynode)), MNone{})
       +isunit = meta_is_ind(smi) && U32.is_eq(meta_nf(smi), 0)
       +both = U32.is_lt(pa2, 4294967295) && U32.is_lt(pb2, 4294967295)
               && Bool.not(U32.is_eq(ta, 4294967295))
               && Bool.not(U32.is_eq(tb, 4294967295))
-      DR{s2, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
+      DR{s3, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
                         L.pick_tri(both && samety && (isprop || isunit),
                                    L.TYes{}, L.TUnk{}))}
     # Two constants. The same name with equal level arguments is equal.
