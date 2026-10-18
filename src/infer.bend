@@ -299,11 +299,31 @@ def sl_const_us(+x: T.Ex) -> List<&2, U32>:
     case _:
       Nil{}
 
+# The head of an application may be a BOUND VARIABLE, not just a constant.
+# `Acc.intro`'s second field has type `forall y, r y x -> Acc r y`, where `r`
+# is a binder of the constructor's own telescope. Reading only constant heads
+# left `r y x` with an unknown universe, which made "is every field a
+# proposition" undecidable and declined `Acc` -- the very inductive the index
+# exception above was added for.
+#
+# A bound variable's type comes from the context. It is NOT lifted here:
+# lifting shifts de Bruijn indices and a level is unaffected by that, and
+# only the level of the telescope's final Sort is read.
+def sl_head_ty(+hd: T.Ex, +nt: R.Tr<U32>, +ctx: List<&2, U32>) -> U32:
+  match hd:
+    case T.EConst{n, us}:
+      R.get(U32, 32n, nt, n, 4294967295)
+    case T.EBVar{i}:
+      nth_u(ctx, i, 4294967295)
+    case _:
+      4294967295
+
 def sl_app(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
-           +lp: R.Tr<List<&2, U32>>, +x: T.Ex) -> L.LN:
+           +lp: R.Tr<List<&2, U32>>, +ctx: List<&2, U32>,
+           +x: T.Ex) -> L.LN:
   +hd = sl_spine_hd(256n, ex, x)
   +nm = sl_const_nm(hd)
-  +ti = R.get(U32, 32n, nt, nm, 4294967295)
+  +ti = sl_head_ty(hd, nt, ctx)
   +res = sl_tele_after(U32.to_nat(sl_nargs(256n, ex, x, 0)), ex,
                        R.get(T.Ex, 32n, ex, ti, T.EBad{}))
   L.pick_ln(Bool.not(U32.is_eq(ti, 4294967295)) && is_sortx(res),
@@ -331,7 +351,7 @@ def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
     case 1n+p T.EConst{n, us}:
       sl_const(ex, ln, nt, lp, n, us)
     case 1n+p T.EApp{f, a}:
-      sl_app(ex, ln, nt, lp, T.EApp{f, a})
+      sl_app(ex, ln, nt, lp, ctx, T.EApp{f, a})
     case 1n+p _:
       L.LNun{}
 

@@ -274,6 +274,30 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 # For a declining inductive block: the five sub-checks of `ck_one`'s DInd
 # branch, reported separately. The block's verdict is their conjunction, so
 # this says which one is undecided.
+# The three inputs to the large-elimination decision, which is what
+# `rec-count` and `derived` both hinge on.
+def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+            +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+      +pnm = nm
+      +its = items
+      +res = C.tele_res(256n, I.is_ex(st), U.ex_at(I.is_ex(st), ty))
+      +isprop = L.pick_tri(I.is_sortx(res),
+                           L.ln_is_zero(R.get(L.LN, 32n, I.is_lnt(st),
+                                              I.sort_lvl_of(res),
+                                              L.LNun{})),
+                           L.TUnk{})
+      +nc = C.count_ctors(its, pnm, 0)
+      +fp = C.ctor_fields_prop(its, pnm, I.is_ex(st), I.is_lnt(st), nt, lp,
+                               L.TYes{})
+      "\n    isprop: " ++ show_tri(isprop) ++ "  nctors: " ++ U32.show(nc)
+      ++ "  fields-prop: " ++ show_tri(fp)
+      ++ "  large-elim: " ++ show_tri(C.large_elim(isprop, nc, fp))
+      ++ "  nested: " ++ U32.show(nn)
+    case _:
+      ""
+
 def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
              +items: List<&2, K.IItem>) -> String:
@@ -289,6 +313,7 @@ def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), nt, lp))
   ++ "  names: "
   ++ vshow(C.block_names_v(its, nmt))
+  ++ show_le(st, nt, lp, C.head_item(C.ind_only(its, Nil{})), its)
 
 def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
