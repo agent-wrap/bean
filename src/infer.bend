@@ -997,9 +997,18 @@ def pick_dr(+z: Bool, +a: DR, +b: DR) -> DR:
     case False{}:
       b
 
+# `nt` and `ctx` are carried so that the bound-variable case can look up a
+# variable's TYPE. Two questions need it, and both are answered there:
+# proof irrelevance (two proofs of the same proposition are equal) and
+# unit-like eta (any two elements of a no-field structure are equal). Both
+# are about terms that are not syntactically equal and have no reduct --
+# bare bound variables -- so no amount of reduction reaches them.
+#
+# `sl` is defined above this point, so the universe of a context type is
+# available without calling `infer`, which Bend would not allow.
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
-          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex,
-          +y: T.Ex) -> DR:
+          +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+          +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
   match fuel same x y:
     case 0n _ _ _:
       DR{st, L.TUnk{}}
@@ -1008,8 +1017,47 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
     case 1n+p False{} T.ESort{a} T.ESort{b}:
       DR{st, L.ln_cmp(R.get(L.LN, 32n, is_lnt(st), a, L.LNun{}),
                       R.get(L.LN, 32n, is_lnt(st), b, L.LNun{}))}
+    # Two bound variables. Equal indices are equal. Different indices are
+    # still equal in two cases, and both are decided from their types:
+    #
+    #   * proof irrelevance -- the two have the same type and that type is a
+    #     proposition. `104_proofIrrelevance` is `forall (P : Prop) (p q : P),
+    #     Eq p q`, which needs `#1 == #0` and has no reduct at all.
+    #   * unit-like eta -- the type is a structure with no fields, so it has
+    #     at most one element. `108_unitEta1` needs exactly this.
+    #
+    # The types come from `ctx` and are lifted by `i + 1`, the same way
+    # `infer`'s bound-variable case lifts them, so the two land in a common
+    # context and can be compared structurally.
     case 1n+p False{} T.EBVar{a} T.EBVar{b}:
-      DR{st, L.pick_tri(U32.is_eq(a, b), L.TYes{}, L.TUnk{})}
+      +pa2 = a
+      +pb2 = b
+      +ta = nth_u(ctx, pa2, 4294967295)
+      +tb = nth_u(ctx, pb2, 4294967295)
+      +la = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ta), ta,
+                   0, (pa2 + 1 : U32))
+      +s1 : IS = IS{U.sr_t(la), U.sr_nx(la), is_lnt(st), is_nlx(st),
+                    is_wm(st)}
+      +lb = U.lift(256n, is_ex(s1), is_nx(s1), U.ex_at(is_ex(s1), tb), tb,
+                   0, (pb2 + 1 : U32))
+      +s2 : IS = IS{U.sr_t(lb), U.sr_nx(lb), is_lnt(s1), is_nlx(s1),
+                    is_wm(s1)}
+      +samety = L.tri_is_yes(eq_ex(32n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
+                                   is_ex(s2), is_lnt(s2),
+                                   U.ex_at(is_ex(s2), U.sr_i(la)),
+                                   U.ex_at(is_ex(s2), U.sr_i(lb))))
+      +tynode = U.ex_at(is_ex(s2), U.sr_i(la))
+      +isprop = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(s2), is_lnt(s2), nt,
+                                            lp, tynode, ctx)))
+      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s2),
+                                                     tynode)), MNone{})
+      +isunit = meta_is_ind(smi) && U32.is_eq(meta_nf(smi), 0)
+      +both = U32.is_lt(pa2, 4294967295) && U32.is_lt(pb2, 4294967295)
+              && Bool.not(U32.is_eq(ta, 4294967295))
+              && Bool.not(U32.is_eq(tb, 4294967295))
+      DR{s2, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
+                        L.pick_tri(both && samety && (isprop || isunit),
+                                   L.TYes{}, L.TUnk{}))}
     case 1n+p False{} T.EConst{a, us} T.EConst{b, vs}:
       DR{st, L.pick_tri(U32.is_eq(a, b), eq_lvls(us, vs, is_lnt(st)),
                         L.TUnk{})}
@@ -1017,20 +1065,26 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +pf = p
       +w1 = whd(st, mt, lp, vt, t1)
       +w2 = whd(dr_wh(w1), mt, lp, vt, t2)
-      +d1 = defeq(pf, U32.is_eq(t1, t2), dr_wh(w2), mt, lp, vt,
+      +d1 = defeq(pf, U32.is_eq(t1, t2), dr_wh(w2), mt, nt, lp, vt, ctx,
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w1)),
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w2)))
+      # The body is compared with the binder in scope, so the
+      # bound-variable case below can find a variable's type.
+      +pt1 = t1
       +w3 = whd(dr_st(d1), mt, lp, vt, b1)
       +w4 = whd(dr_wh(w3), mt, lp, vt, b2)
-      +d2 = defeq(pf, U32.is_eq(b1, b2), dr_wh(w4), mt, lp, vt,
+      +d2 = defeq(pf, U32.is_eq(b1, b2), dr_wh(w4), mt, nt, lp, vt,
+                  Con{pt1, ctx},
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
       DR{dr_st(d2), tri_and(dr_r(d1), dr_r(d2))}
     case 1n+p False{} T.ELam{n1, t1, b1, i1} T.ELam{n2, t2, b2, i2}:
       +pf = p
+      +plt = t1
       +w3 = whd(st, mt, lp, vt, b1)
       +w4 = whd(dr_wh(w3), mt, lp, vt, b2)
-      +d2 = defeq(pf, U32.is_eq(b1, b2), dr_wh(w4), mt, lp, vt,
+      +d2 = defeq(pf, U32.is_eq(b1, b2), dr_wh(w4), mt, nt, lp, vt,
+                  Con{plt, ctx},
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
       DR{dr_st(d2), soften(dr_r(d2))}
@@ -1038,12 +1092,12 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +pf = p
       +w1 = whd(st, mt, lp, vt, f1)
       +w2 = whd(dr_wh(w1), mt, lp, vt, f2)
-      +d1 = defeq(pf, U32.is_eq(f1, f2), dr_wh(w2), mt, lp, vt,
+      +d1 = defeq(pf, U32.is_eq(f1, f2), dr_wh(w2), mt, nt, lp, vt, ctx,
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w1)),
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w2)))
       +w3 = whd(dr_st(d1), mt, lp, vt, a1)
       +w4 = whd(dr_wh(w3), mt, lp, vt, a2)
-      +d2 = defeq(pf, U32.is_eq(a1, a2), dr_wh(w4), mt, lp, vt,
+      +d2 = defeq(pf, U32.is_eq(a1, a2), dr_wh(w4), mt, nt, lp, vt, ctx,
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
       DR{dr_st(d2), soften(tri_and(dr_r(d1), dr_r(d2)))}
@@ -1072,7 +1126,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +w1 = whd(s2, mt, lp, vt, b1)
       +w2 = whd(ir_st(w1), mt, lp, vt, ir_ty(ap))
       +s3 : IS = ir_st(w2)
-      +d = defeq(pf, False{}, s3, mt, lp, vt,
+      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
       DR{dr_st(d), soften(dr_r(d))}
@@ -1091,7 +1145,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +w1 = whd(s2, mt, lp, vt, ir_ty(ap))
       +w2 = whd(ir_st(w1), mt, lp, vt, b2)
       +s3 : IS = ir_st(w2)
-      +d = defeq(pf, False{}, s3, mt, lp, vt,
+      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
       DR{dr_st(d), soften(dr_r(d))}
@@ -1131,7 +1185,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +eta = proj_build(U32.to_nat(meta_nf(cmi)), 0, meta_ind(cmi),
                         ir_ty(ay), ir_st(ay), ir_ty(pre))
       +se : IS = ir_st(eta)
-      +de = defeq(pf, False{}, se, mt, lp, vt, px,
+      +de = defeq(pf, False{}, se, mt, nt, lp, vt, ctx, px,
                   U.ex_at(is_ex(se), ir_ty(eta)))
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
               DR{st, mismatch(px, py)})

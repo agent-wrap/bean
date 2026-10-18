@@ -1147,19 +1147,21 @@ def build_minors(cnt: Nat, +j: U32, +items: List<&2, K.IItem>,
       build_minors(q, (j + 1 : U32), items, ind, us, p, k, ex,
                    I.ir_st(mt), Con{I.ir_ty(mt), acc})
 
-def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                 +mine: U32, +theirs: U32) -> V:
   +w1 = I.whd(st, mt, lp, vt, mine)
   +w2 = I.whd(I.ir_st(w1), mt, lp, vt, theirs)
   +s2 = I.ir_st(w2)
-  tri_v(I.dr_r(I.defeq(24n, U32.is_eq(mine, theirs), s2, mt, lp, vt,
+  tri_v(I.dr_r(I.defeq(24n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt, Nil{},
                        U.ex_at(I.is_ex(s2), I.ir_ty(w1)),
                        U.ex_at(I.is_ex(s2), I.ir_ty(w2)))))
 
 # The universe arguments must be in the inductive's own levelParams order;
 # `param_lvls` conses, so its result is reversed.
 def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
-              +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ex: R.Tr<T.Ex>,
+              +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ex: R.Tr<T.Ex>,
               +nm: U32, +lps: List<&2, U32>, +ity: U32, +np: U32,
               +ni: U32, +nc: U32, +vnm: U32, +theirs: U32) -> V:
   match ok:
@@ -1174,13 +1176,14 @@ def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
                         D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, ity),
                                             Nil{}), Nil{}),
                         I.ls_xs(mn), vnm)
-      cmp_derived(I.ir_st(d), mt, lp, vt, I.ir_ty(d), theirs)
+      cmp_derived(I.ir_st(d), mt, nt, lp, vt, I.ir_ty(d), theirs)
 
 # Parameters, indices and non-recursive constructor fields are all handled.
 # A recursive field, a nested block, or an inductive whose large-elimination
 # status cannot be settled declines.
 def derive_block_v(+items: List<&2, K.IItem>, +st: I.IS,
-                   +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                   +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                   +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                    +ind: K.IItem, +nc: U32, +le: L.Tri) -> V:
   match ind:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
@@ -1191,7 +1194,7 @@ def derive_block_v(+items: List<&2, K.IItem>, +st: I.IS,
       derive_go(U32.is_eq(nn, 0) && L.tri_is_yes(le)
                 && no_deep_fields(its, ex, [pnm], pnm)
                 && U32.is_ne(rec_ty_of(rc), 4294967295),
-                its, st, mt, lp, vt, ex, pnm, lps, ty, np, ni, nc,
+                its, st, mt, nt, lp, vt, ex, pnm, lps, ty, np, ni, nc,
                 head_u(rec_lps_of(rc), 0), rec_ty_of(rc))
     case _:
       VDecline{}
@@ -1211,7 +1214,7 @@ def block_derive_one(+items: List<&2, K.IItem>, +st: I.IS,
                                               L.LNun{})),
                            L.TUnk{})
       +nc = count_ctors(its, pnm, 0)
-      derive_block_v(its, st, mt, lp, vt,
+      derive_block_v(its, st, mt, nt, lp, vt,
                      K.IInd{pnm, lps, ty, np, ni, nn, cs}, nc,
                      large_elim(isprop, nc,
                                 ctor_fields_prop(its, pnm, I.is_ex(st),
@@ -1473,7 +1476,7 @@ def ck_infer(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +w1 = I.whd(st2, mt, lp, vt, I.ir_ty(ri))
   +w2 = I.whd(I.ir_st(w1), mt, lp, vt, tye)
   +st3 = I.ir_st(w2)
-  +d = I.defeq(24n, U32.is_eq(I.ir_ty(ri), tye), st3, mt, lp, vt,
+  +d = I.defeq(24n, U32.is_eq(I.ir_ty(ri), tye), st3, mt, nt, lp, vt, ctx,
                U.ex_at(I.is_ex(st3), I.ir_ty(w1)),
                U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
   cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
@@ -1495,7 +1498,7 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +wd1 = I.whd(cr_st(sub), mt, lp, vt, pa)
       +wd2 = I.whd(I.ir_st(wd1), mt, lp, vt, a2)
       +stw = I.ir_st(wd2)
-      +dd = I.defeq(24n, U32.is_eq(pa, a2), stw, mt, lp, vt,
+      +dd = I.defeq(24n, U32.is_eq(pa, a2), stw, mt, nt, lp, vt, Con{pa, ctx},
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd1)),
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd2)))
       cr_of(I.dr_st(dd), I.tri_and(I.dr_r(dd), cr_r(sub)))
