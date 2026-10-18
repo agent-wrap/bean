@@ -756,14 +756,12 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       +snode = U.ex_at(exz, ir_ty(ws))
       +cmi = R.get(Meta, 32n, mt,
                    const_nm2(spine_hd(256n, exz, snode)), MNone{})
-      # GATED OFF for performance. Projection reduction took
-      # `perf/grind-ring-5` past its 60 s limit (it was 2 s before iota, 28 s
-      # with iota alone). Reduction without memoised `whnf` re-reduces the
-      # same structure for every projection of it, and these tests project
-      # repeatedly. Typing stays on; only the reduction is off.
-      # Off. Correct, but see the note on projection typing below: with
-      # reduction and typing both on, `perf/grind-ring-5` went over its 60 s
-      # limit and both `magma-string` tests over theirs -- three timeouts.
+      # Off, on measurement -- the one feature here whose cost is real and
+      # not an artefact. Reduction re-reduces the same structure for every
+      # projection of it, and these tests project repeatedly:
+      # `perf/magma-string-n4` 48 s -> 305 s against a 70 s limit, and the
+      # reduction memo only brings that to 256 s. It buys `098_projRed`.
+      # Typing stays on; only the reduction is off.
       +okp = False{} && meta_is_ctor(cmi)
       +fld = nth_u(spine_ar(256n, exz, snode, Nil{}),
                    (meta_p(cmi) + idx : U32), 4294967295)

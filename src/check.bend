@@ -639,20 +639,34 @@ def prop_or_unknown(+t: L.Tri) -> L.Tri:
   L.pick_tri(L.tri_is_no(t), L.TUnk{}, t)
 
 # Every field of the constructor must be a proposition.
+#
+# The local context is threaded, and must be: a field's type is written under
+# the constructor's own telescope, so it is routinely a *bound variable*.
+# `And.intro : forall {a b : Prop}, a -> b -> And a b` has fields of type `a`
+# and `b`, which are binders. Asking for their universe with an empty context
+# answers "unknown", which made `large_elim` undecided and declined the whole
+# inductive block -- `And` and every Prop-valued structure like it, 21
+# declining declarations across 7 files.
+#
+# `ctx` is innermost-first, the same convention `infer` and `ck_expr` use
+# when they descend into a binder (`Con{dom, ctx}`), so each domain is consed
+# on as the walk passes it.
 def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                 +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +nskip: U32,
-                +i: U32, +acc: L.Tri) -> L.Tri:
+                +i: U32, +ctx: List<&2, U32>, +acc: L.Tri) -> L.Tri:
   match doms:
     case Nil{}:
       acc
     case Con{head, tail}:
       +pi = i
+      +ph = head
       fields_prop(tail, ex, ln, nt, lp, nskip, (pi + 1 : U32),
+                  Con{ph, ctx},
                   L.pick_tri(U32.is_lt(pi, nskip), acc,
                              I.tri_and(acc,
                                prop_or_unknown(
                                  L.ln_is_zero(I.sl(64n, ex, ln, nt, lp,
-                                   U.ex_at(ex, head), Nil{}))))))
+                                   U.ex_at(ex, ph), ctx))))))
 
 def subsingleton(+nc: U32, +fp: L.Tri) -> L.Tri:
   L.pick_tri(U32.is_eq(nc, 0), L.TYes{},
@@ -724,7 +738,8 @@ def ctor_fields_prop(items: List<&2, K.IItem>, +ind: U32,
                 fields_prop(D.rev_u32(tele_doms(256n, ex,
                                                 U.ex_at(ex, ty), Nil{}),
                                       Nil{}),
-                            ex, ln, nt, lp, np, 0, L.TYes{})),
+                            ex, ln, nt, lp, np, 0, Nil{},
+                            L.TYes{})),
               acc))
         case _:
           ctor_fields_prop(tail, ind, ex, ln, nt, lp, acc)
