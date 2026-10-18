@@ -877,6 +877,16 @@ def proj_nodes(n: Nat, +i: U32, +tn: U32, +sx: U32, +st: IS,
       proj_nodes(q, (i + 1 : U32), tn, sx, ir_st(pr),
                  Con{ir_ty(pr), acc})
 
+# Byte-list equality, for literal payloads.
+def eq_u32s(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{h1, t1} Con{h2, t2}:
+      U32.is_eq(h1, h2) && eq_u32s(t1, t2)
+    case _ _:
+      False{}
+
 # --- definitional equality ----------------------------------------------
 # Both arguments are already in weak head normal form; the recursive calls
 # normalise the children before descending. Same shape as `eq_ex`: the nodes
@@ -951,6 +961,42 @@ def soften(+t: L.Tri) -> L.Tri:
 def mismatch(+x: T.Ex, +y: T.Ex) -> L.Tri:
   L.pick_tri(False{} && rigid(x) && rigid(y), L.TNo{}, L.TUnk{})
 
+# --- structure eta -------------------------------------------------------
+# `S.mk s.0 .. s.(k-1)` equals `s` for a structure `S`. Rather than looping
+# over the fields and comparing each -- a loop that would call `defeq` while
+# `defeq` called it, which Bend forbids -- the eta-expansion is *built* as a
+# term and handed to `defeq` as a single comparison. Its own application case
+# then compares the spines pairwise, which is exactly the field-by-field
+# check.
+#
+# Both builders are pure allocation; neither compares anything.
+def app_build(n: Nat, args: List<&2, U32>, +st: IS, +acc: U32) -> IR:
+  match n args:
+    case 0n _:
+      IR{st, acc, True{}}
+    case 1n+q Nil{}:
+      IR{st, acc, True{}}
+    case 1n+q Con{a, rest}:
+      +r = alloc_ex(st, T.EApp{acc, a})
+      app_build(q, rest, ir_st(r), ir_ty(r))
+
+def proj_build(n: Nat, +i: U32, +tn: U32, +yi: U32, +st: IS,
+               +acc: U32) -> IR:
+  match n:
+    case 0n:
+      IR{st, acc, True{}}
+    case 1n+q:
+      +pj = alloc_ex(st, T.EProj{tn, i, yi})
+      +ap = alloc_ex(ir_st(pj), T.EApp{acc, ir_ty(pj)})
+      proj_build(q, (i + 1 : U32), tn, yi, ir_st(ap), ir_ty(ap))
+
+def pick_dr(+z: Bool, +a: DR, +b: DR) -> DR:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex,
           +y: T.Ex) -> DR:
@@ -1001,8 +1047,94 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
       DR{dr_st(d2), soften(tri_and(dr_r(d1), dr_r(d2)))}
+    # Eta for functions: `fun x => b` equals `t` exactly when `b` equals
+    # `t x`. The lambda supplies the binder, so this needs no type inference
+    # -- which matters, because `defeq` sits above `infer` in this file and
+    # Bend forbids the two calling each other.
+    #
+    # `t`'s index is not a parameter (callers pass nodes), so the node is
+    # re-allocated to get one, lifted past the binder and applied to
+    # `bvar 0`. Written out twice rather than factored into a helper: a
+    # helper would call `defeq` and `defeq` would call it, which is mutual
+    # recursion.
+    case 1n+p False{} T.ELam{n1, t1, b1, i1} _:
+      +pf = p
+      +py : T.Ex = y
+      +ay = alloc_ex(st, py)
+      +sy : IS = ir_st(ay)
+      +lr = U.lift(256n, is_ex(sy), is_nx(sy),
+                   U.ex_at(is_ex(sy), ir_ty(ay)), ir_ty(ay), 0, 1)
+      +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sy), is_nlx(sy),
+                    is_wm(sy)}
+      +bv = alloc_ex(s1, T.EBVar{0})
+      +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
+      +s2 : IS = ir_st(ap)
+      +w1 = whd(s2, mt, lp, vt, b1)
+      +w2 = whd(ir_st(w1), mt, lp, vt, ir_ty(ap))
+      +s3 : IS = ir_st(w2)
+      +d = defeq(pf, False{}, s3, mt, lp, vt,
+                 U.ex_at(is_ex(s3), ir_ty(w1)),
+                 U.ex_at(is_ex(s3), ir_ty(w2)))
+      DR{dr_st(d), soften(dr_r(d))}
+    case 1n+p False{} _ T.ELam{n2, t2, b2, i2}:
+      +pf = p
+      +px : T.Ex = x
+      +ax = alloc_ex(st, px)
+      +sx : IS = ir_st(ax)
+      +lr = U.lift(256n, is_ex(sx), is_nx(sx),
+                   U.ex_at(is_ex(sx), ir_ty(ax)), ir_ty(ax), 0, 1)
+      +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sx), is_nlx(sx),
+                    is_wm(sx)}
+      +bv = alloc_ex(s1, T.EBVar{0})
+      +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
+      +s2 : IS = ir_st(ap)
+      +w1 = whd(s2, mt, lp, vt, ir_ty(ap))
+      +w2 = whd(ir_st(w1), mt, lp, vt, b2)
+      +s3 : IS = ir_st(w2)
+      +d = defeq(pf, False{}, s3, mt, lp, vt,
+                 U.ex_at(is_ex(s3), ir_ty(w1)),
+                 U.ex_at(is_ex(s3), ir_ty(w2)))
+      DR{dr_st(d), soften(dr_r(d))}
+    # Literals: two `Nat` or `String` literals are equal exactly when their
+    # digits are. Without this they fell to the catch-all and compared as
+    # "cannot decide", so even a literal against itself was undecided.
+    case 1n+p False{} T.ENat{d1} T.ENat{d2}:
+      DR{st, L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})}
+    case 1n+p False{} T.EStr{d1} T.EStr{d2}:
+      DR{st, L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})}
+    # Structure eta, with the constructor application on the left. A
+    # structure's constructor is recognised from `mt`, so no type inference
+    # is needed; the parameters are taken from the left spine, where they
+    # already are.
     case 1n+p False{} _ _:
-      DR{st, mismatch(x, y)}
+      +pf = p
+      +px : T.Ex = x
+      +py : T.Ex = y
+      +hd = spine_hd(256n, is_ex(st), px)
+      +cmi = R.get(Meta, 32n, mt, const_nm2(hd), MNone{})
+      # The inductive must be a registered STRUCTURE -- one constructor,
+      # no indices -- which is what `MInd` means here. That restriction is
+      # the whole safety of this rule: `bugs`-side `111_indexedUnitEta` and
+      # `113_indexedStructEta` are eta applied to *indexed* families, where
+      # it does not hold.
+      #
+      # Zero fields is allowed and is the unit-like case: every element of a
+      # no-field structure equals its constructor.
+      +eok = meta_is_ctor(cmi)
+             && meta_is_ind(R.get(Meta, 32n, mt, meta_ind(cmi), MNone{}))
+      +ahd = alloc_ex(st, hd)
+      +pre = app_build(64n,
+                       take_u(spine_ar(256n, is_ex(ir_st(ahd)), px, Nil{}),
+                              meta_p(cmi), Nil{}),
+                       ir_st(ahd), ir_ty(ahd))
+      +ay = alloc_ex(ir_st(pre), py)
+      +eta = proj_build(U32.to_nat(meta_nf(cmi)), 0, meta_ind(cmi),
+                        ir_ty(ay), ir_st(ay), ir_ty(pre))
+      +se : IS = ir_st(eta)
+      +de = defeq(pf, False{}, se, mt, lp, vt, px,
+                  U.ex_at(is_ex(se), ir_ty(eta)))
+      pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
+              DR{st, mismatch(px, py)})
 
 
 # --- infer ---------------------------------------------------------------
