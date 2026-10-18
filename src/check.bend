@@ -1145,11 +1145,14 @@ def ctor_has_rec(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +ty: U32,
 # A recursive field with its own telescope (a `W`-type, `Acc`) would need its
 # inductive hypothesis to shift two ranges of indices by different amounts
 # under its own binders, and declines.
+# A recursive field is one whose telescope ENDS in the inductive. The
+# telescope no longer has to be empty -- `ih_one` builds the hypothesis for
+# it. What is still excluded is the inductive appearing in some other shape,
+# nested inside another type: `field_is_deep` catches that and declines.
 def field_is_rec(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +fty: U32) -> Bool:
-  +fx = U.ex_at(ex, fty)
-  U32.is_eq(tele_n(256n, ex, fx, 0), 0)
-  && is_constx(spine_head(256n, ex, fx))
-  && mem(const_name_of(spine_head(256n, ex, fx)), names)
+  +fr = tele_res(256n, ex, U.ex_at(ex, fty))
+  is_constx(spine_head(256n, ex, fr))
+  && mem(const_name_of(spine_head(256n, ex, fr)), names)
 
 def field_is_deep(+ex: R.Tr<T.Ex>, +names: List<&2, U32>,
                   +fty: U32) -> Bool:
@@ -1199,18 +1202,49 @@ def no_deep_fields(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
 
 # `ih_s : motive i-bar'' f_h`, at context
 # [a.., motive, minors.., f_1..f_m, ih_1..ih_{s-1}].
+# The inductive hypothesis for the h-th field, where that field may have a
+# telescope of its own:
+#
+#     f_h : forall z_1 .. z_q, I a-bar e-bar
+#     ih  : forall z_1'.. z_q', motive e-bar'' (f_h z_1 .. z_q)
+#
+# `q = 0` is the ordinary case (`Nat.succ`, `List.cons`) and falls out of the
+# same formulas. `q > 0` is the one the earlier note called impossible here --
+# "would need its inductive hypothesis to shift two ranges of indices by
+# different amounts under its own binders" -- and that is exactly what the
+# two cut positions below do: the field's own binders are RE-BOUND by the
+# hypothesis, so every cut is offset by `q` to step over them, while the
+# binders outside are shifted. `Acc.intro`'s recursive field
+# `forall y, r y x -> Acc r y` is the case.
+#
+# Context at the point the hypothesis is built: `m` lifted fields and `s-1`
+# earlier hypotheses are in scope, so the motive is at `s-1+m+j-1` and the
+# field itself at `s-1+m-h`; under the `q` new binders both move up by `q`.
 def ih_one(+st: I.IS, +ex: R.Tr<T.Ex>, +fty: U32, +p: U32, +m: U32,
            +j: U32, +s: U32, +h: U32) -> I.IR:
-  +l1 = W.lift_all(skip_n(spine_args(256n, ex, U.ex_at(ex, fty), Nil{}),
-                          p),
-                   st, (h - 1 : U32), j, Nil{})
-  +l2 = W.lift_all(D.rev_u32(I.ls_xs(l1), Nil{}), I.ls_st(l1), 0,
-                   (s - 1 + m - h + 1 : U32), Nil{})
-  +mv = I.alloc_ex(I.ls_st(l2), T.EBVar{(s - 1 + m + j - 1 : U32)})
-  +fv = I.alloc_ex(I.ir_st(mv), T.EBVar{(s - 1 + m - h : U32)})
-  W.apply_spine(List.append(&2, U32, D.rev_u32(I.ls_xs(l2), Nil{}),
-                            [I.ir_ty(fv)]),
-                I.ir_st(fv), I.ir_ty(mv))
+  +fx = U.ex_at(ex, fty)
+  +q = tele_n(256n, ex, fx, 0)
+  +amt2 = (s - 1 + m - h + 1 : U32)
+  # the field's own binder types, each with its own cutoff
+  +z1 = W.lift_each(D.rev_u32(tele_doms(256n, ex, fx, Nil{}), Nil{}), st,
+                    (h - 1 : U32), j, 0, Nil{})
+  +z2 = W.lift_each(D.rev_u32(I.ls_xs(z1), Nil{}), I.ls_st(z1), 0, amt2, 0,
+                    Nil{})
+  # the index arguments of the field's result, past the parameters
+  +l1 = W.lift_all(skip_n(spine_args(256n, ex,
+                                     tele_res(256n, ex, fx), Nil{}), p),
+                   I.ls_st(z2), (h - 1 + q : U32), j, Nil{})
+  +l2 = W.lift_all(D.rev_u32(I.ls_xs(l1), Nil{}), I.ls_st(l1), q, amt2,
+                   Nil{})
+  +mv = I.alloc_ex(I.ls_st(l2), T.EBVar{(s - 1 + m + j - 1 + q : U32)})
+  +fv = I.alloc_ex(I.ir_st(mv), T.EBVar{(s - 1 + m - h + q : U32)})
+  +zv = W.bvar_nodes(W.desc(q, (q - 1 : U32)), I.ir_st(fv), Nil{})
+  +fa = W.apply_spine(D.rev_u32(I.ls_xs(zv), Nil{}), I.ls_st(zv),
+                      I.ir_ty(fv))
+  +bd = W.apply_spine(List.append(&2, U32, D.rev_u32(I.ls_xs(l2), Nil{}),
+                                  [I.ir_ty(fa)]),
+                      I.ir_st(fa), I.ir_ty(mv))
+  W.wrap_alls(D.rev_u32(I.ls_xs(z2), Nil{}), I.ir_st(bd), I.ir_ty(bd))
 
 def ih_all(poss: List<&2, U32>, +st: I.IS, +ex: R.Tr<T.Ex>,
            +fs: List<&2, U32>, +p: U32, +m: U32, +j: U32, +s: U32,
