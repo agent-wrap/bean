@@ -1,0 +1,245 @@
+# Prints one line per declaration:
+#   <verdict> <name-index> <kind>
+# where verdict is A (accept), R (reject) or D (decline).
+#
+# `judge` combines every declaration's verdict into one answer, so a single
+# declining declaration makes a whole file decline and the arena sees only
+# "decline". This runs the same `ck_one` over the same incrementally built
+# environment and reports each declaration separately, which is the only way
+# to find out *which* declaration a 300-declaration file is stuck on.
+#
+# tools/why-decline.py groups the output across the corpus.
+
+import Base
+import ./scan.bend as S
+import ./decode.bend as D
+import ./term.bend as T
+import ./level.bend as L
+import ./store.bend as K
+import ./trie.bend as R
+import ./subst.bend as U
+import ./infer.bend as I
+import ./tables.bend as B
+import ./check.bend as C
+
+def vshow(+v: C.V) -> String:
+  match v:
+    case C.VAccept{}:
+      "A"
+    case C.VReject{}:
+      "R"
+    case C.VDecline{}:
+      "D"
+
+def kshow(+d: K.Dcl) -> String:
+  match d:
+    case K.DNone{}:
+      "none"
+    case K.DAxiom{n, lps, t}:
+      "axiom"
+    case K.DDef{n, lps, t, v}:
+      "def"
+    case K.DThm{n, lps, t, v}:
+      "thm"
+    case K.DQuot{n, lps, t}:
+      "quot"
+    case K.DInd{nms, items}:
+      "inductive"
+    case _:
+      "other"
+
+# The name of a DInd block is the first inductive's name; `dcl_name` has no
+# case for it, so it is taken from the block's own name list.
+def ind_first(+xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      4294967295
+    case Con{head, tail}:
+      head
+
+def dname(+d: K.Dcl) -> U32:
+  match d:
+    case K.DInd{nms, items}:
+      ind_first(nms)
+    case _:
+      K.dcl_name(d)
+
+
+# --- expression printer --------------------------------------------------
+# The instrument this project lacked. Declines were being diagnosed by
+# reading de Bruijn arithmetic by eye, twice, wrongly. Printing the term is
+# cheaper than arguing about it.
+def pick_s(+z: Bool, x: String, y: String) -> String:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def show_us(xs: List<&2, U32>, acc: String) -> String:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      show_us(tail, acc ++ " " ++ U32.show(head))
+
+# The node arrives as a parameter, never as `U.ex_at(...)` in the scrutinee:
+# Bend cannot match a computed value, and a helper that matched it would need
+# to call back here, which would be mutual recursion. So the recursive calls
+# do the lookup and hand the node down.
+def show_ex(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> String:
+  match fuel x:
+    case 0n _:
+      "..."
+    case 1n+q T.EBad{}:
+      "BAD"
+    case 1n+q T.EBVar{j}:
+      "#" ++ U32.show(j)
+    case 1n+q T.ESort{l}:
+      "Sort(l" ++ U32.show(l) ++ ")"
+    case 1n+q T.EConst{n, us}:
+      "C" ++ U32.show(n) ++ "[" ++ show_us(us, "") ++ "]"
+    case 1n+q T.EApp{f, a}:
+      "(" ++ show_ex(q, ex, U.ex_at(ex, f)) ++ " "
+      ++ show_ex(q, ex, U.ex_at(ex, a)) ++ ")"
+    case 1n+q T.ELam{n, t, b, bi}:
+      "(fun:" ++ show_ex(q, ex, U.ex_at(ex, t)) ++ " => "
+      ++ show_ex(q, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+q T.EAll{n, t, b, bi}:
+      "(all:" ++ show_ex(q, ex, U.ex_at(ex, t)) ++ " -> "
+      ++ show_ex(q, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+q T.ELet{n, t, v, b}:
+      "(let " ++ show_ex(q, ex, U.ex_at(ex, v)) ++ " in "
+      ++ show_ex(q, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+q T.EProj{tn, j, sx}:
+      "proj<" ++ U32.show(tn) ++ "," ++ U32.show(j) ++ ">("
+      ++ show_ex(q, ex, U.ex_at(ex, sx)) ++ ")"
+    case 1n+q T.ENat{d}:
+      "nat"
+    case 1n+q T.EStr{d}:
+      "str"
+
+# For a declaration that declines: print the declared type, and the type
+# `infer` computes for its value, side by side. If they differ, the printed
+# pair says exactly how.
+def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
+  +ti = K.dcl_type(d)
+  +vi = K.dcl_value(d)
+  +ri = I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), vi), vi, Nil{})
+  +st2 = I.ir_st(ri)
+  "\n    declared: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), ti))
+  ++ "\n    value:    " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), vi))
+  ++ "\n    inferred: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), I.ir_ty(ri)))
+  ++ "\n    infer-ok: " ++ pick_s(I.ir_ok(ri), "yes", "no")
+
+def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
+              +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+              +d: K.Dcl) -> String:
+  match show:
+    case False{}:
+      ""
+    case True{}:
+      match v:
+        case C.VDecline{}:
+          match d:
+            case K.DInd{nms, items}:
+              ""
+            case K.DNone{}:
+              ""
+            case _:
+              show_cmp(st, mt, nt, lp, vt, d)
+        case _:
+          ""
+
+# Mirrors `C.ck_all` exactly -- same environment threading, same fuel -- but
+# emits a line per declaration instead of folding the verdicts together.
+def walk(ds: List<&2, K.Dcl>, +fuel: Nat, +st: I.IS,
+         +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+         +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+         +verbose: Bool, +acc: String) -> String:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +h = head
+      +vd = C.ck_one(fuel, st, mt, nt, lp, vt, nmt, h)
+      +line = vshow(vd) ++ " " ++ U32.show(dname(h)) ++ " " ++ kshow(h)
+              ++ maybe_cmp(verbose, vd, st, mt, nt, lp, vt, h) ++ "\n"
+      walk(tail, fuel, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
+           B.add_vt(h, vt), nmt, verbose, acc ++ line)
+
+def report(+bs: List<&2, U32>, +verbose: Bool) -> String:
+  +recs = D.decode(bs, S.Sc.start(), D.Acc.start(), Nil{})
+  +nlv = U32.to_nat((K.max_lvl_ix(recs, 0) + 1 : U32))
+  +nx = (K.max_any_ix(recs, 0) + 1 : U32)
+  +ds = K.decls_of(recs, Nil{})
+  +ex = B.build_ex(recs, R.TNil{})
+  +ln = B.lv_resolve(32n, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
+  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}}
+  walk(ds, 24n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+       R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), verbose, "")
+
+# Verbose mode is "a second argument was given at all" -- Bend's Base has no
+# String equality, and the flag's value does not matter.
+def has_arg(m: Maybe<&1, String>) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{value}:
+      True{}
+
+def unwrap_arg(m: Maybe<&1, String>) -> String:
+  match m:
+    case None{}:
+      ""
+    case Some{value}:
+      value
+
+def open_or_fail(r: Result<&1, &1, U32 & String, File>) -> IO(File):
+  match r:
+    case Fail{error}:
+      match error:
+        case Tuple{code, msg}:
+          IO.die(File, 3, "cannot read input: " ++ msg)
+    case Done{value}:
+      IO.pure(File, value)
+
+def show_read(pr: File & Result<&1, &1, U32 & String, List<&2, U32>>,
+              +verbose: Bool) -> IO(Unit):
+  match pr:
+    case Tuple{f, r}:
+      do IO<Unit>:
+        bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
+        IO.print(report(bs, verbose))
+
+# `av` is affine, so the path and the verbose flag are taken in one pass
+# rather than with two `List.get` calls.
+def arg_pair(av: List<&1, String>) -> String & Bool:
+  match av:
+    case Nil{}:
+      Tuple{"", False{}}
+    case Con{head, tail}:
+      match tail:
+        case Nil{}:
+          Tuple{"", False{}}
+        case Con{head2, tail2}:
+          match tail2:
+            case Nil{}:
+              Tuple{head2, False{}}
+            case Con{head3, tail3}:
+              Tuple{head2, True{}}
+
+def go(ab: String & Bool) -> IO(Unit):
+  match ab:
+    case Tuple{path, verbose}:
+      do IO<Unit>:
+        oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+        f : File <- open_or_fail(oh)
+        pr : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, 33554432)
+        show_read(pr, verbose)
+
+def main() -> IO(Unit):
+  do IO<Unit>:
+    av : List<&1, String> <- IO.args()
+    go(arg_pair(av))

@@ -827,25 +827,48 @@ def tele_doms_i(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex,
 
 # --- projection typing --------------------------------------------------
 # For `s : S a-bar` with the single constructor
-# `c : forall a-bar (f_1..f_m), S a-bar`, the type of `s.i` is the (i+1)-th
-# field type with the parameters replaced by `a-bar` and each earlier field
-# replaced by the corresponding projection of `s`.
+# `c : forall a-bar (f_0..f_{m-1}), S a-bar`, the type of `s.i` is the
+# (i+1)-th field type with the parameters replaced by `a-bar` and each
+# earlier field replaced by the corresponding projection of `s`.
 #
-# The field type lives in context [a_1..a_p, f_1..f_i], so substituting from
-# the innermost binder outwards means the values arrive in the order
-#   s.(i-1), s.(i-2), .., s.0, a_p, .., a_1
-def inst_many(vals: List<&2, U32>, +st: IS, +e: U32) -> IR:
-  match vals:
-    case Nil{}:
-      IR{st, e, True{}}
-    case Con{v, rest}:
-      +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), e), e, 0,
-                  v)
-      inst_many(rest,
-                IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
-                   is_wm(st)},
-                U.sr_i(r))
+# This is done by peeling the constructor's telescope from the OUTSIDE,
+# instantiating `bvar 0` of each Pi body in turn -- the `instantiate1` of
+# every real kernel -- and *not* by extracting the field type and
+# substituting into it afterwards.
+#
+# The difference is not cosmetic; the second way is wrong, and it was the
+# bug here. `U.inst` decrements the indices above the one it replaces, which
+# is correct for one substitution but not for a sequence: once a substituted
+# *value* is embedded in the term, the next substitution in the sequence
+# shifts it again. `Prod.snd`'s field type `#1` went
+#
+#     #1  --[subst f_0]-->  #0  --[subst beta]-->  #1  --[subst alpha]-->  #0
+#
+# where the answer is `#1`. `Prod.fst` needed one substitution fewer and
+# never re-shifted an embedded value, so it came out right -- which is why
+# every `*.fst` in the corpus passed and every `*.snd` declined.
+#
+# Peeling outside-in has no such step: each `inst` substitutes the bvar 0 of
+# a Pi body with a value from the surrounding context, and no binders remain
+# outside to shift it.
+def peel_tele(n: Nat, +st: IS, +tyi: U32, vals: List<&2, U32>) -> IR:
+  match n vals:
+    case 0n _:
+      IR{st, tyi, True{}}
+    case 1n+q Nil{}:
+      IR{st, tyi, True{}}
+    case 1n+q Con{v, rest}:
+      +node = U.ex_at(is_ex(st), tyi)
+      +cod = all_cod(node)
+      +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), cod), cod,
+                  0, v)
+      +nst : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
+                     is_wm(st)}
+      +rec = peel_tele(q, nst, U.sr_i(r), rest)
+      pick_ir(is_all(node), rec, ir_bad(ir_st(rec)))
 
+# `s.0, s.1, .., s.(i-1)` in ascending order, to be peeled after the
+# parameters -- the same order the constructor binds them in.
 def proj_nodes(n: Nat, +i: U32, +tn: U32, +sx: U32, +st: IS,
                acc: List<&2, U32>) -> LS:
   match n:
@@ -853,7 +876,7 @@ def proj_nodes(n: Nat, +i: U32, +tn: U32, +sx: U32, +st: IS,
       LS{st, rev_u(acc, Nil{})}
     case 1n+q:
       +pr = alloc_ex(st, T.EProj{tn, i, sx})
-      proj_nodes(q, (i - 1 : U32), tn, sx, ir_st(pr),
+      proj_nodes(q, (i + 1 : U32), tn, sx, ir_st(pr),
                  Con{ir_ty(pr), acc})
 
 # --- infer ---------------------------------------------------------------
@@ -953,19 +976,20 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +ok = ir_ok(rs) && meta_is_ind(mi) && U32.is_eq(meta_pr(mi), 0)
             && U32.is_lt(pidx, meta_nf(mi))
             && U32.is_eq(const_nm2(spine_hd(256n, is_ex(sst), sty)), ptn)
-      +fty = nth_u(skip_u(rev_u(tele_doms_i(256n, is_ex(sst),
-                                            U.ex_at(is_ex(sst),
-                                                    meta_cty(mi)),
-                                            Nil{}), Nil{}),
-                          meta_p(mi)),
-                   pidx, 4294967295)
-      +pn = proj_nodes(U32.to_nat(pidx), (pidx - 1 : U32), ptn, sx, sst,
-                       Nil{})
-      +ri = inst_many(List.append(&2, U32, ls_xs(pn),
-                                  rev_u(spine_ar(256n,
-                                                 is_ex(ls_st(pn)), sty,
-                                                 Nil{}), Nil{})),
-                      ls_st(pn), fty)
+      # `spine_ar` already returns the arguments left to right, which is the
+      # order the constructor binds its parameters in, so no reversal.
+      +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, sst, Nil{})
+      +pt = peel_tele(256n, ls_st(pn), meta_cty(mi),
+                      List.append(&2, U32,
+                                  spine_ar(256n, is_ex(ls_st(pn)), sty,
+                                           Nil{}),
+                                  ls_xs(pn)))
+      # What is left is the Pi whose domain is the field's type. The node is
+      # bound once: a `+` binding is inlined at every use, so naming it
+      # three times would rebuild the whole peel three times.
+      +pnode : T.Ex = U.ex_at(is_ex(ir_st(pt)), ir_ty(pt))
+      +ri : IR = IR{ir_st(pt), all_dom(pnode),
+                    ir_ok(pt) && is_all(pnode)}
       # GATED OFF for performance, on the same grounds as iota. With this
       # on, `perf/magma-string-n4` and `perf/magma-string-pair-n9` TIMED OUT
       # (70 s and 130 s against their limits), turning two declines into two
@@ -978,7 +1002,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # `infer` on the structure plus a telescope walk at every projection
       # costs three timeouts and buys nothing: the projection tests still
       # decline, because what blocks them is upstream of here.
-      pick_ir(False{} && ok, ri, ir_bad(ir_st(ri)))
+      pick_ir(ok, ri, ir_bad(ir_st(ri)))
     case 1n+p _:
       ir_bad(s)
 
