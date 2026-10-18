@@ -333,7 +333,7 @@ def report(+bs: List<&2, U32>, +verbose: Bool) -> String:
   +ds = K.decls_of(recs, Nil{})
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(32n, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
-  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}}
+  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{})}
   walk(ds, 24n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
        R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), verbose, "")
 

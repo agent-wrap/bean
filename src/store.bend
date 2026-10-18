@@ -282,6 +282,40 @@ def build_nm(rs: List<&2, D.Rec>, +t: R2.Tr<T.Nm>) -> R2.Tr<T.Nm>:
                    R2.set(T.Nm, 32n, t, ix, T.mk_nm(k, flds, sb),
                           T.NAnon{}), t))
 
+# --- reducibility heights ------------------------------------------------
+# Lean's `ReducibilityHints`, which the export carries in a `def`'s `hints`
+# field: `"abbrev"`, `{"regular": n}`, or `"opaque"`. They exist to ORDER
+# delta unfolding -- the kernel unfolds the definition of greater height
+# first when comparing two different constants, and unfolding in the wrong
+# order is exponential. `perf/fueled-chain` is 84 prelude definitions built
+# to punish exactly that.
+#
+# Only the `regular` case needs reading, and the scanner already captures it:
+# `hints` is an object there, so `regular` is an ordinary nested key and its
+# value is a number. `"abbrev"` and `"opaque"` are plain strings with no
+# nested key, so they are indistinguishable here -- both come back as "no
+# regular key". Both are treated as the maximum height, which is right for
+# `abbrev` (unfold first) and merely conservative for `opaque`: a `def` with
+# the `opaque` *hint* still has a value and unfolding it is sound, unlike an
+# `opaque` *declaration*, which has no value and never enters `vt` at all.
+def height_of(+fs: List<&2, D.Fld>) -> U32:
+  +h = T.fld(fs, 1086463900, 4294967295)
+  S.pick(U32.is_eq(h, 4294967295), 4294967294, h)
+
+def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  match rs:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      match head:
+        case D.Rec{kind, ix, flds, b1, b2, sb}:
+          +k = kind
+          +fs = flds
+          build_ht(tail,
+            R2.sub(U32, U32.is_eq(k, 99333),
+                   R2.set(U32, 32n, t, T.fld(fs, 3373707, 0),
+                          height_of(fs), 4294967295), t))
+
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:
     case Nil{}:

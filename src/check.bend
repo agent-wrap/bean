@@ -1510,7 +1510,7 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +rz = U.inst(256n, I.is_ex(st), I.is_nx(st),
                    U.ex_at(I.is_ex(st), lb1), lb1, 0, lv1)
       +st2 : I.IS = I.IS{U.sr_t(rz), U.sr_nx(rz), I.is_lnt(st),
-                         I.is_nlx(st), I.is_wm(st)}
+                         I.is_nlx(st), I.is_wm(st), I.is_ht(st)}
       ck_expr(pf, st2, mt, nt, lp, vt,
               U.ex_at(I.is_ex(st2), U.sr_i(rz)), U.sr_i(rz), ty, tye, ctx)
     case 1n+p _ T.ESort{lt}:
@@ -1644,7 +1644,7 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = mark_names(Con{0, declared(ds, Nil{})}, R.TNil{})
-  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}}
+  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{})}
   +strt = build_str(ds, R.TNil{})
   comb(comb(pre_check(ds),
             comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
