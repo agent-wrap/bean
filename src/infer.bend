@@ -699,6 +699,14 @@ def const_nm2(+x: T.Ex) -> U32:
     case _:
       0
 
+# The iota reduct, or the delta unfolding, chosen by `match` so that only
+# the one that applies is built.
+#
+# Bend is strict, so writing both and selecting with `pick_ir` built the
+# recursor reduct -- `build_ihs` and `app_args`, both of which allocate -- on
+# every single constant in the file, recursor or not, and `unfold_const` on
+# every recursor application. Constants are the commonest node there is, so
+# that was the dominant cost of reduction.
 # --- weak head normal form ----------------------------------------------
 # Beta, zeta and delta, as ONE self-recursive function. Instead of
 # normalising a function and then asking whether the answer was a lambda --
@@ -731,6 +739,21 @@ def unfold_const(+st: IS, +lp: R.Tr<List<&2, U32>>, +n: U32, +vi: U32,
                  +us: List<&2, U32>) -> IR:
   lsubst(256n, st, U.ex_at(is_ex(st), vi), vi,
          R.get(List<&2, U32>, 32n, lp, n, Nil{}), lns_of(us, is_lnt(st)))
+
+def iota_tgt(+ok2: Bool, +can: Bool, +st: IS, +lp: R.Tr<List<&2, U32>>,
+             +n: U32, +us: List<&2, U32>, +vi: U32,
+             +recs: List<&2, U32>, +args: List<&2, U32>,
+             +need: U32, +fields: List<&2, U32>, +ci: U32,
+             +pp: U32) -> IR:
+  match ok2:
+    case True{}:
+      +ihs = build_ihs(recs, st, n, us, take_u(args, need, Nil{}), fields,
+                       Nil{})
+      app_args(List.append(&2, U32, fields, ls_xs(ihs)), ls_st(ihs),
+               nth_u(args, (pp + 1 + ci : U32), 4294967295))
+    case False{}:
+      pick_ir(can, unfold_const(st, lp, n, vi, us),
+              IR{st, 4294967295, True{}})
 
 def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
@@ -769,25 +792,12 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       +mi = R.get(Meta, 32n, mt, n, MNone{})
       +pp = meta_p(mi)
       +need = (pp + 1 + meta_n(mi) : U32)
-      # GATED OFF. The reduct formula checks out by hand for Nat --
-      #   Nat.rec motive mz ms (Nat.succ n)  ~>  ms n (Nat.rec motive mz ms n)
-      # -- but enabling it makes `tutorial/070_nRec` and
-      # `081_listRecReduction` REJECT, and both are accept tests. Something
-      # is wrong either in the reduct or in the derived recursor type that
-      # only shows up once reduction actually happens, and a wrong reject
-      # here means a wrong accept could be hiding too. It stays off until the
-      # reduct can be validated against the export's own `rules`, which is
-      # the independent check available for exactly this.
-      # Off, on measurement -- and the measurement is the point. Iota is
-      # implemented and validated against the export's own `rules`, and with
-      # the memo below it fits `perf/grind-ring-5` in 36-41 s against a 60 s
-      # limit. But two full arena runs scored *exactly* 94 with it on and
-      # with it off: it changes no verdict, because what blocks the
-      # reduction-dependent tests is upstream (`defeq` must *prove* equality,
-      # and iota is still restricted to inductives with no indices).
-      # Meanwhile it takes `perf/magma-string-n4` from 44 s to 63-81 s
-      # against a 70 s limit -- measured twice, 30% apart, so a pass there is
-      # luck. Zero gain for a coin-flip timeout is a bad trade.
+      # Iota is ON. It was gated off for a long time because, measured
+      # alone, it changed no verdict: the tests that need reduction were
+      # blocked upstream in `defeq`. Once `defeq` could answer *yes* -- eta,
+      # proof irrelevance -- and the application rule could type a recursor
+      # application, the three together were worth four tests. None of them
+      # is worth anything without the others.
       +canio = meta_is_rec(mi) && U32.is_eq(meta_k(mi), 0)
                && U32.is_gt(len_u(args, 0), need)
       # Bend is strict, so this sub-reduction runs on every constant unless
@@ -802,18 +812,13 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
                    const_nm2(spine_hd(256n, exm, mnode)), MNone{})
       +ok2 = canio && meta_is_ctor(cmi)
              && U32.is_eq(meta_ind(cmi), meta_ind(mi))
-      +fields = skip_u(spine_ar(256n, exm, mnode, Nil{}), pp)
-      +ihs = build_ihs(meta_recs(cmi), ir_st(wm), n, us,
-                       take_u(args, need, Nil{}), fields, Nil{})
-      +red = app_args(List.append(&2, U32, fields, ls_xs(ihs)),
-                      ls_st(ihs),
-                      nth_u(args, (pp + 1 + meta_ci(cmi) : U32),
-                            4294967295))
       +vi = R.get(U32, 32n, vt, n, 4294967295)
       +can = U32.is_ne(vi, 4294967295)
-      +ru = unfold_const(st, lp, n, vi, us)
-      +dl = pick_ir(can, ru, IR{st, 4294967295, True{}})
-      +tgt = pick_ir(ok2, red, dl)
+      +tgt = iota_tgt(ok2, can, ir_st(wm), lp, n, us, vi, meta_recs(cmi),
+                      args, need,
+                      S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
+                                                    Nil{}), pp), Nil{}),
+                      meta_ci(cmi), pp)
       +s4 = ir_st(tgt)
       whnf(pf, s4, mt, lp, vt, U.ex_at(is_ex(s4), ir_ty(tgt)),
            S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e)),
