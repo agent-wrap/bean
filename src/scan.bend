@@ -96,6 +96,13 @@ def Sc.esc(+st: Sc) -> Bool:
     case Sc{d, s, e, v, y, h, n, g, o, c, k}:
       e
 
+# In value position: after a `:`, before the next `,`. Needed to recognise a
+# boolean, whose bytes are otherwise indistinguishable from a key's.
+def Sc.inval(+st: Sc) -> Bool:
+  match st:
+    case Sc{d, s, e, v, y, h, n, g, o, c, k}:
+      v
+
 def Sc.inkey(+st: Sc) -> Bool:
   match st:
     case Sc{d, s, e, v, y, h, n, g, o, c, k}:

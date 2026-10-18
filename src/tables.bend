@@ -94,7 +94,7 @@ def item_name(+it: K.IItem) -> U32:
       nm
     case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
       nm
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       nm
     case _:
       0
@@ -105,7 +105,7 @@ def item_type(+it: K.IItem) -> U32:
       ty
     case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
       ty
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       ty
     case _:
       4294967295
@@ -116,7 +116,7 @@ def item_lps(+it: K.IItem) -> List<&2, U32>:
       lps
     case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
       lps
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       lps
     case _:
       Nil{}

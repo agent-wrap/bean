@@ -102,7 +102,7 @@ def item_lps(+it: K.IItem) -> List<&2, U32>:
       lps
     case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
       lps
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       lps
     case _:
       Nil{}
@@ -881,7 +881,7 @@ def recs_all(items: List<&2, K.IItem>, +le: L.Tri, +nind: U32,
       acc
     case Con{head, tail}:
       match head:
-        case K.IRec{nm, lps, ty, np, ni, nmo}:
+        case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
           recs_all(tail, le, nind, nested,
                    comb(acc,
                         pick_v(U32.is_gt(nested, 0), VDecline{},
@@ -889,6 +889,52 @@ def recs_all(items: List<&2, K.IItem>, +le: L.Tri, +nind: U32,
                                            nmo))))
         case _:
           recs_all(tail, le, nind, nested, acc)
+
+# --- the K-like claim ----------------------------------------------------
+# A recursor's `k` flag asserts that it reduces K-LIKE: applied to a major
+# premise whose type's indices match the constructor's, it reduces to the
+# single minor premise WITHOUT the major premise being a constructor
+# application. `Eq.rec` is the real case.
+#
+# That is only sound when the inductive has exactly one constructor and that
+# constructor has no fields -- then every element of the type is that
+# constructor, so matching on it is no assumption. `Eq.refl` qualifies;
+# `Nat.succ` does not, because a `Nat` can be something other than `zero`.
+#
+# The arena has two exports that lie about it, and they are exactly the
+# dangerous shape: `bugs/rec-k-lie` claims `k` for a two-constructor
+# `MyBool`, and `bugs/nat-rec-k-lie` claims it for `Nat`. A checker that
+# honours such a claim can reduce a stuck recursor to the wrong branch and
+# prove anything. Since the claim is checkable from the block itself, a false
+# one is a REJECT rather than a decline.
+def k_claim_v(items: List<&2, K.IItem>, +nc: U32, +nf0: U32,
+              +acc: V) -> V:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+          k_claim_v(tail, nc, nf0,
+                    comb(acc,
+                         pick_v(U32.is_eq(kf, 0)
+                                || (U32.is_eq(nc, 1) && U32.is_eq(nf0, 0)),
+                                VAccept{}, VReject{})))
+        case _:
+          k_claim_v(tail, nc, nf0, acc)
+
+# The single constructor's field count, or a sentinel when there is not
+# exactly one.
+def sole_ctor_nf(items: List<&2, K.IItem>, +ind: U32, +acc: U32) -> U32:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
+          sole_ctor_nf(tail, ind, S.pick(U32.is_eq(ind2, ind), nf, acc))
+        case _:
+          sole_ctor_nf(tail, ind, acc)
 
 def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                   +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
@@ -902,10 +948,13 @@ def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                            L.TUnk{})
       +its = items
       +nested = nn
-      recs_all(its, large_elim(isprop, count_ctors(its, nm, 0),
+      +kv = k_claim_v(its, count_ctors(its, nm, 0),
+                      sole_ctor_nf(its, nm, 4294967295), VAccept{})
+      comb(kv,
+           recs_all(its, large_elim(isprop, count_ctors(its, nm, 0),
                                ctor_fields_prop(its, nm, ex, ln, nt, lp,
                                                 L.TYes{})),
-               list_len(lps, 0), nested, VAccept{})
+               list_len(lps, 0), nested, VAccept{}))
     case _:
       VDecline{}
 
@@ -1056,21 +1105,21 @@ def rec_of(items: List<&2, K.IItem>, +acc: K.IItem) -> K.IItem:
       acc
     case Con{head, tail}:
       match head:
-        case K.IRec{nm, lps, ty, np, ni, nmo}:
-          rec_of(tail, K.IRec{nm, lps, ty, np, ni, nmo})
+        case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+          rec_of(tail, K.IRec{nm, lps, ty, np, ni, nmo, kf})
         case _:
           rec_of(tail, acc)
 
 def rec_ty_of(+it: K.IItem) -> U32:
   match it:
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       ty
     case _:
       4294967295
 
 def rec_lps_of(+it: K.IItem) -> List<&2, U32>:
   match it:
-    case K.IRec{nm, lps, ty, np, ni, nmo}:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
       lps
     case _:
       Nil{}
@@ -1555,7 +1604,7 @@ def recs_name_v(items: List<&2, K.IItem>, +nmt: R.Tr<T.Nm>, +indnm: U32,
       acc
     case Con{head, tail}:
       match head:
-        case K.IRec{nm, lps, ty, np, ni, nmo}:
+        case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
           recs_name_v(tail, nmt, indnm,
                       comb(acc, pick_v(is_rec_name(nmt, nm, indnm),
                                        VAccept{}, VReject{})))
@@ -1596,7 +1645,7 @@ def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
       t
     case Con{head, tail}:
       match head:
-        case K.IRec{nm, lps, ty, rp, rni, nmo}:
+        case K.IRec{nm, lps, ty, rp, rni, nmo, kf}:
           meta_items(tail, ex, ind, np, ni, nc,
                      R.set(I.Meta, 32n, t, nm, I.MRec{np, ni, nc, ind},
                            I.MNone{}))

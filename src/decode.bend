@@ -77,6 +77,26 @@ def num_step(+dig: Bool, +isix: Bool, +ch: U32, +g: U32, +ob: U32, acc: Acc) -> 
     case False{} _ Acc{ix, cur, False{}, flds, sb, b1, b2}:
       Acc{ix, cur, False{}, flds, sb, b1, b2}
 
+# A boolean value, recorded as 1 or 0 under its own key.
+#
+# The format writes `true`/`false` bare, and the scanner's number path only
+# accumulates digits, so these were being dropped. `k` on a recursor is one
+# of them, and it is a claim the kernel has to check: an export may assert
+# that a recursor reduces K-like when its inductive does not qualify.
+#
+# Only the FIRST byte is acted on -- `t` or `f` in value position, outside
+# any string or key. No other value in this format begins with either: the
+# string-valued fields (`binderInfo`, `safety`, `hints`, `kind`) are quoted,
+# so `instr` excludes them.
+def bool_step(+cap: Bool, +ch: U32, +g: U32, +ob: U32, acc: Acc) -> Acc:
+  match cap acc:
+    case True{} Acc{ix, cur, innum, flds, sb, b1, b2}:
+      Acc{ix, cur, innum,
+          Con{Fld{g, S.pick(U32.is_eq(ch, 116), 1, 0), ob}, flds}, sb,
+          b1, b2}
+    case False{} Acc{ix, cur, innum, flds, sb, b1, b2}:
+      Acc{ix, cur, innum, flds, sb, b1, b2}
+
 def str_step(+cap: Bool, +ch: U32, acc: Acc) -> Acc:
   match cap acc:
     case True{} Acc{ix, cur, innum, flds, sb, b1, b2}:
@@ -115,10 +135,13 @@ def accumulate(+ch: U32, +before: S.Sc, acc: Acc) -> Acc:
   # unescaped closing quote nor the backslash that introduces an escape.
   +body = instr && (esc || Bool.not(special))
   +out = S.pick(esc, unescape(ch), ch)
+  +isbool = (U32.is_eq(ch, 116) || U32.is_eq(ch, 102))
+            && Bool.not(instr) && Bool.not(inkey) && S.Sc.inval(before)
   bi_step(body && U32.is_eq(g, 1403128184), out,
           str_step(body && is_strkey(g), out,
-                   num_step(numeric, S.is_index_sig(g), ch, g,
-                            S.Sc.obj(before), acc)))
+                   bool_step(isbool, ch, g, S.Sc.obj(before),
+                             num_step(numeric, S.is_index_sig(g), ch, g,
+                                      S.Sc.obj(before), acc))))
 
 # One decoded record. `flds` holds (key signature, value) pairs in
 # serialisation order, so a field is read by its key rather than its position.

@@ -3,8 +3,8 @@
 
 For each record the Bend decoder emits
     <kind> <index> <bi1> <bi2> |<payload>| <int fields...>
-where the int fields are every integer in serialisation order except the one
-belonging to the index key, the payload is the value of `str`/`natVal`/
+where the int fields are every integer and every boolean (as 1/0) in
+serialisation order except the one belonging to the index key, the payload is the value of `str`/`natVal`/
 `strVal`, and bi1/bi2 are the first two bytes of `binderInfo`.
 
 This recomputes all of it from the parsed JSON and diffs record by record, so
@@ -44,6 +44,13 @@ def walk(o, key, ints, payload, bi, ctr, ob):
     `inductive` record nests arrays of objects that all repeat the same keys.
     """
     if isinstance(o, bool):
+        # Booleans are recorded as 1/0 under their own key, in serialisation
+        # order, exactly as the Bend decoder does. `k` on a recursor is one
+        # of them and the kernel has to check that claim, so it is no longer
+        # dropped.
+        ints.append((pack(key), 1 if o else 0, ob))
+        return
+    if False:
         return
     if isinstance(o, int):
         if key not in INDEX:

@@ -69,7 +69,10 @@ type IItem is Data:
   IOther{}
   IInd{nm: U32, lps: List<&2, U32>, ty: U32, np: U32, ni: U32, nn: U32, cs: List<&2, U32>}
   ICtor{nm: U32, lps: List<&2, U32>, ty: U32, ind: U32, np: U32, nf: U32, ci: U32}
-  IRec{nm: U32, lps: List<&2, U32>, ty: U32, np: U32, ni: U32, nmo: U32}
+  # `kf` is the export's `k` flag: a claim that this recursor reduces
+  # K-like, which the kernel must check rather than trust.
+  IRec{nm: U32, lps: List<&2, U32>, ty: U32, np: U32, ni: U32, nmo: U32,
+       kf: U32}
   IRule{ct: U32, nf: U32, rhs: U32}
 
 def mem_u(+v: U32, xs: List<&2, U32>) -> Bool:
@@ -122,7 +125,8 @@ def mk_item3(+z: Bool, +fs: List<&2, D.Fld>) -> IItem:
       IRec{T.fld(fs, 3373707, 0),
            D.rev_u32(T.gather(fs, 1678233130, Nil{}), Nil{}),
            T.fld(fs, 3575610, 0), T.fld(fs, 1130910892, 0),
-           T.fld(fs, 3435386177, 0), T.fld(fs, 2733857351, 0)}
+           T.fld(fs, 3435386177, 0), T.fld(fs, 2733857351, 0),
+           T.fld(fs, 107, 0)}
     case False{}:
       mk_item4(has_key(fs, 1077394461), fs)
 
