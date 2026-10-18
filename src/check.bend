@@ -635,8 +635,22 @@ def list_len(xs: List<&2, U32>, +acc: U32) -> U32:
 #
 # Answering "no" instead rejected init-prelude, grind-ring-5 and both
 # magma-string tests: every real prelude has an `Eq`.
+# No longer softens, and that is the point. It used to turn "this field is
+# definitely not a proposition" into "cannot decide", because answering
+# honestly rejected `init-prelude`, `grind-ring-5` and both `magma-string`
+# tests.
+#
+# That was a workaround for a gap in `sl`, not a fact about Lean. `sl` had no
+# rule for applications, none for applications headed by a bound variable,
+# and the inductive block's own names were not in scope while its
+# constructors were checked -- so a constructor field whose type ended in
+# `Eq ..` or in the inductive itself came back with an unknown universe, and
+# a hard "no" built on an unknown is a wrong reject. With those three fixed,
+# the honest answer is correct: the full suite reports WRONG: 0, and
+# `init-prelude` -- the test this softening was introduced for -- now
+# *accepts* rather than declining.
 def prop_or_unknown(+t: L.Tri) -> L.Tri:
-  L.pick_tri(L.tri_is_no(t), L.TUnk{}, t)
+  t
 
 # --- the subsingleton rule's index exception -----------------------------
 # A Prop inductive with one constructor supports large elimination when every

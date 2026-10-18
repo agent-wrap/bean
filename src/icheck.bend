@@ -20,6 +20,7 @@ import ./trie.bend as R
 import ./subst.bend as U
 import ./infer.bend as I
 import ./tables.bend as B
+import ./recursor.bend as W
 import ./check.bend as C
 
 def vshow(+v: C.V) -> String:
@@ -326,6 +327,36 @@ def show_ctor_fields(items: List<&2, K.IItem>, +ind: U32, +ex: R.Tr<T.Ex>,
         case _:
           show_ctor_fields(tail, ind, ex, ln, nt, lp, acc)
 
+# The recursor type this checker DERIVES, beside the one the export
+# DECLARES. `cmp_derived` compares them and declines when it cannot tell, so
+# seeing both is the only way to find out which part disagrees.
+def show_derived(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+                 +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+      +pnm = nm
+      +its = items
+      +ex = I.is_ex(st)
+      +rc = C.rec_of(its, K.IOther{})
+      +theirs = C.rec_ty_of(rc)
+      +nc = C.count_ctors(its, pnm, 0)
+      +ul = W.param_lvls(lps, st, Nil{})
+      +us = D.rev_u32(I.ls_xs(ul), Nil{})
+      +mn = C.build_minors(U32.to_nat(nc), 1, its, pnm, us, np, ni, ex,
+                           I.ls_st(ul), Nil{})
+      +d = W.derive_gen(I.ls_st(mn), pnm, us, np, ni, nc,
+                        D.rev_u32(C.tele_doms(256n, ex, U.ex_at(ex, ty),
+                                              Nil{}), Nil{}),
+                        I.ls_xs(mn), C.head_u(C.rec_lps_of(rc), 0))
+      "\n    DERIVED:  "
+      ++ show_ex(18n, I.is_ex(I.ir_st(d)),
+                 U.ex_at(I.is_ex(I.ir_st(d)), I.ir_ty(d)))
+      ++ "\n    DECLARED: "
+      ++ show_ex(18n, I.is_ex(I.ir_st(d)),
+                 U.ex_at(I.is_ex(I.ir_st(d)), theirs))
+    case _:
+      ""
+
 def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
             +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
   match ind:
@@ -348,6 +379,8 @@ def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       ++ "  nested: " ++ U32.show(nn)
       ++ show_ctor_fields(its, pnm, I.is_ex(st), I.is_lnt(st),
                           B.add_items_nt(its, nt), lp, "")
+      ++ show_derived(st, nt, lp, K.IInd{pnm, lps, ty, np, ni, nn, cs},
+                      its)
     case _:
       ""
 
