@@ -186,7 +186,7 @@ def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ti: U32) -> L.LN:
   +wt = I.whd(st, mt, lp, vt, ti)
   +st1 = I.ir_st(wt)
-  +ri = I.infer(24n, st1, mt, nt, lp, vt,
+  +ri = I.infer(512n, st1, mt, nt, lp, vt,
                 U.ex_at(I.is_ex(st1), I.ir_ty(wt)), I.ir_ty(wt), Nil{})
   +wk = I.whd(I.ir_st(ri), mt, lp, vt, I.ir_ty(ri))
   +st2 = I.ir_st(wk)
@@ -200,7 +200,7 @@ def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 def headr(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +vi: U32) -> I.IR:
   +hi = head_ix(32n, I.is_ex(st), U.ex_at(I.is_ex(st), vi), vi)
-  I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), hi), hi, Nil{})
+  I.infer(512n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), hi), hi, Nil{})
 
 # `infer` on the body of the outermost lambda, in the context that lambda
 # introduces. `ELam` answers BAD whenever its body does, so the body's own
@@ -209,7 +209,7 @@ def bodyr(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex) -> I.IR:
   match x:
     case T.ELam{n, t, b, bi}:
-      I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), b), b,
+      I.infer(512n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), b), b,
               Con{t, Nil{}})
     case _:
       I.IR{st, 4294967295, False{}}
@@ -218,7 +218,7 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
   +ti = K.dcl_type(d)
   +vi = K.dcl_value(d)
-  +ri = I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), vi), vi, Nil{})
+  +ri = I.infer(512n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), vi), vi, Nil{})
   +st2 = I.ir_st(ri)
   "\n    declared: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), ti))
   ++ "\n    value:    " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), vi))
@@ -334,7 +334,7 @@ def report(+bs: List<&2, U32>, +verbose: Bool) -> String:
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(32n, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{})}
-  walk(ds, 24n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+  walk(ds, 512n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
        R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), verbose, "")
 
 # Verbose mode is "a second argument was given at all" -- Bend's Base has no

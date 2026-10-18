@@ -1650,6 +1650,6 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
             comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
                                    False{})),
                  scan_projs(nex, 0, ex, strt, VAccept{}))),
-       ck_all(ds, 24n, st, build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+       ck_all(ds, 512n, st, build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
               R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}),
               VAccept{}))

@@ -1154,7 +1154,7 @@ def dq_irrel(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
   +s2 : IS = ir_st(ry)
   +both = ir_ok(rx) && ir_ok(ry)
   +tx = U.ex_at(is_ex(s2), ir_ty(rx))
-  +same = L.tri_is_yes(eq_ex(32n, U32.is_eq(ir_ty(rx), ir_ty(ry)),
+  +same = L.tri_is_yes(eq_ex(256n, U32.is_eq(ir_ty(rx), ir_ty(ry)),
                              is_ex(s2), is_lnt(s2), tx,
                              U.ex_at(is_ex(s2), ir_ty(ry))))
   +isprop = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(s2), is_lnt(s2), nt,
@@ -1238,7 +1238,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                    0, (pb2 + 1 : U32))
       +s2 : IS = IS{U.sr_t(lb), U.sr_nx(lb), is_lnt(s1), is_nlx(s1),
                     is_wm(s1), is_ht(s1)}
-      +samety = L.tri_is_yes(eq_ex(32n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
+      +samety = L.tri_is_yes(eq_ex(256n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
                                    is_ex(s2), is_lnt(s2),
                                    U.ex_at(is_ex(s2), U.sr_i(la)),
                                    U.ex_at(is_ex(s2), U.sr_i(lb))))
@@ -1268,7 +1268,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +known = Bool.not(U32.is_eq(ta3, 4294967295))
                && Bool.not(U32.is_eq(tb3, 4294967295))
       +tn3 = U.ex_at(is_ex(st), ta3)
-      +samety3 = L.tri_is_yes(eq_ex(32n, U32.is_eq(ta3, tb3), is_ex(st),
+      +samety3 = L.tri_is_yes(eq_ex(256n, U32.is_eq(ta3, tb3), is_ex(st),
                                     is_lnt(st), tn3,
                                     U.ex_at(is_ex(st), tb3)))
       +isprop3 = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(st), is_lnt(st),
@@ -1431,7 +1431,7 @@ def arg_eq(+cheap: L.Tri, +fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       +w1 = whd(st, mt, lp, vt, xi)
       +w2 = whd(ir_st(w1), mt, lp, vt, yi)
       +s2 : IS = ir_st(w2)
-      arg_eq2(eq_ex(32n, U32.is_eq(ir_ty(w1), ir_ty(w2)), is_ex(s2),
+      arg_eq2(eq_ex(256n, U32.is_eq(ir_ty(w1), ir_ty(w2)), is_ex(s2),
                     is_lnt(s2), U.ex_at(is_ex(s2), ir_ty(w1)),
                     U.ex_at(is_ex(s2), ir_ty(w2))),
               fuel, s2, mt, nt, lp, vt, ctx, ir_ty(w1), ir_ty(w2))
@@ -1536,7 +1536,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # do. Reduction here is the second half of that fix, so it belongs
       # with the first half, not before it. See docs/measurements.md.
       +ex2 = is_ex(ir_st(ra))
-      +dq = arg_eq(eq_ex(32n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
+      +dq = arg_eq(eq_ex(256n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
                          is_lnt(ir_st(ra)), U.ex_at(ex2, ir_ty(ra)),
                          U.ex_at(ex2, all_dom(node))),
                    24n, ir_st(ra), mt, nt, lp, vt, ctx, ir_ty(ra),
