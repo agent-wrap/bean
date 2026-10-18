@@ -1877,7 +1877,7 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                     K.find_name(recs, [78, 97, 116], 4294967295),
                     K.find_name(recs,
                                 [83, 116, 114, 105, 110, 103], 4294967295),
-                    K.build_quot(recs, R.TNil{})}
+                    K.build_wk2(recs, R.TNil{})}
   +strt = build_str(ds, R.TNil{})
   comb(comb(pre_check(ds),
             comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,

@@ -468,7 +468,7 @@ def report(+bs: List<&2, U32>, +verbose: Bool) -> String:
                     K.find_name(recs, [78, 97, 116], 4294967295),
                     K.find_name(recs,
                                 [83, 116, 114, 105, 110, 103], 4294967295),
-                    K.build_quot(recs, R.TNil{})}
+                    K.build_wk2(recs, R.TNil{})}
   walk(ds, 512n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
        R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), verbose, "")
 

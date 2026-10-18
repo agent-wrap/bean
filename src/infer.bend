@@ -827,6 +827,187 @@ def quot_tgt(+ok: Bool, +st: IS, +f: U32, +v: U32) -> IR:
     case True{}:
       alloc_ex(st, T.EApp{f, v})
 
+# --- literal arithmetic --------------------------------------------------
+# Lean's kernel computes `Nat.add`, `Nat.sub` and the comparisons DIRECTLY on
+# literals rather than through the recursor, and it has to: `other/nat-lit-add`
+# is 123456789 + 987654321, so unary reduction is not a slow path, it is an
+# impossibility. These do the same on the decimal digits the exporter wrote.
+#
+# Digits are ASCII, most significant first. Each operation reverses, works
+# least-significant-first with a carry or borrow, and conses -- which yields
+# most-significant-first again.
+def dec_add_r(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>, +c: U32,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel xs ys:
+    case 0n _ _:
+      acc
+    case 1n+p Nil{} Nil{}:
+      +pa2 = acc
+      S.pick_l(U32.is_eq(c, 0), pa2, Con{(c + 48 : U32), pa2})
+    case 1n+p Con{a, ta} Nil{}:
+      +sm = (a - 48 + c : U32)
+      dec_add_r(p, ta, Nil{}, S.pick(U32.is_lt(sm, 10), 0, 1),
+                Con{((sm % 10 : U32) + 48 : U32), acc})
+    case 1n+p Nil{} Con{b, tb}:
+      +sm = (b - 48 + c : U32)
+      dec_add_r(p, Nil{}, tb, S.pick(U32.is_lt(sm, 10), 0, 1),
+                Con{((sm % 10 : U32) + 48 : U32), acc})
+    case 1n+p Con{a, ta} Con{b, tb}:
+      +sm = (a - 48 + (b - 48 : U32) + c : U32)
+      dec_add_r(p, ta, tb, S.pick(U32.is_lt(sm, 10), 0, 1),
+                Con{((sm % 10 : U32) + 48 : U32), acc})
+
+def dec_add(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  dec_add_r(256n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{})
+
+# `a - b`, least-significant-first, with a borrow. Only called when b <= a.
+def dec_sub_r(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>, +bo: U32,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel xs ys:
+    case 0n _ _:
+      acc
+    case 1n+p Nil{} _:
+      acc
+    case 1n+p Con{a, ta} Nil{}:
+      +dv = (a - 48 : U32)
+      dec_sub_r(p, ta, Nil{}, S.pick(U32.is_lt(dv, bo), 1, 0),
+                Con{(((dv + 10 - bo : U32) % 10 : U32) + 48 : U32), acc})
+    case 1n+p Con{a, ta} Con{b, tb}:
+      +dv = (a - 48 : U32)
+      +sb = (b - 48 + bo : U32)
+      dec_sub_r(p, ta, tb, S.pick(U32.is_lt(dv, sb), 1, 0),
+                Con{(((dv + 10 - sb : U32) % 10 : U32) + 48 : U32), acc})
+
+def dec_strip(fuel: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match fuel xs:
+    case 0n _:
+      xs
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{head, tail}:
+      +ph = head
+      +pt = tail
+      S.pick_l(U32.is_eq(ph, 48), dec_strip(p, pt), Con{ph, pt})
+
+# `a <= b` on most-significant-first digits: shorter wins, else first
+# differing digit decides.
+def dec_lex(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match fuel xs ys:
+    case 0n _ _:
+      True{}
+    case 1n+p Nil{} _:
+      True{}
+    case 1n+p Con{a, ta} Con{b, tb}:
+      +pa = a
+      +pb = b
+      S.pick_b(U32.is_eq(pa, pb), dec_lex(p, ta, tb), U32.is_lt(pa, pb))
+    case 1n+p _ _:
+      False{}
+
+def dec_le(+a: List<&2, U32>, +b: List<&2, U32>) -> Bool:
+  +sa = dec_strip(256n, a)
+  +sb = dec_strip(256n, b)
+  +la = len_u(sa, 0)
+  +lb = len_u(sb, 0)
+  U32.is_lt(la, lb) || (U32.is_eq(la, lb) && dec_lex(256n, sa, sb))
+
+def dec_sub(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  S.pick_l(dec_le(b, a),
+           dec_sub_r(256n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{}),
+           [48])
+
+# --- literals against numerals -------------------------------------------
+# `ENat 3` and `Nat.succ (Nat.succ (Nat.succ Nat.zero))` are the same number
+# written two ways, and `defeq` has to see that: `103_natLitEq` states
+# exactly that equality. The literal is expanded ONE step at a time --
+# `ENat 0` to `Nat.zero`, `ENat n` to `Nat.succ (ENat (n-1))` -- so the
+# comparison proceeds structurally and the recursion fuel bounds the depth.
+#
+# The digits are the ASCII bytes the exporter wrote, most significant first,
+# so the decrement is decimal with a borrow. Leading zeros are left in place:
+# nothing reads these as text, and `dec_is_zero` tolerates them.
+def dec_is_zero(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      U32.is_eq(head, 48) && dec_is_zero(tail)
+
+# `xs` least-significant-first; consing while walking yields
+# most-significant-first again.
+def dec_sub1(xs: List<&2, U32>, +bor: Bool,
+             acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +ph = head
+      dec_sub1(tail, bor && U32.is_eq(ph, 48),
+               Con{S.pick(bor, S.pick(U32.is_eq(ph, 48), 57,
+                                      (ph - 1 : U32)), ph), acc})
+
+def nat_succ_of(+st: IS, +sn: U32, +d: List<&2, U32>) -> IR:
+  +sc = alloc_ex(st, T.EConst{sn, Nil{}})
+  +lt = alloc_ex(ir_st(sc), T.ENat{d})
+  alloc_ex(ir_st(lt), T.EApp{ir_ty(sc), ir_ty(lt)})
+
+def nat_expand(+st: IS, +d: List<&2, U32>, +zn: U32, +sn: U32) -> IR:
+  +pd = d
+  pick_ir(dec_is_zero(pd), alloc_ex(st, T.EConst{zn, Nil{}}),
+          nat_succ_of(st, sn,
+                      dec_sub1(rev_u(pd, Nil{}), True{}, Nil{})))
+
+# The three literal operations, computed directly. Each needs both arguments
+# already reduced to literals; `ok` says so, and a `match` keeps the digits
+# work out of every other constant's path.
+def lit_op(+which: U32, +st: IS, +a: List<&2, U32>, +b: List<&2, U32>,
+           +tn: U32, +fn2: U32) -> IR:
+  match which:
+    case 0:
+      alloc_ex(st, T.ENat{dec_add(a, b)})
+    case 1:
+      alloc_ex(st, T.ENat{dec_sub(a, b)})
+    case _:
+      alloc_ex(st, T.EConst{S.pick(dec_le(a, b), tn, fn2), Nil{}})
+
+def lit_arith(+ok: Bool, +which: U32, +st: IS, +a: List<&2, U32>,
+              +b: List<&2, U32>, +tn: U32, +fn2: U32) -> IR:
+  match ok:
+    case False{}:
+      IR{st, 4294967295, False{}}
+    case True{}:
+      lit_op(which, st, a, b, tn, fn2)
+
+def nat_digits(+x: T.Ex) -> List<&2, U32>:
+  match x:
+    case T.ENat{d}:
+      d
+    case _:
+      Nil{}
+
+def is_nat_lit(+x: T.Ex) -> Bool:
+  match x:
+    case T.ENat{d}:
+      True{}
+    case _:
+      False{}
+
+# A recursor's major premise may be a LITERAL where the constructor form is
+# needed: `Nat.add` is defined by `Nat.rec`, and `Nat.add 2 3` has `3` as a
+# literal, which matches no constructor. Expanding it one step -- `ENat 0` to
+# `Nat.zero`, `ENat n` to `Nat.succ (ENat (n-1))` -- lets iota fire, and the
+# recursive call expands the next step, so the whole reduction proceeds.
+#
+# Only for `Nat`: the inductive the recursor eliminates must be the one the
+# literal belongs to.
+def lit_major(+ok: Bool, +st: IS, +d: List<&2, U32>, +orig: U32,
+              +zn: U32, +sn: U32) -> IR:
+  match ok:
+    case False{}:
+      IR{st, orig, True{}}
+    case True{}:
+      nat_expand(st, d, zn, sn)
+
 def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
          +args: List<&2, U32>) -> IR:
@@ -877,7 +1058,13 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # sentinel reads as EBad and returns at once. Without the guard every
       # constant lookup speculatively normalised an argument.
       +maj = S.pick(canio, nth_u(args, need, 4294967295), 4294967295)
-      +wm = whnf(pf, delta, st, mt, lp, vt, U.ex_at(is_ex(st), maj), maj, Nil{})
+      +wm0 = whnf(pf, delta, st, mt, lp, vt, U.ex_at(is_ex(st), maj), maj,
+                  Nil{})
+      +mraw = U.ex_at(is_ex(ir_st(wm0)), ir_ty(wm0))
+      +wm = lit_major(is_nat_lit(mraw)
+                      && U32.is_eq(meta_ind(mi), is_natn(st)),
+                      ir_st(wm0), nat_digits(mraw), ir_ty(wm0),
+                      is_qt(st, 3), is_qt(st, 4))
       +exm = is_ex(ir_st(wm))
       +mnode = U.ex_at(exm, ir_ty(wm))
       +cmi = R.get(Meta, 32n, mt,
@@ -888,6 +1075,25 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # Delta happens only when the caller allows it. `defeq` turns it
       # off so it can drive unfolding itself, by height.
       +can = delta && U32.is_ne(vi, 4294967295)
+      # --- literal arithmetic --------------------------------------------
+      # `Nat.add`, `Nat.sub` and `Nat.ble` on two literals are computed on
+      # the digits. Without this they would have to go through the recursor,
+      # and `other/nat-lit-add` is 123456789 + 987654321.
+      +aw = S.pick(U32.is_eq(n, is_qt(st, 5)), 0,
+                   S.pick(U32.is_eq(n, is_qt(st, 6)), 1,
+                          S.pick(U32.is_eq(n, is_qt(st, 7)), 2, 3)))
+      +isar = U32.is_lt(aw, 3) && U32.is_gt(len_u(args, 0), 1)
+      +a0 = S.pick(isar, nth_u(args, 0, 4294967295), 4294967295)
+      +a1 = S.pick(isar, nth_u(args, 1, 4294967295), 4294967295)
+      +wa = whnf(pf, delta, st, mt, lp, vt, U.ex_at(is_ex(st), a0), a0,
+                 Nil{})
+      +wb = whnf(pf, delta, ir_st(wa), mt, lp, vt,
+                 U.ex_at(is_ex(ir_st(wa)), a1), a1, Nil{})
+      +na = U.ex_at(is_ex(ir_st(wb)), ir_ty(wa))
+      +nb = U.ex_at(is_ex(ir_st(wb)), ir_ty(wb))
+      +arok = isar && is_nat_lit(na) && is_nat_lit(nb)
+      +ar = lit_arith(arok, aw, ir_st(wb), nat_digits(na), nat_digits(nb),
+                      is_qt(st, 8), is_qt(st, 9))
       # --- quotients -----------------------------------------------------
       +isql = U32.is_eq(n, is_qt(st, 0)) && U32.is_gt(len_u(args, 0), 5)
       +isqi = U32.is_eq(n, is_qt(st, 1)) && U32.is_gt(len_u(args, 0), 4)
@@ -910,13 +1116,15 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
                        S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
                                                      Nil{}), pp), Nil{}),
                        meta_ci(cmi), pp)
-      +tgt = pick_ir(qok, qt2, tgt0)
+      +tgt = pick_ir(arok, ar, pick_ir(qok, qt2, tgt0))
       +s4 = ir_st(tgt)
       whnf(pf, delta, s4, mt, lp, vt, U.ex_at(is_ex(s4), ir_ty(tgt)),
-           S.pick(qok, ir_ty(tgt),
+           S.pick(arok || qok, ir_ty(tgt),
                   S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e))),
-           S.pick_l(qok, skip_u(args, (qneed + 1 : U32)),
-                    S.pick_l(ok2, skip_u(args, (need + 1 : U32)), args)))
+           S.pick_l(arok, skip_u(args, 2),
+                    S.pick_l(qok, skip_u(args, (qneed + 1 : U32)),
+                             S.pick_l(ok2, skip_u(args, (need + 1 : U32)),
+                                      args))))
     # Projection reduction: `(c a-bar f-bar).i` is the matching field.
     case 1n+p T.EProj{tn, idx, sx} _:
       +pf = p
@@ -931,7 +1139,7 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # `perf/magma-string-n4` 48 s -> 305 s against a 70 s limit, and the
       # reduction memo only brings that to 256 s. It buys `098_projRed`.
       # Typing stays on; only the reduction is off.
-      +okp = False{} && meta_is_ctor(cmi)
+      +okp = meta_is_ctor(cmi)
       +fld = nth_u(spine_ar(256n, exz, snode, Nil{}),
                    (meta_p(cmi) + idx : U32), 4294967295)
       whnf(pf, delta, ir_st(ws), mt, lp, vt,
@@ -1456,6 +1664,23 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       DR{st, L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})}
     case 1n+p False{} T.EStr{d1} T.EStr{d2}:
       DR{st, L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})}
+    # A literal against a numeral in constructor form: expand the literal one
+    # step and compare again. `ENat` against `ENat` is handled above, so this
+    # cannot loop on two literals, and the fuel bounds the depth.
+    case 1n+p False{} T.ENat{d} _:
+      +pf = p
+      +nx2 = nat_expand(st, d, is_qt(st, 3), is_qt(st, 4))
+      +sn2 : IS = ir_st(nx2)
+      +dz = defeq(pf, False{}, sn2, mt, nt, lp, vt, ctx,
+                  U.ex_at(is_ex(sn2), ir_ty(nx2)), y)
+      DR{dr_st(dz), soften(dr_r(dz))}
+    case 1n+p False{} _ T.ENat{d}:
+      +pf = p
+      +nx2 = nat_expand(st, d, is_qt(st, 3), is_qt(st, 4))
+      +sn2 : IS = ir_st(nx2)
+      +dz = defeq(pf, False{}, sn2, mt, nt, lp, vt, ctx, x,
+                  U.ex_at(is_ex(sn2), ir_ty(nx2)))
+      DR{dr_st(dz), soften(dr_r(dz))}
     # Structure eta, with the constructor application on the left. A
     # structure's constructor is recognised from `mt`, so no type inference
     # is needed; the parameters are taken from the left spine, where they

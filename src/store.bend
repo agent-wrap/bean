@@ -385,6 +385,34 @@ def build_quot(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
            1, find_under(rs, q, [105, 110, 100], 4294967295), 4294967295),
          2, find_under(rs, q, [109, 107], 4294967295), 4294967295)
 
+# Slots 3 and 4 are `Nat.zero` and `Nat.succ`, needed to compare a literal
+# with a numeral in constructor form.
+def build_wk(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  +n = find_name(rs, [78, 97, 116], 4294967295)
+  R2.set(U32, 32n,
+         R2.set(U32, 32n, build_quot(rs, t), 3,
+                find_under(rs, n, [122, 101, 114, 111], 4294967295),
+                4294967295),
+         4, find_under(rs, n, [115, 117, 99, 99], 4294967295), 4294967295)
+
+# Slots 5..9: `Nat.add`, `Nat.sub`, `Nat.ble`, `Bool.true`, `Bool.false` --
+# the literal operations the kernel computes directly, and the two values
+# `Nat.ble` answers with.
+def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  +n = find_name(rs, [78, 97, 116], 4294967295)
+  +b = find_name(rs, [66, 111, 111, 108], 4294967295)
+  R2.set(U32, 32n,
+    R2.set(U32, 32n,
+      R2.set(U32, 32n,
+        R2.set(U32, 32n,
+          R2.set(U32, 32n, build_wk(rs, t), 5,
+                 find_under(rs, n, [97, 100, 100], 4294967295), 4294967295),
+          6, find_under(rs, n, [115, 117, 98], 4294967295), 4294967295),
+        7, find_under(rs, n, [98, 108, 101], 4294967295), 4294967295),
+      8, find_under(rs, b, [116, 114, 117, 101], 4294967295), 4294967295),
+    9, find_under(rs, b, [102, 97, 108, 115, 101], 4294967295),
+    4294967295)
+
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:
     case Nil{}:
