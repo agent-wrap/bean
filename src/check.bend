@@ -1,0 +1,1211 @@
+# The checker, over reusable tries.
+#
+# Every answer is three-valued: accept, reject, or decline. Decline is the
+# honest answer when a check cannot be decided, and keeping it apart from
+# reject is load-bearing in both directions -- folding "cannot decide" into
+# "not equal" once rejected nine valid proofs, and returning accept after one
+# partial check once accepted nine invalid ones.
+#
+# `sl x ctx` is the level l with `infer x = Sort l`, i.e. the universe of a
+# type. It is the one piece of real inference that needs no substitution, no
+# beta and no definitional equality, because **a level is invariant under
+# substitution**: the universe of `ctx[i]` can be read in the truncated
+# context without lifting any de Bruijn index. That is what makes the Pi
+# fragment -- arrow types, dependent types, imax -- decidable here.
+
+import Base
+import ./scan.bend as S
+import ./decode.bend as D
+import ./term.bend as T
+import ./level.bend as L
+import ./store.bend as K
+import ./trie.bend as R
+import ./subst.bend as U
+import ./infer.bend as I
+import ./tables.bend as B
+import ./recursor.bend as W
+
+type V is Data:
+  VAccept{}
+  VReject{}
+  VDecline{}
+
+def comb(+a: V, +b: V) -> V:
+  match a b:
+    case VReject{} _:
+      VReject{}
+    case _ VReject{}:
+      VReject{}
+    case VDecline{} _:
+      VDecline{}
+    case _ VDecline{}:
+      VDecline{}
+    case _ _:
+      VAccept{}
+
+def tri_v(+t: L.Tri) -> V:
+  match t:
+    case L.TYes{}:
+      VAccept{}
+    case L.TNo{}:
+      VReject{}
+    case L.TUnk{}:
+      VDecline{}
+
+def bad_v(+bad: Bool) -> V:
+  match bad:
+    case True{}:
+      VReject{}
+    case False{}:
+      VAccept{}
+
+def pick_v(+z: Bool, +x: V, +y: V) -> V:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+# --- uniqueness ----------------------------------------------------------
+def mem(+v: U32, xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      U32.is_eq(head, v) || mem(v, tail)
+
+def has_dup(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      +t = tail
+      mem(head, t) || has_dup(t)
+
+def dcl_all_nms(+d: K.Dcl) -> List<&2, U32>:
+  match d:
+    case K.DInd{nms, items}:
+      nms
+    case _:
+      T.cons_if(U32.is_gt(K.dcl_name(d), 0), K.dcl_name(d), Nil{})
+
+def names_of(ds: List<&2, K.Dcl>, acc: List<&2, U32>) -> List<&2, U32>:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      names_of(tail, List.append(&2, U32, dcl_all_nms(head), acc))
+
+def item_lps(+it: K.IItem) -> List<&2, U32>:
+  match it:
+    case K.IInd{nm, lps, ty, np, ni, nn}:
+      lps
+    case K.ICtor{nm, lps, ty, ind, np, nf}:
+      lps
+    case K.IRec{nm, lps, ty, np, ni, nmo}:
+      lps
+    case _:
+      Nil{}
+
+def items_dup_lps(items: List<&2, K.IItem>) -> Bool:
+  match items:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      has_dup(item_lps(head)) || items_dup_lps(tail)
+
+def dcl_items_of(+d: K.Dcl) -> List<&2, K.IItem>:
+  match d:
+    case K.DInd{nms, items}:
+      items
+    case _:
+      Nil{}
+
+def any_dup_lps(ds: List<&2, K.Dcl>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      +h = head
+      has_dup(K.dcl_lparams(h)) || items_dup_lps(dcl_items_of(h))
+      || any_dup_lps(tail)
+
+def pre_check(+ds: List<&2, K.Dcl>) -> V:
+  bad_v(has_dup(names_of(ds, Nil{})) || any_dup_lps(ds))
+
+# --- unknown constants ---------------------------------------------------
+def mark_names(ns: List<&2, U32>, +t: R.Tr<Bool>) -> R.Tr<Bool>:
+  match ns:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      mark_names(tail, R.set(Bool, 32n, t, head, True{}, False{}))
+
+def declared(ds: List<&2, K.Dcl>, acc: List<&2, U32>) -> List<&2, U32>:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      declared(tail, List.append(&2, U32, dcl_all_nms(head), acc))
+
+def const_nm_of(+x: T.Ex) -> U32:
+  match x:
+    case T.EConst{n, us}:
+      n
+    case _:
+      0
+
+def bad_const_at(+i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> Bool:
+  +x = R.get(T.Ex, 32n, ex, i, T.EBad{})
+  U32.is_gt(const_nm_of(x), 0)
+  && Bool.not(R.get(Bool, 32n, dn, const_nm_of(x), False{}))
+
+def scan_consts(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>,
+                +bad: Bool) -> Bool:
+  match n:
+    case 0n:
+      bad
+    case 1n+p:
+      scan_consts(p, (i + 1 : U32), ex, dn,
+                  bad || bad_const_at(i, ex, dn))
+
+# --- inductive declarations ---------------------------------------------
+def tele_n(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +cnt: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      cnt
+    case 1n+p T.EAll{n, t, b, bi}:
+      tele_n(p, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}), (cnt + 1 : U32))
+    case 1n+p _:
+      cnt
+
+def tele_res(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.EAll{n, t, b, bi}:
+      tele_res(p, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}))
+    case 1n+p y:
+      y
+
+def sort_res_tri(+x: T.Ex) -> L.Tri:
+  match x:
+    case T.ESort{l}:
+      L.TYes{}
+    case T.ELam{n, t, b, bi}:
+      L.TNo{}
+    case T.ENat{d}:
+      L.TNo{}
+    case T.EStr{d}:
+      L.TNo{}
+    case _:
+      L.TUnk{}
+
+# Never accepts: a well-formed telescope is one property out of many, with
+# constructor result types, positivity and the recursors all still unchecked.
+# This may accept now: a block's overall verdict is the combination of every
+# check, and the recursor is derived rather than trusted, so "all checks
+# passed" is real evidence.
+def ind_item_v(+t: L.Tri, +enough: Bool) -> V:
+  match t:
+    case L.TNo{}:
+      VReject{}
+    case L.TUnk{}:
+      VDecline{}
+    case L.TYes{}:
+      pick_v(enough, VAccept{}, VReject{})
+
+# An inductive's telescope must end in a Sort. `sort_res_tri` decides the
+# syntactic cases; `not_a_type` additionally looks through a constant to its
+# declared type, which is what `tutorial/046_inductBadNonSort` and `047` need
+# -- their inductive's type is `constType`, whose own type is
+# `Type -> Type -> Type`, so it is not a type at all, let alone a Sort.
+# A constant with no value cannot unfold, so if the telescope ends in one it
+# is stuck and is not a Sort. `tutorial/047_inductBadNonSort2` declares
+# `inductive X : aType` where `aType` is an axiom: a perfectly good type, but
+# not a Sort and unable to become one.
+def stuck_const(+vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+  match x:
+    case T.EConst{n, us}:
+      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+    case _:
+      False{}
+
+def ind_res_tri(+ex: R.Tr<T.Ex>, +nt: R.Tr<U32>, +vt: R.Tr<U32>,
+                +res: T.Ex) -> L.Tri:
+  L.pick_tri(I.not_a_type(ex, nt, res) || stuck_const(vt, res), L.TNo{},
+             sort_res_tri(res))
+
+def ind_one(+ex: R.Tr<T.Ex>, +nt: R.Tr<U32>, +vt: R.Tr<U32>,
+            +it: K.IItem) -> V:
+  match it:
+    case K.IInd{nm, lps, ty, np, ni, nn}:
+      +x = R.get(T.Ex, 32n, ex, ty, T.EBad{})
+      ind_item_v(ind_res_tri(ex, nt, vt, tele_res(256n, ex, x)),
+                 U32.is_ge(tele_n(256n, ex, x, 0), (np + ni : U32)))
+    case _:
+      VDecline{}
+
+def ind_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +nt: R.Tr<U32>,
+              +vt: R.Tr<U32>, +acc: V) -> V:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      ind_items(tail, ex, nt, vt, comb(acc, ind_one(ex, nt, vt, head)))
+
+
+# --- constructor shape --------------------------------------------------
+# A constructor's type is a telescope whose result is the inductive type
+# being declared, applied to its parameters and indices. When the result is
+# headed by some OTHER constant, the declaration is invalid -- that is
+# `tutorial/050_inductWrongCtorParams`, `051`, `052` ("invalid occurrence of
+# datatype being declared") and `053_inductInIndex` ("invalid return type").
+#
+# A result not headed by a constant at all declines: it might reduce, and
+# this does not reduce it.
+def spine_head(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.EApp{f, a}:
+      spine_head(p, ex, U.ex_at(ex, f))
+    case 1n+p y:
+      y
+
+def ind_names_of(items: List<&2, K.IItem>, acc: List<&2, U32>) -> List<&2, U32>:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.IInd{nm, lps, ty, np, ni, nn}:
+          ind_names_of(tail, Con{nm, acc})
+        case _:
+          ind_names_of(tail, acc)
+
+def is_constx(+x: T.Ex) -> Bool:
+  match x:
+    case T.EConst{n, us}:
+      True{}
+    case _:
+      False{}
+
+def const_name_of(+x: T.Ex) -> U32:
+  match x:
+    case T.EConst{n, us}:
+      n
+    case _:
+      0
+
+def ctor_shape_v(+isc: Bool, +ok: Bool, +names: List<&2, U32>,
+                 +hd: T.Ex) -> V:
+  match isc:
+    case False{}:
+      VDecline{}
+    case True{}:
+      pick_v(is_constx(hd),
+             pick_v(mem(const_name_of(hd), names), VDecline{}, VReject{}),
+             VDecline{})
+
+
+# --- parameter positions and positivity ---------------------------------
+# A constructor `c : (p1 .. pn) -> (fields) -> I p1 .. pn indices` must apply
+# the inductive to its OWN bound parameters, in order. Under k traversed
+# binders the i-th parameter is `bvar (k-1-i)`.
+#   tutorial/050_inductWrongCtorParams applies it to a constant instead.
+#   tutorial/051_inductWrongCtorResParams swaps two of them.
+# And the inductive may not occur in a field's domain -- that is strict
+# positivity, and `tutorial/054_indNeg` declares `C1` with a field of type
+# `C1 -> C1`.
+#
+# Both reject only on a rigid mismatch. An argument that is an application
+# might reduce, and nothing here reduces it, so that declines.
+def spine_args(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex,
+               acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel x:
+    case 0n _:
+      acc
+    case 1n+p T.EApp{f, a}:
+      spine_args(p, ex, U.ex_at(ex, f), Con{a, acc})
+    case 1n+p _:
+      acc
+
+def tele_doms(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel x:
+    case 0n _:
+      acc
+    case 1n+p T.EAll{n, t, b, bi}:
+      tele_doms(p, ex, U.ex_at(ex, b), Con{t, acc})
+    case 1n+p _:
+      acc
+
+# Occurrence, memoised and three-valued.
+#
+# Two defects in the naive version. It recursed structurally over a DAG with
+# heavy sharing and no memo, so `perf/app-lam` went from 0.13 s to a 100 s
+# timeout. And on fuel exhaustion it answered "does not occur", which for a
+# positivity check means "positive" -- a latent unsoundness that could accept
+# a non-positive inductive. Running out of budget now answers "cannot
+# decide".
+#
+# The memo codes are 0 unknown, 1 no, 2 yes, 3 cannot decide. A hit is
+# consumed by passing fuel 0 with the answer as the accumulator, because
+# returning early would need a helper that calls back.
+type OM is Data:
+  OM{m: R.Tr<U32>, r: L.Tri}
+
+def om_m(+o: OM) -> R.Tr<U32>:
+  match o:
+    case OM{m, r}:
+      m
+
+def om_r(+o: OM) -> L.Tri:
+  match o:
+    case OM{m, r}:
+      r
+
+def occ_code(+t: L.Tri) -> U32:
+  match t:
+    case L.TNo{}:
+      1
+    case L.TYes{}:
+      2
+    case L.TUnk{}:
+      3
+
+def occ_tri(+c: U32) -> L.Tri:
+  L.pick_tri(U32.is_eq(c, 1), L.TNo{},
+             L.pick_tri(U32.is_eq(c, 2), L.TYes{}, L.TUnk{}))
+
+def tri_or(+a: L.Tri, +b: L.Tri) -> L.Tri:
+  match a b:
+    case L.TYes{} _:
+      L.TYes{}
+    case _ L.TYes{}:
+      L.TYes{}
+    case L.TUnk{} _:
+      L.TUnk{}
+    case _ L.TUnk{}:
+      L.TUnk{}
+    case _ _:
+      L.TNo{}
+
+# The memo bookkeeping is inlined per case rather than factored out: a
+# shared helper would call `occ_go` back, and Bend forbids mutual recursion.
+# A memo hit is signalled by `skip` rather than by shortening the fuel,
+# because the termination checker requires the fuel to shrink structurally
+# and will not accept a computed one.
+def occ_go(+fuel: Nat, +skip: Bool, +ex: R.Tr<T.Ex>,
+           +names: List<&2, U32>, +m: R.Tr<U32>, +acc: L.Tri,
+           +x: T.Ex) -> OM:
+  match fuel skip x:
+    case 0n _ _:
+      OM{m, acc}
+    case 1n+p True{} _:
+      OM{m, acc}
+    case 1n+p False{} T.EConst{n, us}:
+      OM{m, L.pick_tri(mem(n, names), L.TYes{}, L.TNo{})}
+    case 1n+p False{} T.EApp{f, a}:
+      +pf = p
+      +h1 = R.get(U32, 32n, m, f, 0)
+      +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
+                   U.ex_at(ex, f))
+      +m1 = R.set(U32, 32n, om_m(r1), f, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 32n, m1, a, 0)
+      +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
+                   U.ex_at(ex, a))
+      OM{R.set(U32, 32n, om_m(r2), a, occ_code(om_r(r2)), 0),
+         tri_or(om_r(r1), om_r(r2))}
+    case 1n+p False{} T.EAll{n, t, b, bi}:
+      +pf = p
+      +h1 = R.get(U32, 32n, m, t, 0)
+      +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
+                   U.ex_at(ex, t))
+      +m1 = R.set(U32, 32n, om_m(r1), t, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 32n, m1, b, 0)
+      +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
+                   U.ex_at(ex, b))
+      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+         tri_or(om_r(r1), om_r(r2))}
+    case 1n+p False{} T.ELam{n, t, b, bi}:
+      +pf = p
+      +h1 = R.get(U32, 32n, m, t, 0)
+      +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
+                   U.ex_at(ex, t))
+      +m1 = R.set(U32, 32n, om_m(r1), t, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 32n, m1, b, 0)
+      +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
+                   U.ex_at(ex, b))
+      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+         tri_or(om_r(r1), om_r(r2))}
+    case 1n+p False{} T.ELet{n, t, v, b}:
+      +pf = p
+      +h1 = R.get(U32, 32n, m, v, 0)
+      +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
+                   U.ex_at(ex, v))
+      +m1 = R.set(U32, 32n, om_m(r1), v, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 32n, m1, b, 0)
+      +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
+                   U.ex_at(ex, b))
+      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+         tri_or(om_r(r1), om_r(r2))}
+    case 1n+p False{} T.EProj{tn, i, sx}:
+      +pf = p
+      +h1 = R.get(U32, 32n, m, sx, 0)
+      +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
+                   U.ex_at(ex, sx))
+      OM{R.set(U32, 32n, om_m(r1), sx, occ_code(om_r(r1)), 0), om_r(r1)}
+    case 1n+p False{} _:
+      OM{m, L.TNo{}}
+
+def occurs_tri(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +x: T.Ex) -> L.Tri:
+  om_r(occ_go(4096n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
+
+# A bound variable with the wrong index, or anything else rigid, is a real
+# mismatch; an application or a let might reduce and so declines.
+def arg_v(+x: T.Ex, +want: U32) -> V:
+  match x:
+    case T.EBVar{i}:
+      pick_v(U32.is_eq(i, want), VAccept{}, VReject{})
+    case T.EConst{n, us}:
+      VReject{}
+    case T.ESort{l}:
+      VReject{}
+    case _:
+      VDecline{}
+
+# The first `np` arguments must be the constructor's own bound parameters, in
+# order. The arguments after them are the indices, and the inductive being
+# declared may not occur in those at all -- that is
+# `tutorial/053_inductInIndex`, whose constructor returns
+# `inductInIndex (inductInIndex aProp)`, and `118_reflOccInIndex`.
+# An occurrence is a reject, its absence an accept, and "cannot decide" a
+# decline -- the same discipline as everywhere else.
+def neg_v(+t: L.Tri) -> V:
+  match t:
+    case L.TYes{}:
+      VReject{}
+    case L.TNo{}:
+      VAccept{}
+    case L.TUnk{}:
+      VDecline{}
+
+def index_v(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +ai: U32) -> V:
+  neg_v(occurs_tri(ex, names, U.ex_at(ex, ai)))
+
+def params_v(args: List<&2, U32>, +ex: R.Tr<T.Ex>, +k: U32, +i: U32,
+             +np: U32, +names: List<&2, U32>, +acc: V) -> V:
+  match args:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +pi = i
+      +ph = head
+      params_v(tail, ex, k, (pi + 1 : U32), np, names,
+               comb(acc,
+                    pick_v(U32.is_ge(pi, np),
+                           index_v(ex, names, ph),
+                           arg_v(U.ex_at(ex, ph), (k - 1 - pi : U32)))))
+
+# Strict positivity constrains where the inductive may appear INSIDE a
+# field's type, not whether a field may mention it at all. A recursive field
+# like `Nat.succ : Nat -> Nat` has the inductive as its whole field type and
+# is perfectly legal; what is forbidden is the inductive occurring in a
+# domain of the field's own telescope, as in `tutorial/054_indNeg`, whose
+# field has type `C1 -> C1`.
+#
+# Conflating the two rejected 46 valid files -- every inductive with a
+# recursive constructor, which is nearly all of them.
+def any_dom_occurs(doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
+                   +names: List<&2, U32>, +acc: L.Tri) -> L.Tri:
+  match doms:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      any_dom_occurs(tail, ex, names,
+                     tri_or(acc, occurs_tri(ex, names,
+                                            U.ex_at(ex, head))))
+
+def field_pos_v(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +fi: U32) -> V:
+  neg_v(any_dom_occurs(tele_doms(256n, ex, U.ex_at(ex, fi), Nil{}), ex,
+                       names, L.TNo{}))
+
+def positivity_v(doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
+                 +names: List<&2, U32>, +nskip: U32, +i: U32,
+                 +acc: V) -> V:
+  match doms:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +pi = i
+      positivity_v(tail, ex, names, nskip, (pi + 1 : U32),
+                   pick_v(U32.is_lt(pi, nskip), acc,
+                          comb(acc, field_pos_v(ex, names, head))))
+
+def ctor_one(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +it: K.IItem) -> V:
+  match it:
+    case K.ICtor{nm, lps, ty, ind, np, nf}:
+      +tx = U.ex_at(ex, ty)
+      +res = tele_res(256n, ex, tx)
+      +k = tele_n(256n, ex, tx, 0)
+      comb(comb(ctor_shape_v(True{}, True{}, names,
+                             spine_head(256n, ex, res)),
+                params_v(spine_args(256n, ex, res, Nil{}), ex, k, 0, np,
+                         names, VAccept{})),
+           positivity_v(D.rev_u32(tele_doms(256n, ex, tx, Nil{}), Nil{}),
+                        ex, names, np, 0, VAccept{}))
+    case _:
+      VDecline{}
+
+def ctor_all(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+             +names: List<&2, U32>, +acc: V) -> V:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      ctor_all(tail, ex, names, comb(acc, ctor_one(ex, names, head)))
+
+# A declaration may not name itself. Lean compiles recursion through
+# `WellFounded.fix` or a structural recursor, so the kernel never sees a
+# self-reference; `tutorial/014_selfProof` is a theorem whose proof is
+# itself, and the official kernel answers "unknown constant" because the name
+# is not in the environment while its own declaration is being checked.
+def self_ref_v(+ex: R.Tr<T.Ex>, +d: K.Dcl) -> V:
+  +nm = K.dcl_name(d)
+  +ti = K.dcl_type(d)
+  +vi = K.dcl_value(d)
+  pick_v(U32.is_eq(nm, 0), VAccept{},
+         neg_v(tri_or(occurs_tri(ex, [nm], U.ex_at(ex, ti)),
+                      occurs_tri(ex, [nm], U.ex_at(ex, vi)))))
+
+
+# --- recursor universe parameters ---------------------------------------
+# A recursor gains one fresh universe parameter for its motive, but only when
+# the inductive permits large elimination. A Prop-valued inductive does not,
+# unless it is a subsingleton -- no constructors at all, or exactly one whose
+# every field is itself a proposition.
+#
+#   bugs/large-elim-prop-bool: `NewBool` is a Prop with two constructors, and
+#     its recursor claims one level parameter. "#0 expected, #1 provided".
+#   bugs/large-elim-param: `MyBool` likewise, with `#1 expected, #2 provided`.
+#   tutorial/073_BogusRecursor: a recursor with no level parameter and no
+#     motive at all.
+#
+# `False.rec` is the interesting legitimate case: an empty Prop IS a
+# subsingleton, so it does eliminate into any universe.
+def count_ctors(items: List<&2, K.IItem>, +ind: U32, +acc: U32) -> U32:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf}:
+          count_ctors(tail, ind,
+                      S.pick(U32.is_eq(ind2, ind), (acc + 1 : U32), acc))
+        case _:
+          count_ctors(tail, ind, acc)
+
+def list_len(xs: List<&2, U32>, +acc: U32) -> U32:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      list_len(tail, (acc + 1 : U32))
+
+# Lean permits large elimination from a Prop with one constructor when every
+# field is a proposition OR appears in the constructor's result -- which is
+# how `Eq`, whose `refl : forall a, Eq a a` has the non-propositional field
+# `a`, eliminates into any universe. That second clause needs an occurrence
+# check over the result's arguments that tracks binder depth, and is not
+# implemented, so a non-propositional field answers "cannot decide" rather
+# than "no".
+#
+# Answering "no" instead rejected init-prelude, grind-ring-5 and both
+# magma-string tests: every real prelude has an `Eq`.
+def prop_or_unknown(+t: L.Tri) -> L.Tri:
+  L.pick_tri(L.tri_is_no(t), L.TUnk{}, t)
+
+# Every field of the constructor must be a proposition.
+def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
+                +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +nskip: U32,
+                +i: U32, +acc: L.Tri) -> L.Tri:
+  match doms:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +pi = i
+      fields_prop(tail, ex, ln, nt, lp, nskip, (pi + 1 : U32),
+                  L.pick_tri(U32.is_lt(pi, nskip), acc,
+                             I.tri_and(acc,
+                               prop_or_unknown(
+                                 L.ln_is_zero(I.sl(64n, ex, ln, nt, lp,
+                                   U.ex_at(ex, head), Nil{}))))))
+
+def subsingleton(+nc: U32, +fp: L.Tri) -> L.Tri:
+  L.pick_tri(U32.is_eq(nc, 0), L.TYes{},
+             L.pick_tri(U32.is_eq(nc, 1), fp, L.TNo{}))
+
+# A universe that MIGHT be Prop gets the Prop restriction. `MyBool : Sort u`
+# in bugs/large-elim-param has two constructors and a parameter universe; if
+# u were 0 it would be a two-constructor Prop, so Lean expects no extra motive
+# universe -- "#1 expected, #2 provided". Treating "might be Prop" as "is not
+# a Prop" is how that export gets accepted.
+def large_elim(+isprop: L.Tri, +nc: U32, +fp: L.Tri) -> L.Tri:
+  match isprop:
+    case L.TNo{}:
+      L.TYes{}
+    case L.TYes{}:
+      subsingleton(nc, fp)
+    case L.TUnk{}:
+      subsingleton(nc, fp)
+
+def rec_count_v(+le: L.Tri, +nind: U32, +nrec: U32, +nmot: U32) -> V:
+  match le:
+    case L.TUnk{}:
+      VDecline{}
+    case L.TYes{}:
+      pick_v(U32.is_eq(nrec, (nind + 1 : U32)) && U32.is_eq(nmot, 1),
+             VAccept{}, VReject{})
+    case L.TNo{}:
+      pick_v(U32.is_eq(nrec, nind) && U32.is_eq(nmot, 1),
+             VAccept{}, VReject{})
+
+def ind_only(items: List<&2, K.IItem>,
+             acc: List<&2, K.IItem>) -> List<&2, K.IItem>:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.IInd{nm, lps, ty, np, ni, nn}:
+          ind_only(tail, Con{K.IInd{nm, lps, ty, np, ni, nn}, acc})
+        case _:
+          ind_only(tail, acc)
+
+def len_items(xs: List<&2, K.IItem>, +acc: U32) -> U32:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      len_items(tail, (acc + 1 : U32))
+
+def head_item(xs: List<&2, K.IItem>) -> K.IItem:
+  match xs:
+    case Nil{}:
+      K.IOther{}
+    case Con{head, tail}:
+      head
+
+def ctor_fields_prop(items: List<&2, K.IItem>, +ind: U32,
+                     +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                     +lp: R.Tr<List<&2, U32>>, +acc: L.Tri) -> L.Tri:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf}:
+          ctor_fields_prop(tail, ind, ex, ln, nt, lp,
+            L.pick_tri(U32.is_eq(ind2, ind),
+              I.tri_and(acc,
+                fields_prop(D.rev_u32(tele_doms(256n, ex,
+                                                U.ex_at(ex, ty), Nil{}),
+                                      Nil{}),
+                            ex, ln, nt, lp, np, 0, L.TYes{})),
+              acc))
+        case _:
+          ctor_fields_prop(tail, ind, ex, ln, nt, lp, acc)
+
+# A nested inductive's recursor has one motive per nested occurrence, not
+# one. `Lean.Syntax` in init-prelude is nested and its recursor has three,
+# and requiring exactly one rejected the whole prelude. Nested blocks decline.
+def recs_all(items: List<&2, K.IItem>, +le: L.Tri, +nind: U32,
+             +nested: U32, +acc: V) -> V:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.IRec{nm, lps, ty, np, ni, nmo}:
+          recs_all(tail, le, nind, nested,
+                   comb(acc,
+                        pick_v(U32.is_gt(nested, 0), VDecline{},
+                               rec_count_v(le, nind, list_len(lps, 0),
+                                           nmo))))
+        case _:
+          recs_all(tail, le, nind, nested, acc)
+
+def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+                  +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                  +lp: R.Tr<List<&2, U32>>, +ind: K.IItem) -> V:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn}:
+      +res = tele_res(256n, ex, U.ex_at(ex, ty))
+      +isprop = L.pick_tri(I.is_sortx(res),
+                           L.ln_is_zero(R.get(L.LN, 32n, ln,
+                                              I.sort_lvl_of(res), L.LNun{})),
+                           L.TUnk{})
+      +its = items
+      +nested = nn
+      recs_all(its, large_elim(isprop, count_ctors(its, nm, 0),
+                               ctor_fields_prop(its, nm, ex, ln, nt, lp,
+                                                L.TYes{})),
+               list_len(lps, 0), nested, VAccept{})
+    case _:
+      VDecline{}
+
+# Mutual blocks need each recursor matched to its own inductive, which needs
+# the `all` field decoded; they decline for now.
+def block_rec_v(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+                +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                +lp: R.Tr<List<&2, U32>>) -> V:
+  +inds = ind_only(items, Nil{})
+  pick_v(U32.is_eq(len_items(inds, 0), 1),
+         block_rec_one(items, ex, ln, nt, lp, head_item(inds)),
+         VDecline{})
+
+
+# --- projections --------------------------------------------------------
+# `e.i` with type name `T` is valid only when `T` is a structure -- one
+# constructor and no indices -- and `i` is within that constructor's fields.
+#   bugs/proj-non-structure projects from `Bad`, which has two constructors.
+#   tutorial/088_projNotStruct projects from something that is not one.
+#
+# Encoded in one table: 0 means the name is not a known inductive, 1 means it
+# is but is not a structure, and n+2 means a structure with n fields. An
+# unknown name declines -- it might be an inductive this version does not
+# decode, such as a nested or mutual one.
+def ctor_nf_for(items: List<&2, K.IItem>, +ind: U32, +acc: U32) -> U32:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf}:
+          ctor_nf_for(tail, ind, S.pick(U32.is_eq(ind2, ind), nf, acc))
+        case _:
+          ctor_nf_for(tail, ind, acc)
+
+def str_code(+nc: U32, +ni: U32, +nn: U32, +nf: U32) -> U32:
+  S.pick(U32.is_eq(nc, 1) && U32.is_eq(ni, 0) && U32.is_eq(nn, 0),
+         (nf + 2 : U32), 1)
+
+def str_of_items(items: List<&2, K.IItem>, +all: List<&2, K.IItem>,
+                 +t: R.Tr<U32>) -> R.Tr<U32>:
+  match items:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      match head:
+        case K.IInd{nm, lps, ty, np, ni, nn}:
+          +pn = nm
+          str_of_items(tail, all,
+            R.set(U32, 32n, t, pn,
+                  str_code(count_ctors(all, pn, 0), ni, nn,
+                           ctor_nf_for(all, pn, 0)), 0))
+        case _:
+          str_of_items(tail, all, t)
+
+def build_str(ds: List<&2, K.Dcl>, +t: R.Tr<U32>) -> R.Tr<U32>:
+  match ds:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      match head:
+        case K.DInd{nms, items}:
+          +its = items
+          build_str(tail, str_of_items(its, its, t))
+        case _:
+          build_str(tail, t)
+
+def proj_code_v(+code: U32, +i: U32) -> V:
+  pick_v(U32.is_eq(code, 0), VDecline{},
+         pick_v(U32.is_eq(code, 1), VReject{},
+                pick_v(U32.is_lt(i, (code - 2 : U32)), VAccept{},
+                       VReject{})))
+
+def not_projx(+x: T.Ex) -> Bool:
+  match x:
+    case T.EProj{tn, i, sx}:
+      False{}
+    case _:
+      True{}
+
+def proj_tn(+x: T.Ex) -> U32:
+  match x:
+    case T.EProj{tn, i, sx}:
+      tn
+    case _:
+      0
+
+def proj_idx(+x: T.Ex) -> U32:
+  match x:
+    case T.EProj{tn, i, sx}:
+      i
+    case _:
+      0
+
+def proj_at(+i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>) -> V:
+  +x = U.ex_at(ex, i)
+  pick_v(not_projx(x), VAccept{},
+         proj_code_v(R.get(U32, 32n, strt, proj_tn(x), 0), proj_idx(x)))
+
+def scan_projs(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>,
+               +acc: V) -> V:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      scan_projs(p, (i + 1 : U32), ex, strt,
+                 comb(acc, proj_at(i, ex, strt)))
+
+
+# --- deriving and checking the recursor ---------------------------------
+# An inductive block is accepted only when every check passes INCLUDING the
+# recursor's type being derived and matching the export's claim. That is what
+# makes accepting safe: nothing about the recursor is taken on trust, which is
+# the point, because `bugs/rec-k-lie` and friends are exports that lie about
+# one and then prove `False`.
+#
+# Only the base case is derived -- no parameters, no indices, field-less
+# constructors. Anything else declines.
+def ctor_by_cidx(items: List<&2, K.IItem>, +ind: U32, +j: U32,
+                 +acc: U32) -> U32:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf}:
+          ctor_by_cidx(tail, ind, j,
+                       S.pick(U32.is_eq(ind2, ind) && U32.is_eq(np, j),
+                              nm, acc))
+        case _:
+          ctor_by_cidx(tail, ind, j, acc)
+
+def all_fieldless(items: List<&2, K.IItem>, +ind: U32) -> Bool:
+  match items:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf}:
+          S.pick_b(U32.is_eq(ind2, ind), U32.is_eq(nf, 0), True{})
+          && all_fieldless(tail, ind)
+        case _:
+          all_fieldless(tail, ind)
+
+def rec_of(items: List<&2, K.IItem>, +acc: K.IItem) -> K.IItem:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.IRec{nm, lps, ty, np, ni, nmo}:
+          rec_of(tail, K.IRec{nm, lps, ty, np, ni, nmo})
+        case _:
+          rec_of(tail, acc)
+
+def rec_ty_of(+it: K.IItem) -> U32:
+  match it:
+    case K.IRec{nm, lps, ty, np, ni, nmo}:
+      ty
+    case _:
+      4294967295
+
+def rec_lps_of(+it: K.IItem) -> List<&2, U32>:
+  match it:
+    case K.IRec{nm, lps, ty, np, ni, nmo}:
+      lps
+    case _:
+      Nil{}
+
+def head_u(xs: List<&2, U32>, +dflt: U32) -> U32:
+  match xs:
+    case Nil{}:
+      dflt
+    case Con{head, tail}:
+      head
+
+def build_cs(k: Nat, +j: U32, +items: List<&2, K.IItem>, +ind: U32,
+             +us: List<&2, U32>, +st: I.IS,
+             acc: List<&2, U32>) -> I.LS:
+  match k:
+    case 0n:
+      I.LS{st, acc}
+    case 1n+p:
+      +ce = I.alloc_ex(st, T.EConst{ctor_by_cidx(items, ind, j, 0), us})
+      build_cs(p, (j + 1 : U32), items, ind, us, I.ir_st(ce),
+               Con{I.ir_ty(ce), acc})
+
+def cmp_derived(+st: I.IS, +vt: R.Tr<U32>, +mine: U32, +theirs: U32) -> V:
+  +w1 = I.whd(st, vt, mine)
+  +w2 = I.whd(I.ir_st(w1), vt, theirs)
+  +s2 = I.ir_st(w2)
+  tri_v(I.dr_r(I.defeq(24n, U32.is_eq(mine, theirs), s2, vt,
+                       U.ex_at(I.is_ex(s2), I.ir_ty(w1)),
+                       U.ex_at(I.is_ex(s2), I.ir_ty(w2)))))
+
+def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+              +vt: R.Tr<U32>, +nm: U32, +lps: List<&2, U32>, +nc: U32,
+              +vnm: U32, +theirs: U32) -> V:
+  match ok:
+    case False{}:
+      VDecline{}
+    case True{}:
+      +ul = W.param_lvls(lps, st, Nil{})
+      +us = I.ls_xs(ul)
+      +ice = I.alloc_ex(I.ls_st(ul), T.EConst{nm, us})
+      +cl = build_cs(U32.to_nat(nc), 0, items, nm, us, I.ir_st(ice),
+                     Nil{})
+      +d = W.derive(I.ls_st(cl), I.ir_ty(ice), I.ls_xs(cl), nc, vnm)
+      cmp_derived(I.ir_st(d), vt, I.ir_ty(d), theirs)
+
+# Base case only: no parameters, no indices, not nested, field-less
+# constructors, and large elimination permitted so the motive universe is the
+# recursor's first level parameter.
+def derive_block_v(+items: List<&2, K.IItem>, +st: I.IS, +vt: R.Tr<U32>,
+                   +ind: K.IItem, +nc: U32, +le: L.Tri) -> V:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn}:
+      +its = items
+      +rc = rec_of(its, K.IOther{})
+      +rl = rec_lps_of(rc)
+      derive_go(U32.is_eq(np, 0) && U32.is_eq(ni, 0) && U32.is_eq(nn, 0)
+                && all_fieldless(its, nm) && L.tri_is_yes(le)
+                && U32.is_ne(rec_ty_of(rc), 4294967295),
+                its, st, vt, nm, lps, nc, head_u(rl, 0), rec_ty_of(rc))
+    case _:
+      VDecline{}
+
+# Mirrors block_rec_v: one inductive per block, otherwise decline.
+def block_derive_one(+items: List<&2, K.IItem>, +st: I.IS,
+                     +vt: R.Tr<U32>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                     +lp: R.Tr<List<&2, U32>>, +ind: K.IItem) -> V:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn}:
+      +its = items
+      +pnm = nm
+      +res = tele_res(256n, I.is_ex(st), U.ex_at(I.is_ex(st), ty))
+      +isprop = L.pick_tri(I.is_sortx(res),
+                           L.ln_is_zero(R.get(L.LN, 32n, ln,
+                                              I.sort_lvl_of(res),
+                                              L.LNun{})),
+                           L.TUnk{})
+      +nc = count_ctors(its, pnm, 0)
+      derive_block_v(its, st, vt,
+                     K.IInd{pnm, lps, ty, np, ni, nn}, nc,
+                     large_elim(isprop, nc,
+                                ctor_fields_prop(its, pnm, I.is_ex(st),
+                                                 ln, nt, lp, L.TYes{})))
+    case _:
+      VDecline{}
+
+def block_derive_v(+items: List<&2, K.IItem>, +st: I.IS, +vt: R.Tr<U32>,
+                   +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                   +lp: R.Tr<List<&2, U32>>) -> V:
+  +inds = ind_only(items, Nil{})
+  pick_v(U32.is_eq(len_items(inds, 0), 1),
+         block_derive_one(items, st, vt, ln, nt, lp, head_item(inds)),
+         VDecline{})
+
+# --- per declaration ----------------------------------------------------
+# A declaration with no value -- an axiom or a quotient constant -- is
+# accepted once its type is a type, which is what the official kernel does.
+#
+# When the declared type is a Sort, the value has to be a type whose universe
+# matches, and `sl` decides that outright: this is where arrow types,
+# dependent types and `imax` are checked.
+
+# Check a value against a declared type.
+#
+# Three rules, in order of how much they decide:
+#   lambda against Pi  -- descend both binders together. No substitution is
+#                         needed: the de Bruijn indices stay aligned.
+#   anything against Sort -- the value must be a type of that universe, which
+#                         `sl` decides outright.
+#   otherwise          -- infer the value's type and compare. The comparison
+#                         is structural, so it answers yes or "cannot
+#                         decide", never no: two different-looking terms may
+#                         still be definitionally equal.
+#
+# The declared type is weak-head normalised once on the way in, and each
+# codomain on the way down, so a type that is a constant unfolding to a Pi
+# still matches the first rule.
+type CR is Data:
+  CR{st: I.IS, r: L.Tri}
+
+def cr_of(+st: I.IS, +r: L.Tri) -> CR:
+  CR{st, r}
+
+def cr_st(+c: CR) -> I.IS:
+  match c:
+    case CR{st, r}:
+      st
+
+def cr_r(+c: CR) -> L.Tri:
+  match c:
+    case CR{st, r}:
+      r
+
+# Reduce an index to weak head normal form, carrying the state.
+def wh(+st: I.IS, +vt: R.Tr<U32>, +i: U32) -> I.IR:
+  +w = U.whnf(256n, I.is_ex(st), I.is_nx(st), vt,
+              U.ex_at(I.is_ex(st), i), i, Nil{})
+  I.IR{I.IS{U.sr_t(w), U.sr_nx(w), I.is_lnt(st), I.is_nlx(st)},
+       U.sr_i(w), True{}}
+
+# A failed inference answers "cannot decide", never no: the checker must not
+# reject a declaration it was unable to analyse.
+def ck_infer(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+             +tye: U32, +ctx: List<&2, U32>) -> CR:
+  +ri = I.infer(fuel, st, nt, lp, vt, x, e, ctx)
+  +st2 = I.ir_st(ri)
+  +w1 = I.whd(st2, vt, I.ir_ty(ri))
+  +w2 = I.whd(I.ir_st(w1), vt, tye)
+  +st3 = I.ir_st(w2)
+  +d = I.defeq(24n, U32.is_eq(I.ir_ty(ri), tye), st3, vt,
+               U.ex_at(I.is_ex(st3), I.ir_ty(w1)),
+               U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
+  cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
+
+def ck_expr(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+            +ty: T.Ex, +tye: U32, +ctx: List<&2, U32>) -> CR:
+  match fuel x ty:
+    case 0n _ _:
+      cr_of(st, L.TUnk{})
+    case 1n+p T.ELam{n1, a1, b1, i1} T.EAll{n2, a2, b2, i2}:
+      +pf = p
+      +pa = a1
+      +wc = wh(st, vt, b2)
+      +st1 = I.ir_st(wc)
+      +ex1 = I.is_ex(st1)
+      +sub = ck_expr(pf, st1, nt, lp, vt, U.ex_at(ex1, b1), b1,
+                     U.ex_at(ex1, I.ir_ty(wc)), I.ir_ty(wc), Con{pa, ctx})
+      +wd1 = I.whd(cr_st(sub), vt, pa)
+      +wd2 = I.whd(I.ir_st(wd1), vt, a2)
+      +stw = I.ir_st(wd2)
+      +dd = I.defeq(24n, U32.is_eq(pa, a2), stw, vt,
+                    U.ex_at(I.is_ex(stw), I.ir_ty(wd1)),
+                    U.ex_at(I.is_ex(stw), I.ir_ty(wd2)))
+      cr_of(I.dr_st(dd), I.tri_and(I.dr_r(dd), cr_r(sub)))
+    case 1n+p _ T.ESort{lt}:
+      cr_of(st,
+            L.pick_tri(I.not_a_type(I.is_ex(st), nt, x), L.TNo{},
+                       L.ln_cmp(R.get(L.LN, 32n, I.is_lnt(st), lt,
+                                      L.LNun{}),
+                                I.sl(fuel, I.is_ex(st), I.is_lnt(st), nt,
+                                     lp, x, ctx))))
+    case 1n+p _ _:
+      ck_infer(fuel, st, nt, lp, vt, x, e, tye, ctx)
+
+def ck_value(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ti: U32,
+             +vi: U32) -> V:
+  +wt = wh(st, vt, ti)
+  +st1 = I.ir_st(wt)
+  +ex1 = I.is_ex(st1)
+  tri_v(cr_r(ck_expr(fuel, st1, nt, lp, vt, U.ex_at(ex1, vi), vi,
+                     U.ex_at(ex1, I.ir_ty(wt)), I.ir_ty(wt), Nil{})))
+
+# A theorem's type must be a proposition, and then its value must prove it.
+# "Cannot tell whether it is a proposition" declines rather than rejects.
+def ck_thm(+t: L.Tri, +fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ti: U32,
+           +vi: U32) -> V:
+  match t:
+    case L.TNo{}:
+      VReject{}
+    case L.TUnk{}:
+      VDecline{}
+    case L.TYes{}:
+      ck_value(fuel, st, nt, lp, vt, ti, vi)
+
+def ck_body(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +isthm: Bool,
+            +u: L.LN, +ti: U32, +vi: U32) -> V:
+  match isthm:
+    case True{}:
+      ck_thm(L.ln_is_zero(u), fuel, st, nt, lp, vt, ti, vi)
+    case False{}:
+      pick_v(U32.is_eq(vi, 4294967295), VAccept{},
+             ck_value(fuel, st, nt, lp, vt, ti, vi))
+
+# A match cannot scrutinise a local binder either, only a parameter or a
+# pattern field, so the decided tri-state is handed to its own def.
+def ck_typed2(+t: L.Tri, +fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +isthm: Bool,
+              +u: L.LN, +ti: U32, +vi: U32) -> V:
+  match t:
+    case L.TNo{}:
+      VReject{}
+    case L.TUnk{}:
+      VDecline{}
+    case L.TYes{}:
+      ck_body(fuel, st, nt, lp, vt, isthm, u, ti, vi)
+
+# The declared type is reduced before its universe is asked for.
+# `tutorial/006_betaReduction` declares `betaReduction : constType Prop
+# (Prop -> Prop)`, an application that delta- and beta-reduces to `Prop`;
+# asking for the universe of the unreduced application answers "unknown" and
+# the whole file declines.
+def ck_typed(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +isthm: Bool,
+             +ti: U32, +vi: U32) -> V:
+  +wt = I.whd(st, vt, ti)
+  +st1 = I.ir_st(wt)
+  +ti1 = I.ir_ty(wt)
+  +tx = U.ex_at(I.is_ex(st1), ti1)
+  +u = I.sl(fuel, I.is_ex(st1), I.is_lnt(st1), nt, lp, tx, Nil{})
+  ck_typed2(I.type_tri(I.not_a_type(I.is_ex(st1), nt, tx), u), fuel, st1,
+            nt, lp, vt, isthm, u, ti1, vi)
+
+def ck_one(+fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> V:
+  match d:
+    case K.DInd{nms, items}:
+      +its = items
+      comb(comb(comb(ind_items(its, I.is_ex(st), nt, vt, VAccept{}),
+                     ctor_all(its, I.is_ex(st),
+                              ind_names_of(its, Nil{}), VAccept{})),
+                block_rec_v(its, I.is_ex(st), I.is_lnt(st), nt, lp)),
+           block_derive_v(its, st, vt, I.is_lnt(st), nt, lp))
+    case K.DNone{}:
+      VDecline{}
+    case _:
+      +pd = d
+      comb(self_ref_v(I.is_ex(st), pd),
+           ck_typed(fuel, st, nt, lp, vt, K.dcl_is_theorem(pd),
+                    K.dcl_type(pd), K.dcl_value(pd)))
+
+# Each declaration is checked against the environment built from the ones
+# before it, and only then added. Terms built while checking one declaration
+# are invisible to the next, which is correct and means no index threading.
+def ck_all(ds: List<&2, K.Dcl>, +fuel: Nat, +st: I.IS, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +acc: V) -> V:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +h = head
+      ck_all(tail, fuel, st, B.add_nt(h, nt), B.add_lp(h, lp),
+             B.add_vt(h, vt), comb(acc, ck_one(fuel, st, nt, lp, vt, h)))
+
+# `nx` and `nlx` start above every index the export used, so terms built
+# while checking cannot collide with the exporter's own numbering.
+def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
+          +nlv: Nat, +rounds: Nat, +nx: U32) -> V:
+  +ex = B.build_ex(recs, R.TNil{})
+  +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
+  +dn = mark_names(Con{0, declared(ds, Nil{})}, R.TNil{})
+  +st : I.IS = I.IS{ex, nx, ln, nx}
+  +strt = build_str(ds, R.TNil{})
+  comb(comb(pre_check(ds),
+            comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
+                                   False{})),
+                 scan_projs(nex, 0, ex, strt, VAccept{}))),
+       ck_all(ds, 24n, st, R.TNil{}, R.TNil{}, R.TNil{}, VAccept{}))

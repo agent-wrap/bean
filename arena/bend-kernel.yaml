@@ -1,0 +1,15 @@
+version: "0.1.0-ingest"
+description: |
+  **bean** — a Lean 4 kernel checker written in [Bend 2](https://bend-lang.org),
+  a total functional language whose programs are checked by a kernel that is
+  itself proven in Lean (`bend --verdict`).
+
+  Bend forbids mutual recursion, requires every recursion to terminate, has no
+  mutable state, and will not let `match` scrutinise a computed value, so the
+  checker is one fuel-indexed abstract machine rather than the usual mutually
+  recursive `whnf`/`infer`/`isDefEq` cluster. It contains no `@unsafe`
+  definitions, so Bend's own proof guarantees cover it.
+
+  At this version it streams and tokenises the export and then declines; the
+  kernel is not written yet.
+run: ./build/bean "$IN"
