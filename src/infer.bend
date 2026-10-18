@@ -877,133 +877,6 @@ def proj_nodes(n: Nat, +i: U32, +tn: U32, +sx: U32, +st: IS,
       proj_nodes(q, (i + 1 : U32), tn, sx, ir_st(pr),
                  Con{ir_ty(pr), acc})
 
-# --- infer ---------------------------------------------------------------
-# One self-recursive function. The application case is the reason accessor
-# defs exist above: after normalising the function's type there is no way to
-# *match* on whether it is a Pi, because the normalised node is a computed
-# value, so `is_all`, `all_dom` and `all_cod` are consulted instead.
-#
-# Argument equality uses the structural comparison, which answers TYes or
-# TUnk and never TNo, so an application whose argument type is not
-# syntactically recognisable comes back "cannot infer" rather than wrong.
-def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
-          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
-          +ctx: List<&2, U32>) -> IR:
-  match fuel x:
-    case 0n _:
-      ir_bad(s)
-    case 1n+p T.ESort{l}:
-      sort_of(s, L.ln_succ(R.get(L.LN, 32n, is_lnt(s), l, L.LNun{})))
-    # `infer (forall x:A, B) = Sort (imax (univ A) (univ B))`, with each
-    # universe obtained by inferring and reducing rather than by `sl`, which
-    # has no rule for applications and so failed on any Pi with one in it.
-    case 1n+p T.EAll{n, ty, b, bi}:
-      +pf = p
-      +pty = ty
-      +ra = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), pty), pty, ctx)
-      +wa = whd(ir_st(ra), mt, lp, vt, ir_ty(ra))
-      +sa = ir_st(wa)
-      +ka = U.ex_at(is_ex(sa), ir_ty(wa))
-      +rb = infer(pf, sa, mt, nt, lp, vt, U.ex_at(is_ex(sa), b), b,
-                  Con{pty, ctx})
-      +wb = whd(ir_st(rb), mt, lp, vt, ir_ty(rb))
-      +sb = ir_st(wb)
-      +kb = U.ex_at(is_ex(sb), ir_ty(wb))
-      pick_ir(ir_ok(ra) && ir_ok(rb) && is_sortx(ka) && is_sortx(kb),
-              sort_of(sb,
-                      L.ln_imax(R.get(L.LN, 32n, is_lnt(sb),
-                                      sort_lvl_of(ka), L.LNun{}),
-                                R.get(L.LN, 32n, is_lnt(sb),
-                                      sort_lvl_of(kb), L.LNun{}))),
-              ir_bad(sb))
-    case 1n+p T.ELam{n, ty, b, bi}:
-      +pf = p
-      +pty = ty
-      +rb = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), b), b,
-                  Con{pty, ctx})
-      pick_ir(ir_ok(rb),
-              alloc_ex(ir_st(rb), T.EAll{n, pty, ir_ty(rb), bi}),
-              ir_bad(ir_st(rb)))
-    case 1n+p T.EBVar{i}:
-      +ti = nth_u(ctx, i, 4294967295)
-      +sr = U.lift(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), ti), ti, 0,
-                   (i + 1 : U32))
-      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s)}, U.sr_i(sr),
-         U32.is_ne(ti, 4294967295)}
-    case 1n+p T.EConst{n, us}:
-      +ti = R.get(U32, 32n, nt, n, 4294967295)
-      pick_ir(U32.is_eq(ti, 4294967295), ir_bad(s),
-              lsubst(256n, s, U.ex_at(is_ex(s), ti), ti,
-                     R.get(List<&2, U32>, 32n, lp, n, Nil{}),
-                     lns_of(us, is_lnt(s))))
-    case 1n+p T.ELet{n, ty, v, b}:
-      +pf = p
-      +rz = U.inst(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), b), b, 0, v)
-      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s)}
-      infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(rz)),
-            U.sr_i(rz), ctx)
-    case 1n+p T.EApp{f, a} :
-      +pf = p
-      +pa = a
-      +rf = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), f), f, ctx)
-      +w = whnf(256n, ir_st(rf), mt, lp, vt,
-                U.ex_at(is_ex(ir_st(rf)), ir_ty(rf)), ir_ty(rf), Nil{})
-      +s2 : IS = ir_st(w)
-      +node = U.ex_at(is_ex(s2), ir_ty(w))
-      +ra = infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), pa), pa, ctx)
-      +ex2 = is_ex(ir_st(ra))
-      +eq = eq_ex(32n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
-                  is_lnt(ir_st(ra)), U.ex_at(ex2, ir_ty(ra)),
-                  U.ex_at(ex2, all_dom(node)))
-      +rz = U.inst(256n, ex2, is_nx(ir_st(ra)),
-                   U.ex_at(ex2, all_cod(node)), all_cod(node), 0, pa)
-      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(ir_st(ra)),
-            is_nlx(ir_st(ra)), is_wm(ir_st(ra))}, U.sr_i(rz),
-         ir_ok(rf) && ir_ok(ra) && is_all(node) && L.tri_is_yes(eq)}
-    # `s.i` has the (i+1)-th field type of the structure's constructor, with
-    # the parameters and the earlier fields substituted.
-    case 1n+p T.EProj{tn, idx, sx}:
-      +pf = p
-      +pidx = idx
-      +ptn = tn
-      +rs = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), sx), sx, ctx)
-      +ws = whd(ir_st(rs), mt, lp, vt, ir_ty(rs))
-      +sst = ir_st(ws)
-      +sty = U.ex_at(is_ex(sst), ir_ty(ws))
-      +mi = R.get(Meta, 32n, mt, ptn, MNone{})
-      +ok = ir_ok(rs) && meta_is_ind(mi) && U32.is_eq(meta_pr(mi), 0)
-            && U32.is_lt(pidx, meta_nf(mi))
-            && U32.is_eq(const_nm2(spine_hd(256n, is_ex(sst), sty)), ptn)
-      # `spine_ar` already returns the arguments left to right, which is the
-      # order the constructor binds its parameters in, so no reversal.
-      +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, sst, Nil{})
-      +pt = peel_tele(256n, ls_st(pn), meta_cty(mi),
-                      List.append(&2, U32,
-                                  spine_ar(256n, is_ex(ls_st(pn)), sty,
-                                           Nil{}),
-                                  ls_xs(pn)))
-      # What is left is the Pi whose domain is the field's type. The node is
-      # bound once: a `+` binding is inlined at every use, so naming it
-      # three times would rebuild the whole peel three times.
-      +pnode : T.Ex = U.ex_at(is_ex(ir_st(pt)), ir_ty(pt))
-      +ri : IR = IR{ir_st(pt), all_dom(pnode),
-                    ir_ok(pt) && is_all(pnode)}
-      # GATED OFF for performance, on the same grounds as iota. With this
-      # on, `perf/magma-string-n4` and `perf/magma-string-pair-n9` TIMED OUT
-      # (70 s and 130 s against their limits), turning two declines into two
-      # errors -- and it bought no tests. The typing itself is correct and
-      # restricted properly; it is the cost of running `infer` on the
-      # structure, plus a telescope walk, at every projection, with nothing
-      # memoised.
-      # Off, on measurement. The typing is right and the Prop restriction
-      # (via `large_elim`, the subsingleton condition) is right, but running
-      # `infer` on the structure plus a telescope walk at every projection
-      # costs three timeouts and buys nothing: the projection tests still
-      # decline, because what blocks them is upstream of here.
-      pick_ir(ok, ri, ir_bad(ir_st(ri)))
-    case 1n+p _:
-      ir_bad(s)
-
 # --- definitional equality ----------------------------------------------
 # Both arguments are already in weak head normal form; the recursive calls
 # normalise the children before descending. Same shape as `eq_ex`: the nodes
@@ -1130,3 +1003,157 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       DR{dr_st(d2), soften(tri_and(dr_r(d1), dr_r(d2)))}
     case 1n+p False{} _ _:
       DR{st, mismatch(x, y)}
+
+
+# --- infer ---------------------------------------------------------------
+# One self-recursive function. The application case is the reason accessor
+# defs exist above: after normalising the function's type there is no way to
+# *match* on whether it is a Pi, because the normalised node is a computed
+# value, so `is_all`, `all_dom` and `all_cod` are consulted instead.
+#
+# Argument equality uses the structural comparison, which answers TYes or
+# TUnk and never TNo, so an application whose argument type is not
+# syntactically recognisable comes back "cannot infer" rather than wrong.
+def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+          +ctx: List<&2, U32>) -> IR:
+  match fuel x:
+    case 0n _:
+      ir_bad(s)
+    case 1n+p T.ESort{l}:
+      sort_of(s, L.ln_succ(R.get(L.LN, 32n, is_lnt(s), l, L.LNun{})))
+    # `infer (forall x:A, B) = Sort (imax (univ A) (univ B))`, with each
+    # universe obtained by inferring and reducing rather than by `sl`, which
+    # has no rule for applications and so failed on any Pi with one in it.
+    case 1n+p T.EAll{n, ty, b, bi}:
+      +pf = p
+      +pty = ty
+      +ra = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), pty), pty, ctx)
+      +wa = whd(ir_st(ra), mt, lp, vt, ir_ty(ra))
+      +sa = ir_st(wa)
+      +ka = U.ex_at(is_ex(sa), ir_ty(wa))
+      +rb = infer(pf, sa, mt, nt, lp, vt, U.ex_at(is_ex(sa), b), b,
+                  Con{pty, ctx})
+      +wb = whd(ir_st(rb), mt, lp, vt, ir_ty(rb))
+      +sb = ir_st(wb)
+      +kb = U.ex_at(is_ex(sb), ir_ty(wb))
+      pick_ir(ir_ok(ra) && ir_ok(rb) && is_sortx(ka) && is_sortx(kb),
+              sort_of(sb,
+                      L.ln_imax(R.get(L.LN, 32n, is_lnt(sb),
+                                      sort_lvl_of(ka), L.LNun{}),
+                                R.get(L.LN, 32n, is_lnt(sb),
+                                      sort_lvl_of(kb), L.LNun{}))),
+              ir_bad(sb))
+    case 1n+p T.ELam{n, ty, b, bi}:
+      +pf = p
+      +pty = ty
+      +rb = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), b), b,
+                  Con{pty, ctx})
+      pick_ir(ir_ok(rb),
+              alloc_ex(ir_st(rb), T.EAll{n, pty, ir_ty(rb), bi}),
+              ir_bad(ir_st(rb)))
+    case 1n+p T.EBVar{i}:
+      +ti = nth_u(ctx, i, 4294967295)
+      +sr = U.lift(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), ti), ti, 0,
+                   (i + 1 : U32))
+      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s)}, U.sr_i(sr),
+         U32.is_ne(ti, 4294967295)}
+    case 1n+p T.EConst{n, us}:
+      +ti = R.get(U32, 32n, nt, n, 4294967295)
+      pick_ir(U32.is_eq(ti, 4294967295), ir_bad(s),
+              lsubst(256n, s, U.ex_at(is_ex(s), ti), ti,
+                     R.get(List<&2, U32>, 32n, lp, n, Nil{}),
+                     lns_of(us, is_lnt(s))))
+    case 1n+p T.ELet{n, ty, v, b}:
+      +pf = p
+      +rz = U.inst(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), b), b, 0, v)
+      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s)}
+      infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(rz)),
+            U.sr_i(rz), ctx)
+    case 1n+p T.EApp{f, a} :
+      +pf = p
+      +pa = a
+      +rf = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), f), f, ctx)
+      +w = whnf(256n, ir_st(rf), mt, lp, vt,
+                U.ex_at(is_ex(ir_st(rf)), ir_ty(rf)), ir_ty(rf), Nil{})
+      +s2 : IS = ir_st(w)
+      +node = U.ex_at(is_ex(s2), ir_ty(w))
+      +ra = infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), pa), pa, ctx)
+      # The argument's type is compared with the domain by `defeq`, which
+      # reduces, not by the structural `eq_ex`, which does not -- and BOTH
+      # sides are reduced first, exactly as `ck_infer` does.
+      #
+      # Together these are why recursor applications could not be inferred.
+      # Every minor premise's domain mentions `motive (c ..)`, which once the
+      # motive is substituted is a beta-redex, so it matches the argument's
+      # type only after reduction; and `defeq` dispatches on the pair of node
+      # shapes, reducing only the children of a matching pair, so an
+      # unreduced head makes it give up at once. A recursor's second argument
+      # has domain `motive N.zero` = `(fun _ => N -> N) N.zero`, an
+      # application, against an argument type that is already a Pi: `EAll`
+      # versus `EApp`, catch-all, "cannot decide". The type `infer` computed
+      # was right all along; only the ok flag was wrong.
+      #
+      # That was the largest single cluster of declines: `N.add`, `count`,
+      # `Nat.below`, `Nat.brecOn`, every `*.match_1` and `*._f`, and
+      # everything defined in terms of them.
+      #
+      # `defeq` may answer no, which `tri_is_yes` reads as "cannot infer"
+      # rather than "wrong", keeping the conservative reading.
+      +wa1 = whd(ir_st(ra), mt, lp, vt, ir_ty(ra))
+      +wa2 = whd(ir_st(wa1), mt, lp, vt, all_dom(node))
+      +sa2 : IS = ir_st(wa2)
+      +ex2 = is_ex(sa2)
+      +dq = defeq(24n, U32.is_eq(ir_ty(wa1), ir_ty(wa2)), sa2, mt,
+                  lp, vt, U.ex_at(ex2, ir_ty(wa1)),
+                  U.ex_at(ex2, ir_ty(wa2)))
+      +sd : IS = dr_st(dq)
+      +rz = U.inst(256n, is_ex(sd), is_nx(sd),
+                   U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
+      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd),
+            is_nlx(sd), is_wm(sd)}, U.sr_i(rz),
+         ir_ok(rf) && ir_ok(ra) && is_all(node)
+         && L.tri_is_yes(dr_r(dq))}
+    # `s.i` has the (i+1)-th field type of the structure's constructor, with
+    # the parameters and the earlier fields substituted.
+    case 1n+p T.EProj{tn, idx, sx}:
+      +pf = p
+      +pidx = idx
+      +ptn = tn
+      +rs = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), sx), sx, ctx)
+      +ws = whd(ir_st(rs), mt, lp, vt, ir_ty(rs))
+      +sst = ir_st(ws)
+      +sty = U.ex_at(is_ex(sst), ir_ty(ws))
+      +mi = R.get(Meta, 32n, mt, ptn, MNone{})
+      +ok = ir_ok(rs) && meta_is_ind(mi) && U32.is_eq(meta_pr(mi), 0)
+            && U32.is_lt(pidx, meta_nf(mi))
+            && U32.is_eq(const_nm2(spine_hd(256n, is_ex(sst), sty)), ptn)
+      # `spine_ar` already returns the arguments left to right, which is the
+      # order the constructor binds its parameters in, so no reversal.
+      +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, sst, Nil{})
+      +pt = peel_tele(256n, ls_st(pn), meta_cty(mi),
+                      List.append(&2, U32,
+                                  spine_ar(256n, is_ex(ls_st(pn)), sty,
+                                           Nil{}),
+                                  ls_xs(pn)))
+      # What is left is the Pi whose domain is the field's type. The node is
+      # bound once: a `+` binding is inlined at every use, so naming it
+      # three times would rebuild the whole peel three times.
+      +pnode : T.Ex = U.ex_at(is_ex(ir_st(pt)), ir_ty(pt))
+      +ri : IR = IR{ir_st(pt), all_dom(pnode),
+                    ir_ok(pt) && is_all(pnode)}
+      # GATED OFF for performance, on the same grounds as iota. With this
+      # on, `perf/magma-string-n4` and `perf/magma-string-pair-n9` TIMED OUT
+      # (70 s and 130 s against their limits), turning two declines into two
+      # errors -- and it bought no tests. The typing itself is correct and
+      # restricted properly; it is the cost of running `infer` on the
+      # structure, plus a telescope walk, at every projection, with nothing
+      # memoised.
+      # Off, on measurement. The typing is right and the Prop restriction
+      # (via `large_elim`, the subsingleton condition) is right, but running
+      # `infer` on the structure plus a telescope walk at every projection
+      # costs three timeouts and buys nothing: the projection tests still
+      # decline, because what blocks them is upstream of here.
+      pick_ir(ok, ri, ir_bad(ir_st(ri)))
+    case 1n+p _:
+      ir_bad(s)

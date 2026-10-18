@@ -152,6 +152,34 @@ def show_tri(+t: L.Tri) -> String:
 # For a declaration that declines: print the declared type, and the type
 # `infer` computes for its value, side by side. If they differ, the printed
 # pair says exactly how.
+# The name of the constant at the head of a value: through lambdas, then
+# down the application spine. Used to report whether that constant's type is
+# registered in the environment at the point the declaration is checked.
+def head_const(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> U32:
+  match fuel x:
+    case 0n _:
+      4294967295
+    case 1n+q T.ELam{n, t, b, bi}:
+      head_const(q, ex, U.ex_at(ex, b))
+    case 1n+q T.EApp{f, a}:
+      head_const(q, ex, U.ex_at(ex, f))
+    case 1n+q T.EConst{n, us}:
+      n
+    case 1n+q _:
+      4294967295
+
+# The index of the head node, so `infer` can be run on the `const` itself.
+def head_ix(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +i: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      i
+    case 1n+q T.ELam{n, t, b, bi}:
+      head_ix(q, ex, U.ex_at(ex, b), b)
+    case 1n+q T.EApp{f, a}:
+      head_ix(q, ex, U.ex_at(ex, f), f)
+    case 1n+q _:
+      i
+
 # The universe of the type at index `ti`, the way `ck_typed` computes it:
 # infer its type, reduce, and read the level off the resulting Sort.
 def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
@@ -166,6 +194,25 @@ def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   L.pick_ln(I.ir_ok(ri) && I.is_sortx(kx),
             R.get(L.LN, 32n, I.is_lnt(st2), I.sort_lvl_of(kx), L.LNun{}),
             L.LNun{})
+
+# `infer` applied to the head `const` of a value, which is where the level
+# substitution happens.
+def headr(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +vi: U32) -> I.IR:
+  +hi = head_ix(32n, I.is_ex(st), U.ex_at(I.is_ex(st), vi), vi)
+  I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), hi), hi, Nil{})
+
+# `infer` on the body of the outermost lambda, in the context that lambda
+# introduces. `ELam` answers BAD whenever its body does, so the body's own
+# result is the only way to see where an application chain actually breaks.
+def bodyr(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex) -> I.IR:
+  match x:
+    case T.ELam{n, t, b, bi}:
+      I.infer(24n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), b), b,
+              Con{t, Nil{}})
+    case _:
+      I.IR{st, 4294967295, False{}}
 
 def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
@@ -183,6 +230,40 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ "  is-prop: " ++ show_tri(L.ln_is_zero(univ_of(st, mt, nt, lp, vt, ti)))
   # When the type is a Pi, the two halves of its `imax` separately, so a
   # SYMBOLIC answer can be attributed to one side or the other.
+  ++ "\n    head-const: "
+  ++ U32.show(head_const(32n, I.is_ex(st2),
+                         U.ex_at(I.is_ex(st2), vi)))
+  ++ "  its type-ix: "
+  ++ U32.show(R.get(U32, 32n, nt,
+                    head_const(32n, I.is_ex(st2),
+                               U.ex_at(I.is_ex(st2), vi)), 4294967295))
+  # The head constant's type as declared, and the type `infer` gives its
+  # `const` node (which applies the level substitution). If the second is BAD
+  # while the first is a Pi, the level substitution is what failed.
+  ++ "\n    head-ty:  "
+  ++ show_ex(10n, I.is_ex(st2),
+             U.ex_at(I.is_ex(st2),
+                     R.get(U32, 32n, nt,
+                           head_const(32n, I.is_ex(st2),
+                                      U.ex_at(I.is_ex(st2), vi)),
+                           4294967295)))
+  ++ "\n    head-inferred: "
+  ++ show_ex(10n, I.is_ex(I.ir_st(headr(st2, mt, nt, lp, vt, vi))),
+             U.ex_at(I.is_ex(I.ir_st(headr(st2, mt, nt, lp, vt, vi))),
+                     I.ir_ty(headr(st2, mt, nt, lp, vt, vi))))
+  ++ "  ok: "
+  ++ pick_s(I.ir_ok(headr(st2, mt, nt, lp, vt, vi)), "yes", "no")
+  ++ "\n    lam-body-inferred: "
+  ++ show_ex(12n,
+             I.is_ex(I.ir_st(bodyr(st2, mt, nt, lp, vt,
+                                   U.ex_at(I.is_ex(st2), vi)))),
+             U.ex_at(I.is_ex(I.ir_st(bodyr(st2, mt, nt, lp, vt,
+                                           U.ex_at(I.is_ex(st2), vi)))),
+                     I.ir_ty(bodyr(st2, mt, nt, lp, vt,
+                                   U.ex_at(I.is_ex(st2), vi)))))
+  ++ "  ok: "
+  ++ pick_s(I.ir_ok(bodyr(st2, mt, nt, lp, vt,
+                          U.ex_at(I.is_ex(st2), vi))), "yes", "no")
   ++ "\n    univ(dom): "
   ++ show_ln(univ_of(st, mt, nt, lp, vt,
                      I.all_dom(U.ex_at(I.is_ex(st), ti))))
