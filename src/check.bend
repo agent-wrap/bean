@@ -468,7 +468,7 @@ def occ_go(+fuel: Nat, +skip: Bool, +ex: R.Tr<T.Ex>,
       OM{m, L.TNo{}}
 
 def occurs_tri(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +x: T.Ex) -> L.Tri:
-  om_r(occ_go(4096n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
+  om_r(occ_go(512n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
 
 # A bound variable with the wrong index, or anything else rigid, is a real
 # mismatch; an application or a let might reduce and so declines.
@@ -1153,7 +1153,7 @@ def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +w1 = I.whd(st, mt, lp, vt, mine)
   +w2 = I.whd(I.ir_st(w1), mt, lp, vt, theirs)
   +s2 = I.ir_st(w2)
-  tri_v(I.dr_r(I.defeq(24n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt, Nil{},
+  tri_v(I.dr_r(I.defeq(64n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt, Nil{},
                        U.ex_at(I.is_ex(s2), I.ir_ty(w1)),
                        U.ex_at(I.is_ex(s2), I.ir_ty(w2)))))
 
@@ -1476,7 +1476,7 @@ def ck_infer(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +w1 = I.whd(st2, mt, lp, vt, I.ir_ty(ri))
   +w2 = I.whd(I.ir_st(w1), mt, lp, vt, tye)
   +st3 = I.ir_st(w2)
-  +d = I.defeq(24n, U32.is_eq(I.ir_ty(ri), tye), st3, mt, nt, lp, vt, ctx,
+  +d = I.defeq(64n, U32.is_eq(I.ir_ty(ri), tye), st3, mt, nt, lp, vt, ctx,
                U.ex_at(I.is_ex(st3), I.ir_ty(w1)),
                U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
   cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
@@ -1498,7 +1498,7 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +wd1 = I.whd(cr_st(sub), mt, lp, vt, pa)
       +wd2 = I.whd(I.ir_st(wd1), mt, lp, vt, a2)
       +stw = I.ir_st(wd2)
-      +dd = I.defeq(24n, U32.is_eq(pa, a2), stw, mt, nt, lp, vt, Con{pa, ctx},
+      +dd = I.defeq(64n, U32.is_eq(pa, a2), stw, mt, nt, lp, vt, Con{pa, ctx},
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd1)),
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd2)))
       cr_of(I.dr_st(dd), I.tri_and(I.dr_r(dd), cr_r(sub)))

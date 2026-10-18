@@ -1157,7 +1157,7 @@ def dq_irrel(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
   +same = L.tri_is_yes(eq_ex(256n, U32.is_eq(ir_ty(rx), ir_ty(ry)),
                              is_ex(s2), is_lnt(s2), tx,
                              U.ex_at(is_ex(s2), ir_ty(ry))))
-  +isprop = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(s2), is_lnt(s2), nt,
+  +isprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s2), is_lnt(s2), nt,
                                          lp, tx, ctx)))
   DR{s2, L.pick_tri(both && same && isprop, L.TYes{}, L.TUnk{})}
 
@@ -1243,7 +1243,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                                    U.ex_at(is_ex(s2), U.sr_i(la)),
                                    U.ex_at(is_ex(s2), U.sr_i(lb))))
       +tynode = U.ex_at(is_ex(s2), U.sr_i(la))
-      +isprop = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(s2), is_lnt(s2), nt,
+      +isprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s2), is_lnt(s2), nt,
                                             lp, tynode, ctx)))
       +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s2),
                                                      tynode)), MNone{})
@@ -1271,7 +1271,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +samety3 = L.tri_is_yes(eq_ex(256n, U32.is_eq(ta3, tb3), is_ex(st),
                                     is_lnt(st), tn3,
                                     U.ex_at(is_ex(st), tb3)))
-      +isprop3 = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(st), is_lnt(st),
+      +isprop3 = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(st), is_lnt(st),
                                               nt, lp, tn3, ctx)))
       DR{st, L.pick_tri(U32.is_eq(pa3, pb3), eq_lvls(us, vs, is_lnt(st)),
                         L.pick_tri(known && samety3 && isprop3,
