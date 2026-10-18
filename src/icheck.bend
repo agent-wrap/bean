@@ -119,9 +119,54 @@ def show_ex(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> String:
     case 1n+q T.EStr{d}:
       "str"
 
+def show_atoms(xs: List<&2, L.Atom>, acc: String) -> String:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case L.At{base, off}:
+          show_atoms(tail, acc ++ " " ++ U32.show(base) ++ "+"
+                           ++ U32.show(off))
+
+def show_ln(+a: L.LN) -> String:
+  match a:
+    case L.LNun{}:
+      "UNKNOWN"
+    case L.LNsym{}:
+      "SYMBOLIC"
+    case L.LNmax{xs}:
+      "max{" ++ show_atoms(xs, "") ++ " }"
+    case L.LNimax{a2, b2, o}:
+      "imax+" ++ U32.show(o) ++ "(?,?)"
+
+def show_tri(+t: L.Tri) -> String:
+  match t:
+    case L.TYes{}:
+      "yes"
+    case L.TNo{}:
+      "no"
+    case L.TUnk{}:
+      "unknown"
+
 # For a declaration that declines: print the declared type, and the type
 # `infer` computes for its value, side by side. If they differ, the printed
 # pair says exactly how.
+# The universe of the type at index `ti`, the way `ck_typed` computes it:
+# infer its type, reduce, and read the level off the resulting Sort.
+def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ti: U32) -> L.LN:
+  +wt = I.whd(st, mt, lp, vt, ti)
+  +st1 = I.ir_st(wt)
+  +ri = I.infer(24n, st1, mt, nt, lp, vt,
+                U.ex_at(I.is_ex(st1), I.ir_ty(wt)), I.ir_ty(wt), Nil{})
+  +wk = I.whd(I.ir_st(ri), mt, lp, vt, I.ir_ty(ri))
+  +st2 = I.ir_st(wk)
+  +kx = U.ex_at(I.is_ex(st2), I.ir_ty(wk))
+  L.pick_ln(I.ir_ok(ri) && I.is_sortx(kx),
+            R.get(L.LN, 32n, I.is_lnt(st2), I.sort_lvl_of(kx), L.LNun{}),
+            L.LNun{})
+
 def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
   +ti = K.dcl_type(d)
@@ -132,6 +177,18 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ "\n    value:    " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), vi))
   ++ "\n    inferred: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), I.ir_ty(ri)))
   ++ "\n    infer-ok: " ++ pick_s(I.ir_ok(ri), "yes", "no")
+  # The universe of the DECLARED type, and whether it is a Prop: the theorem
+  # rule and the Sort comparison both hinge on these two answers.
+  ++ "\n    univ(ty): " ++ show_ln(univ_of(st, mt, nt, lp, vt, ti))
+  ++ "  is-prop: " ++ show_tri(L.ln_is_zero(univ_of(st, mt, nt, lp, vt, ti)))
+  # When the type is a Pi, the two halves of its `imax` separately, so a
+  # SYMBOLIC answer can be attributed to one side or the other.
+  ++ "\n    univ(dom): "
+  ++ show_ln(univ_of(st, mt, nt, lp, vt,
+                     I.all_dom(U.ex_at(I.is_ex(st), ti))))
+  ++ "  univ(cod): "
+  ++ show_ln(univ_of(st, mt, nt, lp, vt,
+                     I.all_cod(U.ex_at(I.is_ex(st), ti))))
 
 def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,

@@ -20,10 +20,26 @@ import ./term.bend as T
 type Atom is Data:
   At{base: U32, off: U32}
 
+# A level normal form. `LNmax` is a max over atoms (`base + offset`), which
+# covers everything built from zero, succ, max and parameters.
+#
+# `LNimax` is the form that max-of-atoms cannot express: `imax a b` where `b`
+# is neither provably zero nor provably positive -- a bare parameter. Lean
+# writes these constantly: the Church-numeral type
+# `PN : forall (a : Sort u), (a -> a) -> a -> a` has declared universe
+# `imax (succ u) u`. Collapsing that to "symbolic" made every universe
+# downstream of a polymorphic declaration undecidable, which declined
+# `PN` and, through it, `peano1`, `peano2` and `peano3`.
+#
+# Keeping it structural costs nothing and buys the only question that
+# actually gets asked of it: whether two of them are *the same*. The `off`
+# field carries an outer `succ` count, so `succ (imax a b)` stays comparable
+# instead of degrading.
 type LN is Data:
   LNun{}
   LNsym{}
   LNmax{xs: List<&2, Atom>}
+  LNimax{a: LN, b: LN, off: U32}
 
 def ln_zero() -> LN:
   LNmax{[At{0, 0}]}
@@ -128,6 +144,8 @@ def ln_succ(+a: LN) -> LN:
   match a:
     case LNmax{xs}:
       LNmax{off_add(1, xs)}
+    case LNimax{x, y, o}:
+      LNimax{x, y, (o + 1 : U32)}
     case LNun{}:
       LNun{}
     case LNsym{}:
@@ -137,6 +155,8 @@ def ln_add_off(+k: U32, +a: LN) -> LN:
   match a:
     case LNmax{xs}:
       LNmax{off_add(k, xs)}
+    case LNimax{x, y, o}:
+      LNimax{x, y, (o + k : U32)}
     case LNun{}:
       LNun{}
     case LNsym{}:
@@ -155,7 +175,10 @@ def ln_max(+a: LN, +b: LN) -> LN:
 
 # `imax a b` is zero when b is, and `max a b` when b is at least one. When b
 # is a bare parameter it could be either, and no max-of-atoms form expresses
-# that, so the answer is "cannot decide".
+# that -- so it is kept as a structural `LNimax`, which is still comparable
+# even though it is not decidable. `imax a a = a` is applied here, as Lean's
+# own smart constructor does: without it the universe this checker infers for
+# a polymorphic type does not match the one the export declares.
 def imax_case(+isz: Bool, +pos: Bool, xs: List<&2, Atom>,
               ys: List<&2, Atom>) -> LN:
   match isz pos:
@@ -164,7 +187,52 @@ def imax_case(+isz: Bool, +pos: Bool, xs: List<&2, Atom>,
     case False{} True{}:
       LNmax{List.append(&2, Atom, xs, ys)}
     case False{} False{}:
-      LNsym{}
+      +px = xs
+      +py = ys
+      +same = atoms_sub(px, py) && atoms_sub(py, px)
+      +l : LN = LNmax{px}
+      +r : LN = LNmax{py}
+      pick_ln(same, l, LNimax{l, r, 0})
+
+# Structural equality, used by the `imax` smart constructor below. Separate
+# from `ln_cmp` because that one is semantic for the max-of-atoms case (set
+# equality over atoms) and three-valued, and must be defined after this.
+def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
+  match fuel a b:
+    case 0n _ _:
+      False{}
+    case 1n+p LNmax{xs} LNmax{ys}:
+      +px = xs
+      +py = ys
+      atoms_sub(px, py) && atoms_sub(py, px)
+    case 1n+p LNimax{x1, y1, o1} LNimax{x2, y2, o2}:
+      +pf = p
+      U32.is_eq(o1, o2) && ln_eq(pf, x1, x2) && ln_eq(pf, y1, y2)
+    case 1n+p _ _:
+      False{}
+
+def is_zero_ln(+a: LN) -> Bool:
+  match a:
+    case LNmax{xs}:
+      all_zero(xs)
+    case _:
+      False{}
+
+# The same identities Lean's own `Level.imax` smart constructor applies:
+#   imax a 0 = 0,  imax a (succ b) = max a (succ b),  imax a a = a,
+#   imax 0 b = b
+# and otherwise keep it structural. The last two matter here: without
+# `imax a a = a` the universe this checker *infers* for a polymorphic type
+# does not match the one the export *declares*, even though both are the
+# same level, and the Sort comparison then declines.
+def imax_keep(+same: Bool, +azero: Bool, +a: LN, +b: LN) -> LN:
+  match same azero:
+    case True{} _:
+      a
+    case False{} True{}:
+      b
+    case False{} False{}:
+      LNimax{a, b, 0}
 
 def ln_imax(+a: LN, +b: LN) -> LN:
   match a b:
@@ -176,16 +244,51 @@ def ln_imax(+a: LN, +b: LN) -> LN:
       +py = ys
       imax_case(all_zero(py), some_positive(py), xs, py)
     case _ _:
-      LNsym{}
+      +pa : LN = a
+      +pb : LN = b
+      pick_ln(is_zero_ln(pb), ln_zero(),
+              imax_keep(ln_eq(32n, pa, pb), is_zero_ln(pa), pa, pb))
 
-def ln_cmp(+a: LN, +b: LN) -> Tri:
+# "Both, three-valued": no unless either is no, otherwise unknown if either
+# is unknown. `infer` has its own copy; this module cannot import it.
+def tri_both(+a: Tri, +b: Tri) -> Tri:
   match a b:
-    case LNmax{xs} LNmax{ys}:
+    case TNo{} _:
+      TNo{}
+    case _ TNo{}:
+      TNo{}
+    case TUnk{} _:
+      TUnk{}
+    case _ TUnk{}:
+      TUnk{}
+    case _ _:
+      TYes{}
+
+# Structural, and three-valued. Two `imax` forms are equal when both halves
+# and the offset are; anything else mixing the two shapes is "cannot decide",
+# never "no" -- an `imax` really can equal a max-of-atoms for some
+# instantiation, so denying it would be unsound.
+def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
+  match fuel a b:
+    case 0n _ _:
+      TUnk{}
+    case 1n+p LNmax{xs} LNmax{ys}:
       +px = xs
       +py = ys
       tri_of(atoms_sub(px, py) && atoms_sub(py, px))
-    case _ _:
+    case 1n+p LNimax{x1, y1, o1} LNimax{x2, y2, o2}:
+      +pf = p
+      tri_both(tri_of(U32.is_eq(o1, o2)),
+               tri_both(ln_cmp_f(pf, x1, x2), ln_cmp_f(pf, y1, y2)))
+    case 1n+p LNimax{x1, y1, o1} LNmax{ys}:
       TUnk{}
+    case 1n+p LNmax{xs} LNimax{x2, y2, o2}:
+      TUnk{}
+    case 1n+p _ _:
+      TUnk{}
+
+def ln_cmp(+a: LN, +b: LN) -> Tri:
+  ln_cmp_f(32n, a, b)
 
 # Three-valued, and it matters. `Sort u` for a universe PARAMETER `u` is
 # neither provably zero nor provably non-zero: u could be 0. Answering "not
@@ -202,6 +305,11 @@ def ln_is_zero(+a: LN) -> Tri:
       +px = xs
       pick_tri(all_zero(px), TYes{},
                pick_tri(some_positive(px), TNo{}, TUnk{}))
+    # `imax a b + off` with off > 0 is a successor, so positive. With off 0
+    # it is `b` when `b` is zero and `max a b` otherwise, and `b` here is by
+    # construction neither -- so: cannot decide.
+    case LNimax{x, y, o}:
+      pick_tri(U32.is_gt(o, 0), TNo{}, TUnk{})
     case _:
       TUnk{}
 
@@ -248,14 +356,27 @@ def ln_subst_go(xs: List<&2, Atom>, +ps: List<&2, U32>, +qs: List<&2, LN>,
     case Con{head, tail}:
       ln_subst_go(tail, ps, qs, ln_max(acc, atom_subst(head, ps, qs)))
 
-def ln_subst(+a: LN, +ps: List<&2, U32>, +qs: List<&2, LN>) -> LN:
-  match a:
-    case LNmax{xs}:
-      ln_subst_go(xs, ps, qs, ln_zero())
-    case LNun{}:
+# Substituting into an `imax` can make the right half decidable -- `imax u v`
+# with `v := 0` is `0` -- so the halves are substituted and the result is
+# rebuilt through `ln_imax`, which re-applies those rules.
+def ln_subst_f(fuel: Nat, +a: LN, +ps: List<&2, U32>,
+               +qs: List<&2, LN>) -> LN:
+  match fuel a:
+    case 0n _:
       LNun{}
-    case LNsym{}:
+    case 1n+p LNmax{xs}:
+      ln_subst_go(xs, ps, qs, ln_zero())
+    case 1n+p LNimax{x, y, o}:
+      +pf = p
+      ln_add_off(o, ln_imax(ln_subst_f(pf, x, ps, qs),
+                            ln_subst_f(pf, y, ps, qs)))
+    case 1n+p LNun{}:
+      LNun{}
+    case 1n+p LNsym{}:
       LNsym{}
+
+def ln_subst(+a: LN, +ps: List<&2, U32>, +qs: List<&2, LN>) -> LN:
+  ln_subst_f(32n, a, ps, qs)
 
 # --- resolving the level table ------------------------------------------
 # References may point forward (`other/level-index-out-of-order`), so normal
