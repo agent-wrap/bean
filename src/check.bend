@@ -638,6 +638,82 @@ def list_len(xs: List<&2, U32>, +acc: U32) -> U32:
 def prop_or_unknown(+t: L.Tri) -> L.Tri:
   L.pick_tri(L.tri_is_no(t), L.TUnk{}, t)
 
+# --- the subsingleton rule's index exception -----------------------------
+# A Prop inductive with one constructor supports large elimination when every
+# field of that constructor is EITHER a proof OR one of the index arguments
+# of the constructor's result type. The second clause was missing, and it is
+# the whole reason `Acc` works in Lean:
+#
+#   Acc.intro : forall {a} {r} (x : a), (forall y, r y x -> Acc r y)
+#                 -> Acc r x
+#
+# The field `x : a` is not a proof -- `a` is a `Sort u` -- so by the first
+# clause alone `Acc` would be barred from eliminating into `Sort u`. But `x`
+# is exactly the index of the result `Acc r x`, so it is allowed. Without
+# this, `Acc`, `PredWithTypeField` and `SortElimProp` came back "cannot
+# decide" and declined.
+#
+# The binder depth is carried, so a reference to the target from under n
+# further binders is n higher. Running out of fuel answers "it occurs",
+# which is the conservative direction: it grants the exception rather than
+# denying large elimination on a term too deep to read.
+def bvar_occurs(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +k: U32) -> Bool:
+  match fuel x:
+    case 0n _:
+      True{}
+    case 1n+p T.EBVar{i}:
+      U32.is_eq(i, k)
+    case 1n+p T.EApp{f, a}:
+      +pf = p
+      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, a, T.EBad{}), k)
+    case 1n+p T.ELam{n, t, b, bi}:
+      +pf = p
+      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+                     (k + 1 : U32))
+    case 1n+p T.EAll{n, t, b, bi}:
+      +pf = p
+      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+                     (k + 1 : U32))
+    case 1n+p T.ELet{n, t, v, b}:
+      +pf = p
+      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, v, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+                     (k + 1 : U32))
+    case 1n+p T.EProj{tn, i, sx}:
+      +pf = p
+      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, sx, T.EBad{}), k)
+    case 1n+p _:
+      False{}
+
+# The index must be EXACTLY the field variable, not merely contain it.
+#
+# `Eq.refl : forall {a} (x : a), Eq x x` has the field `x` as the index
+# itself, and `Eq.rec` does eliminate into `Sort u`. The arena also carries
+# the counterexample that forces this distinction: `SortElimProp2` has two
+# indices and two fields, and its recursor is declared with NO extra
+# universe parameter -- so Lean denies it large elimination. Accepting
+# "occurs anywhere in an index" granted it, and `rec_count_v` then rejected
+# an accept test. "Is the index" is the narrower reading and the one the
+# export agrees with.
+def is_bvar_k(+x: T.Ex, +k: U32) -> Bool:
+  match x:
+    case T.EBVar{i}:
+      U32.is_eq(i, k)
+    case _:
+      False{}
+
+def occurs_in_any(idxs: List<&2, U32>, +ex: R.Tr<T.Ex>, +k: U32) -> Bool:
+  match idxs:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      is_bvar_k(R.get(T.Ex, 32n, ex, head, T.EBad{}), k)
+      || occurs_in_any(tail, ex, k)
+
 # Every field of the constructor must be a proposition.
 #
 # The local context is threaded, and must be: a field's type is written under
@@ -653,20 +729,27 @@ def prop_or_unknown(+t: L.Tri) -> L.Tri:
 # on as the walk passes it.
 def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                 +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +nskip: U32,
-                +i: U32, +ctx: List<&2, U32>, +acc: L.Tri) -> L.Tri:
+                +i: U32, +ctx: List<&2, U32>, +idxs: List<&2, U32>,
+                +nf: U32, +acc: L.Tri) -> L.Tri:
   match doms:
     case Nil{}:
       acc
     case Con{head, tail}:
       +pi = i
       +ph = head
+      # The field's own de Bruijn index as seen from the result type, which
+      # sits under all `nf` fields: field 0 is `nf - 1`, the last is 0.
+      +isidx = U32.is_ge(pi, nskip) && U32.is_gt(nf, 0)
+               && occurs_in_any(idxs, ex,
+                                (nf - 1 - (pi - nskip : U32) : U32))
       fields_prop(tail, ex, ln, nt, lp, nskip, (pi + 1 : U32),
-                  Con{ph, ctx},
+                  Con{ph, ctx}, idxs, nf,
                   L.pick_tri(U32.is_lt(pi, nskip), acc,
-                             I.tri_and(acc,
-                               prop_or_unknown(
-                                 L.ln_is_zero(I.sl(64n, ex, ln, nt, lp,
-                                   U.ex_at(ex, ph), ctx))))))
+                             L.pick_tri(isidx, acc,
+                               I.tri_and(acc,
+                                 prop_or_unknown(
+                                   L.ln_is_zero(I.sl(64n, ex, ln, nt, lp,
+                                     U.ex_at(ex, ph), ctx)))))))
 
 def subsingleton(+nc: U32, +fp: L.Tri) -> L.Tri:
   L.pick_tri(U32.is_eq(nc, 0), L.TYes{},
@@ -732,14 +815,26 @@ def ctor_fields_prop(items: List<&2, K.IItem>, +ind: U32,
     case Con{head, tail}:
       match head:
         case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
+          # `np`, `ty` and `nf` are each used more than once below, so they
+          # are rebound as reusable first: pattern binders are affine.
+          +pnp = np
+          +pty = ty
+          +pnf = nf
           ctor_fields_prop(tail, ind, ex, ln, nt, lp,
             L.pick_tri(U32.is_eq(ind2, ind),
               I.tri_and(acc,
                 fields_prop(D.rev_u32(tele_doms(256n, ex,
-                                                U.ex_at(ex, ty), Nil{}),
+                                                U.ex_at(ex, pty), Nil{}),
                                       Nil{}),
-                            ex, ln, nt, lp, np, 0, Nil{},
-                            L.TYes{})),
+                            ex, ln, nt, lp, pnp, 0, Nil{},
+                            # the index arguments of the constructor's
+                            # result type: its spine, past the parameters
+                            I.skip_u(I.spine_ar(256n, ex,
+                                                tele_res(256n, ex,
+                                                  U.ex_at(ex, pty)),
+                                                Nil{}),
+                                     pnp),
+                            pnf, L.TYes{})),
               acc))
         case _:
           ctor_fields_prop(tail, ind, ex, ln, nt, lp, acc)
