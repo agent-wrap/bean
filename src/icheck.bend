@@ -350,7 +350,8 @@ def show_ctor_fields(items: List<&2, K.IItem>, +ind: U32, +ex: R.Tr<T.Ex>,
 # The recursor type this checker DERIVES, beside the one the export
 # DECLARES. `cmp_derived` compares them and declines when it cannot tell, so
 # seeing both is the only way to find out which part disagrees.
-def show_derived(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+def show_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                 +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                  +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
   match ind:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
@@ -363,7 +364,7 @@ def show_derived(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       +ul = W.param_lvls(lps, st, Nil{})
       +us = D.rev_u32(I.ls_xs(ul), Nil{})
       +mn = C.build_minors(U32.to_nat(nc), 1, its, pnm, us, np, ni, ex,
-                           I.ls_st(ul), Nil{})
+                           I.ls_st(ul), mt, lp, vt, Nil{})
       +d = W.derive_gen(I.ls_st(mn), pnm, us, np, ni, nc,
                         D.rev_u32(C.tele_doms(256n, ex, U.ex_at(ex, ty),
                                               Nil{}), Nil{}),
@@ -377,7 +378,8 @@ def show_derived(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
     case _:
       ""
 
-def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+def show_le(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
   match ind:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
@@ -399,8 +401,8 @@ def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       ++ "  nested: " ++ U32.show(nn)
       ++ show_ctor_fields(its, pnm, I.is_ex(st), I.is_lnt(st),
                           B.add_items_nt(its, nt), lp, "")
-      ++ show_derived(st, nt, lp, K.IInd{pnm, lps, ty, np, ni, nn, cs},
-                      its)
+      ++ show_derived(st, mt, nt, lp, vt,
+                      K.IInd{pnm, lps, ty, np, ni, nn, cs}, its)
     case _:
       ""
 
@@ -419,7 +421,8 @@ def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), B.add_items_nt(its, nt), lp))
   ++ "  names: "
   ++ vshow(C.block_names_v(its, nmt))
-  ++ show_le(st, nt, lp, C.head_item(C.ind_only(its, Nil{})), its)
+  ++ show_le(st, mt, nt, lp, vt,
+             C.head_item(C.ind_only(its, Nil{})), its)
 
 def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,

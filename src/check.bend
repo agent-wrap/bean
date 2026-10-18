@@ -1149,17 +1149,71 @@ def ctor_has_rec(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +ty: U32,
 # telescope no longer has to be empty -- `ih_one` builds the hypothesis for
 # it. What is still excluded is the inductive appearing in some other shape,
 # nested inside another type: `field_is_deep` catches that and declines.
-def field_is_rec(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +fty: U32) -> Bool:
+# The syntactic version, for the `Meta` table. That table is built before any
+# checking state exists, so there is nothing to reduce with -- and it is only
+# consulted by iota, where a missed field costs a decline rather than a wrong
+# answer. The derivation uses the reducing version above.
+def field_is_rec_syn(+ex: R.Tr<T.Ex>, +names: List<&2, U32>,
+                     +fty: U32) -> Bool:
   +fr = tele_res(256n, ex, U.ex_at(ex, fty))
   is_constx(spine_head(256n, ex, fr))
   && mem(const_name_of(spine_head(256n, ex, fr)), names)
 
-def field_is_deep(+ex: R.Tr<T.Ex>, +names: List<&2, U32>,
-                  +fty: U32) -> Bool:
-  Bool.not(L.tri_is_no(occurs_tri(ex, names, U.ex_at(ex, fty))))
-  && Bool.not(field_is_rec(ex, names, fty))
+def rec_positions_syn(fs: List<&2, U32>, +ex: R.Tr<T.Ex>,
+                      +names: List<&2, U32>, +i: U32,
+                      acc: List<&2, U32>) -> List<&2, U32>:
+  match fs:
+    case Nil{}:
+      D.rev_u32(acc, Nil{})
+    case Con{head, tail}:
+      +pi = i
+      rec_positions_syn(tail, ex, names, (pi + 1 : U32),
+                        T.cons_if(field_is_rec_syn(ex, names, head), pi,
+                                  acc))
 
-def rec_positions(fs: List<&2, U32>, +ex: R.Tr<T.Ex>,
+# The index, not the node, of a telescope's result -- so it can be reduced.
+def tele_res_ix(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +i: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      i
+    case 1n+p T.EAll{n, t, b, bi}:
+      tele_res_ix(p, ex, U.ex_at(ex, b), b)
+    case 1n+p _:
+      i
+
+# A recursive field is one whose telescope result REDUCES to the inductive.
+# Reduction is the point: `055_reduceCtorParam` declares
+#
+#     reduceCtorParam.mk : constType (reduceCtorParam a) (reduceCtorParam a)
+#                            -> reduceCtorParam a
+#
+# where `constType` is an ordinary definition that unfolds to its first
+# argument. Syntactically the field's head is `constType`; only after delta
+# is it the inductive. The export agrees -- it marks the type `isRec: true` --
+# and without reducing, the derivation produced a minor premise with no
+# inductive hypothesis and the block declined.
+#
+# The reduction's state is discarded: only the shape of the answer is wanted,
+# and the nodes it allocated go with it.
+def field_is_rec(+st: I.IS, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+                 +vt: R.Tr<U32>, +names: List<&2, U32>,
+                 +fty: U32) -> Bool:
+  +ex = I.is_ex(st)
+  +w = I.whd(st, mt, lp, vt,
+             tele_res_ix(256n, ex, U.ex_at(ex, fty), fty))
+  +ex2 = I.is_ex(I.ir_st(w))
+  +hd = spine_head(256n, ex2, U.ex_at(ex2, I.ir_ty(w)))
+  is_constx(hd) && mem(const_name_of(hd), names)
+
+def field_is_deep(+st: I.IS, +mt: R.Tr<I.Meta>,
+                  +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                  +names: List<&2, U32>, +fty: U32) -> Bool:
+  Bool.not(L.tri_is_no(occurs_tri(I.is_ex(st), names,
+                                  U.ex_at(I.is_ex(st), fty))))
+  && Bool.not(field_is_rec(st, mt, lp, vt, names, fty))
+
+def rec_positions(fs: List<&2, U32>, +st: I.IS, +mt: R.Tr<I.Meta>,
+                  +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                   +names: List<&2, U32>, +i: U32,
                   acc: List<&2, U32>) -> List<&2, U32>:
   match fs:
@@ -1167,22 +1221,27 @@ def rec_positions(fs: List<&2, U32>, +ex: R.Tr<T.Ex>,
       D.rev_u32(acc, Nil{})
     case Con{head, tail}:
       +pi = i
-      rec_positions(tail, ex, names, (pi + 1 : U32),
-                    T.cons_if(field_is_rec(ex, names, head), pi, acc))
+      rec_positions(tail, st, mt, lp, vt, names, (pi + 1 : U32),
+                    T.cons_if(field_is_rec(st, mt, lp, vt, names, head),
+                              pi, acc))
 
-def any_deep(fs: List<&2, U32>, +ex: R.Tr<T.Ex>,
+def any_deep(fs: List<&2, U32>, +st: I.IS, +mt: R.Tr<I.Meta>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
              +names: List<&2, U32>) -> Bool:
   match fs:
     case Nil{}:
       False{}
     case Con{head, tail}:
-      field_is_deep(ex, names, head) || any_deep(tail, ex, names)
+      field_is_deep(st, mt, lp, vt, names, head)
+      || any_deep(tail, st, mt, lp, vt, names)
 
 # Recursive fields are fine now; what still declines is a field that
 # mentions the inductive in some other shape -- nested inside another type,
 # or behind its own telescope.
-def no_deep_fields(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
-                   +names: List<&2, U32>, +ind: U32) -> Bool:
+def no_deep_fields(items: List<&2, K.IItem>, +st: I.IS,
+                   +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+                   +vt: R.Tr<U32>, +names: List<&2, U32>,
+                   +ind: U32) -> Bool:
   match items:
     case Nil{}:
       True{}
@@ -1191,14 +1250,15 @@ def no_deep_fields(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
         case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
           S.pick_b(U32.is_eq(ind2, ind),
                    Bool.not(any_deep(
-                     skip_n(D.rev_u32(tele_doms(256n, ex,
-                                                U.ex_at(ex, ty), Nil{}),
+                     skip_n(D.rev_u32(tele_doms(256n, I.is_ex(st),
+                                                U.ex_at(I.is_ex(st), ty),
+                                                Nil{}),
                                       Nil{}), np),
-                     ex, names)),
+                     st, mt, lp, vt, names)),
                    True{})
-          && no_deep_fields(tail, ex, names, ind)
+          && no_deep_fields(tail, st, mt, lp, vt, names, ind)
         case _:
-          no_deep_fields(tail, ex, names, ind)
+          no_deep_fields(tail, st, mt, lp, vt, names, ind)
 
 # `ih_s : motive i-bar'' f_h`, at context
 # [a.., motive, minors.., f_1..f_m, ih_1..ih_{s-1}].
@@ -1220,19 +1280,30 @@ def no_deep_fields(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
 # Context at the point the hypothesis is built: `m` lifted fields and `s-1`
 # earlier hypotheses are in scope, so the motive is at `s-1+m+j-1` and the
 # field itself at `s-1+m-h`; under the `q` new binders both move up by `q`.
-def ih_one(+st: I.IS, +ex: R.Tr<T.Ex>, +fty: U32, +p: U32, +m: U32,
+def ih_one(+st0: I.IS, +mt: R.Tr<I.Meta>, +lp2: R.Tr<List<&2, U32>>,
+           +vt: R.Tr<U32>, +ex: R.Tr<T.Ex>, +fty: U32, +p: U32, +m: U32,
            +j: U32, +s: U32, +h: U32) -> I.IR:
   +fx = U.ex_at(ex, fty)
   +q = tele_n(256n, ex, fx, 0)
   +amt2 = (s - 1 + m - h + 1 : U32)
+  # The field's result is REDUCED before its index arguments are read. For
+  # `055_reduceCtorParam` the raw result is
+  # `constType (reduceCtorParam a) (reduceCtorParam a)`, whose spine has two
+  # arguments; reduced it is `reduceCtorParam a`, with one. Taking them
+  # unreduced applied the motive to an argument that does not exist -- the
+  # inductive has no indices at all -- and the derived recursor disagreed
+  # with the declared one by exactly that argument.
+  +wr = I.whd(st0, mt, lp2, vt, tele_res_ix(256n, ex, fx, fty))
+  +st : I.IS = I.ir_st(wr)
+  +rsp = spine_args(256n, I.is_ex(st),
+                    U.ex_at(I.is_ex(st), I.ir_ty(wr)), Nil{})
   # the field's own binder types, each with its own cutoff
   +z1 = W.lift_each(D.rev_u32(tele_doms(256n, ex, fx, Nil{}), Nil{}), st,
                     (h - 1 : U32), j, 0, Nil{})
   +z2 = W.lift_each(D.rev_u32(I.ls_xs(z1), Nil{}), I.ls_st(z1), 0, amt2, 0,
                     Nil{})
   # the index arguments of the field's result, past the parameters
-  +l1 = W.lift_all(skip_n(spine_args(256n, ex,
-                                     tele_res(256n, ex, fx), Nil{}), p),
+  +l1 = W.lift_all(skip_n(rsp, p),
                    I.ls_st(z2), (h - 1 + q : U32), j, Nil{})
   +l2 = W.lift_all(D.rev_u32(I.ls_xs(l1), Nil{}), I.ls_st(l1), q, amt2,
                    Nil{})
@@ -1246,7 +1317,8 @@ def ih_one(+st: I.IS, +ex: R.Tr<T.Ex>, +fty: U32, +p: U32, +m: U32,
                       I.ir_st(fa), I.ir_ty(mv))
   W.wrap_alls(D.rev_u32(I.ls_xs(z2), Nil{}), I.ir_st(bd), I.ir_ty(bd))
 
-def ih_all(poss: List<&2, U32>, +st: I.IS, +ex: R.Tr<T.Ex>,
+def ih_all(poss: List<&2, U32>, +st: I.IS, +mt: R.Tr<I.Meta>,
+           +lp2: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ex: R.Tr<T.Ex>,
            +fs: List<&2, U32>, +p: U32, +m: U32, +j: U32, +s: U32,
            acc: List<&2, U32>) -> I.LS:
   match poss:
@@ -1254,21 +1326,24 @@ def ih_all(poss: List<&2, U32>, +st: I.IS, +ex: R.Tr<T.Ex>,
       I.LS{st, D.rev_u32(acc, Nil{})}
     case Con{head, tail}:
       +h = head
-      +r = ih_one(st, ex, I.nth_u(fs, (h - 1 : U32), 4294967295), p, m, j,
-                  s, h)
-      ih_all(tail, I.ir_st(r), ex, fs, p, m, j, (s + 1 : U32),
-             Con{I.ir_ty(r), acc})
+      +r = ih_one(st, mt, lp2, vt, ex,
+                  I.nth_u(fs, (h - 1 : U32), 4294967295), p, m, j, s, h)
+      ih_all(tail, I.ir_st(r), mt, lp2, vt, ex, fs, p, m, j,
+             (s + 1 : U32), Con{I.ir_ty(r), acc})
 
 # forall (f_1'..f_m') (ih_1..ih_r), motive e-bar'' (c_j a-bar f-bar)
-def minor_full(+st: I.IS, +ex: R.Tr<T.Ex>, +names: List<&2, U32>,
+def minor_full(+st: I.IS, +mt: R.Tr<I.Meta>,
+               +lp2: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+               +ex: R.Tr<T.Ex>, +names: List<&2, U32>,
                +cnm: U32, +us: List<&2, U32>, +p: U32, +k: U32, +m: U32,
                +j: U32, +cdoms: List<&2, U32>,
                +cargs: List<&2, U32>) -> I.IR:
   +fs = W.take_last(cdoms, m, W.list_len_u(cdoms, 0))
-  +poss = rec_positions(fs, ex, names, 1, Nil{})
+  +poss = rec_positions(fs, st, mt, lp2, vt, names, 1, Nil{})
   +r = W.list_len_u(poss, 0)
   +fl = W.lift_each(fs, st, 0, j, 0, Nil{})
-  +ihs = ih_all(poss, I.ls_st(fl), ex, fs, p, m, j, 1, Nil{})
+  +ihs = ih_all(poss, I.ls_st(fl), mt, lp2, vt, ex, fs, p, m, j, 1,
+                Nil{})
   +e1 = W.lift_all(W.take_last(cargs, k, W.list_len_u(cargs, 0)),
                    I.ls_st(ihs), m, j, Nil{})
   +e2 = W.lift_all(D.rev_u32(I.ls_xs(e1), Nil{}), I.ls_st(e1), 0, r,
@@ -1291,7 +1366,8 @@ def minor_full(+st: I.IS, +ex: R.Tr<T.Ex>, +names: List<&2, U32>,
 
 def build_minors(cnt: Nat, +j: U32, +items: List<&2, K.IItem>,
                  +ind: U32, +us: List<&2, U32>, +p: U32, +k: U32,
-                 +ex: R.Tr<T.Ex>, +st: I.IS,
+                 +ex: R.Tr<T.Ex>, +st: I.IS, +mtt: R.Tr<I.Meta>,
+                 +lp2: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                  acc: List<&2, U32>) -> I.LS:
   match cnt:
     case 0n:
@@ -1300,13 +1376,15 @@ def build_minors(cnt: Nat, +j: U32, +items: List<&2, K.IItem>,
       +ci = (j - 1 : U32)
       +cty = ctor_ty_by_cidx(items, ind, ci, 4294967295)
       +ctx = U.ex_at(ex, cty)
-      +mt = minor_full(st, ex, [ind], ctor_by_cidx(items, ind, ci, 0), us,
+      +mtv = minor_full(st, mtt, lp2, vt, ex, [ind],
+                       ctor_by_cidx(items, ind, ci, 0), us,
                        p, k, ctor_nf_by_cidx(items, ind, ci, 0), j,
                        D.rev_u32(tele_doms(256n, ex, ctx, Nil{}), Nil{}),
                        spine_args(256n, ex, tele_res(256n, ex, ctx),
                                   Nil{}))
       build_minors(q, (j + 1 : U32), items, ind, us, p, k, ex,
-                   I.ir_st(mt), Con{I.ir_ty(mt), acc})
+                   I.ir_st(mtv), mtt, lp2, vt,
+                   Con{I.ir_ty(mtv), acc})
 
 def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                 +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
@@ -1332,7 +1410,7 @@ def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
       +ul = W.param_lvls(lps, st, Nil{})
       +us = D.rev_u32(I.ls_xs(ul), Nil{})
       +mn = build_minors(U32.to_nat(nc), 1, items, nm, us, np, ni, ex,
-                         I.ls_st(ul), Nil{})
+                         I.ls_st(ul), mt, lp, vt, Nil{})
       +d = W.derive_gen(I.ls_st(mn), nm, us, np, ni, nc,
                         D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, ity),
                                             Nil{}), Nil{}),
@@ -1357,7 +1435,7 @@ def derive_block_v(+items: List<&2, K.IItem>, +st: I.IS,
       # is the recursor's extra level parameter, without it the motive goes
       # to `Prop`, and the sentinel name picks between them.
       derive_go(U32.is_eq(nn, 0) && Bool.not(L.tri_is_unk(le))
-                && no_deep_fields(its, ex, [pnm], pnm)
+                && no_deep_fields(its, st, mt, lp, vt, [pnm], pnm)
                 && U32.is_ne(rec_ty_of(rc), 4294967295),
                 its, st, mt, nt, lp, vt, ex, pnm, lps, ty, np, ni, nc,
                 S.pick(L.tri_is_yes(le), head_u(rec_lps_of(rc), 0),
@@ -1527,7 +1605,7 @@ def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
           meta_items(tail, ex, ind, np, ni, nc,
                      R.set(I.Meta, 32n, t, nm,
                            I.MCtor{ci, pcnp, nf, ind2,
-                                   rec_positions(
+                                   rec_positions_syn(
                                      skip_n(D.rev_u32(
                                        tele_doms(256n, ex,
                                                  U.ex_at(ex, ty), Nil{}),
