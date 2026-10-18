@@ -178,7 +178,8 @@ def lift_each(xs: List<&2, U32>, +st: I.IS, +base: U32, +amt: U32,
       +r = U.lift(256n, I.is_ex(st), I.is_nx(st),
                   U.ex_at(I.is_ex(st), ph), ph, (base + i : U32), amt)
       +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st),
-                        I.is_nlx(st), I.is_wm(st), I.is_ht(st)}
+                        I.is_nlx(st), I.is_wm(st), I.is_ht(st),
+                        I.is_natn(st), I.is_strn(st)}
       lift_each(tail, s2, base, amt, (i + 1 : U32),
                 Con{U.sr_i(r), acc})
 
@@ -193,7 +194,8 @@ def lift_all(xs: List<&2, U32>, +st: I.IS, +cut: U32, +amt: U32,
       +r = U.lift(256n, I.is_ex(st), I.is_nx(st),
                   U.ex_at(I.is_ex(st), ph), ph, cut, amt)
       +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st),
-                        I.is_nlx(st), I.is_wm(st), I.is_ht(st)}
+                        I.is_nlx(st), I.is_wm(st), I.is_ht(st),
+                        I.is_natn(st), I.is_strn(st)}
       lift_all(tail, s2, cut, amt, Con{U.sr_i(r), acc})
 
 def take_last(xs: List<&2, U32>, +n: U32, +len: U32) -> List<&2, U32>:

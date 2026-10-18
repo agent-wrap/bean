@@ -131,44 +131,57 @@ def meta_recs(+m: Meta) -> List<&2, U32>:
 # rather than being threaded as a parameter because the state already reaches
 # every function that needs it -- `whnf` for the delta decision and `defeq`
 # for the order of it -- and adding a parameter would touch forty signatures.
+# `natn` and `strn` are the export's name indices for `Nat` and `String`,
+# needed to give a literal a type. They are 4294967295 when the file never
+# names them, in which case a literal cannot be typed and declines.
 type IS is Data:
   IS{ex: R.Tr<T.Ex>, nx: U32, lnt: R.Tr<L.LN>, nlx: U32,
-     wm: R.Tr<U32>, ht: R.Tr<U32>}
+     wm: R.Tr<U32>, ht: R.Tr<U32>, natn: U32, strn: U32}
 
 type IR is Data:
   IR{st: IS, ty: U32, ok: Bool}
 
 def is_ex(+s: IS) -> R.Tr<T.Ex>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       ex
 
 def is_nx(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       nx
 
 def is_lnt(+s: IS) -> R.Tr<L.LN>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       lnt
 
 def is_nlx(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       nlx
 
 # Memo for weak head normalisation, keyed by expression index. Terms are
 # immutable once built, so an entry never needs invalidating.
 def is_wm(+s: IS) -> R.Tr<U32>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       wm
 
 def is_ht(+s: IS) -> R.Tr<U32>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       ht
+
+def is_natn(+s: IS) -> U32:
+  match s:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+      natn
+
+def is_strn(+s: IS) -> U32:
+  match s:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+      strn
 
 def ir_st(+r: IR) -> IS:
   match r:
@@ -531,15 +544,15 @@ def all_bi(+x: T.Ex) -> U32:
 # level this checker builds itself.
 def alloc_lvl(+s: IS, +u: L.LN) -> IR:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       IR{IS{ex, nx, R.set(L.LN, 32n, lnt, nlx, u, L.LNun{}),
-            (nlx + 1 : U32), wm, ht}, nlx, True{}}
+            (nlx + 1 : U32), wm, ht, natn, strn}, nlx, True{}}
 
 def alloc_ex(+s: IS, +x: T.Ex) -> IR:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
       IR{IS{R.set(T.Ex, 32n, ex, nx, x, T.EBad{}), (nx + 1 : U32), lnt,
-            nlx, wm, ht}, nx, True{}}
+            nlx, wm, ht, natn, strn}, nx, True{}}
 
 # `Sort u` for a universe given as a normal form.
 def alloc_sort(+s: IS, +u: L.LN) -> IR:
@@ -796,13 +809,13 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       +pf = p
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), b), b, 0,
                   a)
-      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st)}
+      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
       whnf(pf, delta, s2, mt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(r)), U.sr_i(r), rest)
     case 1n+p T.ELet{n, ty, v, b} _:
       +pf = p
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), b), b, 0,
                   v)
-      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st)}
+      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
       whnf(pf, delta, s2, mt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(r)), U.sr_i(r), args)
     # A constant with no unfolding leaves `e` alone and reads as EBad next
     # round, which falls through to rebuild: one wasted step rather than the
@@ -886,9 +899,10 @@ def whd_store(+i: U32, r: IR) -> IR:
   match r:
     case IR{st, ty, ok}:
       match st:
-        case IS{ex, nx, lnt, nlx, wm, ht}:
+        case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
           +pty = ty
-          IR{IS{ex, nx, lnt, nlx, R.set(U32, 32n, wm, i, pty, 4294967295), ht},
+          IR{IS{ex, nx, lnt, nlx, R.set(U32, 32n, wm, i, pty, 4294967295), ht,
+             natn, strn},
              pty, ok}
 
 def whd_sel(+hit: Bool, +h: U32, +st: IS, +mt: R.Tr<Meta>,
@@ -979,7 +993,7 @@ def peel_tele(n: Nat, +st: IS, +tyi: U32, vals: List<&2, U32>) -> IR:
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), cod), cod,
                   0, v)
       +nst : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
-                     is_wm(st), is_ht(st)}
+                     is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
       +rec = peel_tele(q, nst, U.sr_i(r), rest)
       pick_ir(is_all(node), rec, ir_bad(ir_st(rec)))
 
@@ -1150,7 +1164,7 @@ def dq_head_ty(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       +ti = nth_u(ctx, i, 4294967295)
       +lr = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ti), ti,
                    0, (i + 1 : U32))
-      IR{IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st)},
+      IR{IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)},
          U.sr_i(lr), Bool.not(U32.is_eq(ti, 4294967295))}
     case _:
       IR{st, 4294967295, False{}}
@@ -1253,11 +1267,11 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +la = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ta), ta,
                    0, (pa2 + 1 : U32))
       +s1 : IS = IS{U.sr_t(la), U.sr_nx(la), is_lnt(st), is_nlx(st),
-                    is_wm(st), is_ht(st)}
+                    is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
       +lb = U.lift(256n, is_ex(s1), is_nx(s1), U.ex_at(is_ex(s1), tb), tb,
                    0, (pb2 + 1 : U32))
       +s2 : IS = IS{U.sr_t(lb), U.sr_nx(lb), is_lnt(s1), is_nlx(s1),
-                    is_wm(s1), is_ht(s1)}
+                    is_wm(s1), is_ht(s1), is_natn(s1), is_strn(s1)}
       +samety = L.tri_is_yes(eq_ex(256n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
                                    is_ex(s2), is_lnt(s2),
                                    U.ex_at(is_ex(s2), U.sr_i(la)),
@@ -1355,7 +1369,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +lr = U.lift(256n, is_ex(sy), is_nx(sy),
                    U.ex_at(is_ex(sy), ir_ty(ay)), ir_ty(ay), 0, 1)
       +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sy), is_nlx(sy),
-                    is_wm(sy), is_ht(sy)}
+                    is_wm(sy), is_ht(sy), is_natn(sy), is_strn(sy)}
       +bv = alloc_ex(s1, T.EBVar{0})
       +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
       +s2 : IS = ir_st(ap)
@@ -1374,7 +1388,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +lr = U.lift(256n, is_ex(sx), is_nx(sx),
                    U.ex_at(is_ex(sx), ir_ty(ax)), ir_ty(ax), 0, 1)
       +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sx), is_nlx(sx),
-                    is_wm(sx), is_ht(sx)}
+                    is_wm(sx), is_ht(sx), is_natn(sx), is_strn(sx)}
       +bv = alloc_ex(s1, T.EBVar{0})
       +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
       +s2 : IS = ir_st(ap)
@@ -1507,8 +1521,16 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +ti = nth_u(ctx, i, 4294967295)
       +sr = U.lift(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), ti), ti, 0,
                    (i + 1 : U32))
-      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s)}, U.sr_i(sr),
+      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s)}, U.sr_i(sr),
          U32.is_ne(ti, 4294967295)}
+    # A literal's type is the constant `Nat` or `String`. Without this,
+    # `infer` had no case for literals at all and answered BAD.
+    case 1n+p T.ENat{d}:
+      pick_ir(U32.is_eq(is_natn(s), 4294967295), ir_bad(s),
+              alloc_ex(s, T.EConst{is_natn(s), Nil{}}))
+    case 1n+p T.EStr{d}:
+      pick_ir(U32.is_eq(is_strn(s), 4294967295), ir_bad(s),
+              alloc_ex(s, T.EConst{is_strn(s), Nil{}}))
     case 1n+p T.EConst{n, us}:
       +ti = R.get(U32, 32n, nt, n, 4294967295)
       pick_ir(U32.is_eq(ti, 4294967295), ir_bad(s),
@@ -1518,7 +1540,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     case 1n+p T.ELet{n, ty, v, b}:
       +pf = p
       +rz = U.inst(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), b), b, 0, v)
-      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s)}
+      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s)}
       infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(rz)),
             U.sr_i(rz), ctx)
     case 1n+p T.EApp{f, a} :
@@ -1564,7 +1586,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +sd : IS = dr_st(dq)
       +rz = U.inst(256n, is_ex(sd), is_nx(sd),
                    U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
-      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd)},
+      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd)},
          U.sr_i(rz),
          ir_ok(rf) && ir_ok(ra) && is_all(node)
          && L.tri_is_yes(dr_r(dq))}

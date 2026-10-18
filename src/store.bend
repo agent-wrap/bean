@@ -316,6 +316,41 @@ def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                    R2.set(U32, 32n, t, T.fld(fs, 3373707, 0),
                           height_of(fs), 4294967295), t))
 
+# --- finding a name by its text ------------------------------------------
+# `Nat` and `String` have to be named to type a literal: `infer` on
+# `ENat`/`EStr` must answer with the constant, and the export's name INDEX
+# for it is not fixed -- it is whatever ordinal the file happened to use. So
+# the name table is scanned once for a top-level `str` name whose bytes
+# match, and the index is carried in the state.
+#
+# `pre = 0` is required: the name must be top-level, so a `Foo.Nat` elsewhere
+# in the file cannot be mistaken for it.
+def bytes_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{h1, t1} Con{h2, t2}:
+      U32.is_eq(h1, h2) && bytes_eq(t1, t2)
+    case _ _:
+      False{}
+
+def find_name(rs: List<&2, D.Rec>, +want: List<&2, U32>,
+              +acc: U32) -> U32:
+  match rs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case D.Rec{kind, ix, flds, b1, b2, sb}:
+          +k = kind
+          +fs = flds
+          +pix = ix
+          find_name(tail, want,
+                    S.pick(U32.is_eq(k, 114225)
+                           && U32.is_eq(T.fld(fs, 111267, 1), 0)
+                           && bytes_eq(sb, want),
+                           pix, acc))
+
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:
     case Nil{}:

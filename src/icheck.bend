@@ -464,7 +464,10 @@ def report(+bs: List<&2, U32>, +verbose: Bool) -> String:
   +ds = K.decls_of(recs, Nil{})
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(32n, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
-  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{})}
+  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
+                    K.find_name(recs, [78, 97, 116], 4294967295),
+                    K.find_name(recs,
+                                [83, 116, 114, 105, 110, 103], 4294967295)}
   walk(ds, 512n, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
        R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), verbose, "")
 
