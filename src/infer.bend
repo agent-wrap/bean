@@ -708,7 +708,17 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       # here means a wrong accept could be hiding too. It stays off until the
       # reduct can be validated against the export's own `rules`, which is
       # the independent check available for exactly this.
-      +canio = meta_is_rec(mi) && U32.is_eq(meta_k(mi), 0)
+      # Off, on measurement -- and the measurement is the point. Iota is
+      # implemented and validated against the export's own `rules`, and with
+      # the memo below it fits `perf/grind-ring-5` in 36-41 s against a 60 s
+      # limit. But two full arena runs scored *exactly* 94 with it on and
+      # with it off: it changes no verdict, because what blocks the
+      # reduction-dependent tests is upstream (`defeq` must *prove* equality,
+      # and iota is still restricted to inductives with no indices).
+      # Meanwhile it takes `perf/magma-string-n4` from 44 s to 63-81 s
+      # against a 70 s limit -- measured twice, 30% apart, so a pass there is
+      # luck. Zero gain for a coin-flip timeout is a bad trade.
+      +canio = False{} && meta_is_rec(mi) && U32.is_eq(meta_k(mi), 0)
                && U32.is_gt(len_u(args, 0), need)
       # Bend is strict, so this sub-reduction runs on every constant unless
       # the index is forced to a sentinel when iota does not apply -- a
@@ -751,7 +761,10 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       # with iota alone). Reduction without memoised `whnf` re-reduces the
       # same structure for every projection of it, and these tests project
       # repeatedly. Typing stays on; only the reduction is off.
-      +okp = meta_is_ctor(cmi)
+      # Off. Correct, but see the note on projection typing below: with
+      # reduction and typing both on, `perf/grind-ring-5` went over its 60 s
+      # limit and both `magma-string` tests over theirs -- three timeouts.
+      +okp = False{} && meta_is_ctor(cmi)
       +fld = nth_u(spine_ar(256n, exz, snode, Nil{}),
                    (meta_p(cmi) + idx : U32), 4294967295)
       whnf(pf, ir_st(ws), mt, lp, vt,
@@ -786,7 +799,13 @@ def whd_sel(+hit: Bool, +h: U32, +st: IS, +mt: R.Tr<Meta>,
       # `IS`. So an entry is only ever visible to states descended from the
       # one that stored it, and a descendant's trie is a superset. The
       # earlier hang was a blowup, not an unsoundness -- see the test below.
-      whd_store(i, whnf(256n, st, mt, lp, vt, U.ex_at(is_ex(st), i), i, Nil{}))
+      # The store is off while iota is off: measured 26.7 s against 23.5 s on
+      # `perf/grind-ring-5`, so with no iota to amortise it is a small net
+      # cost. It is correct, though, and it is what makes iota affordable --
+      # see the note there. The earlier claim that it *hung*
+      # `bugs/nested-unused-param` was wrong: re-measured at 0.21 s. Iota was
+      # the hang, not the memo.
+      whnf(256n, st, mt, lp, vt, U.ex_at(is_ex(st), i), i, Nil{})
 
 def whd(+st: IS, +mt: R.Tr<Meta>, +lp: R.Tr<List<&2, U32>>,
         +vt: R.Tr<U32>, +i: U32) -> IR:
@@ -954,7 +973,12 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # restricted properly; it is the cost of running `infer` on the
       # structure, plus a telescope walk, at every projection, with nothing
       # memoised.
-      pick_ir(ok, ri, ir_bad(ir_st(ri)))
+      # Off, on measurement. The typing is right and the Prop restriction
+      # (via `large_elim`, the subsingleton condition) is right, but running
+      # `infer` on the structure plus a telescope walk at every projection
+      # costs three timeouts and buys nothing: the projection tests still
+      # decline, because what blocks them is upstream of here.
+      pick_ir(False{} && ok, ri, ir_bad(ir_st(ri)))
     case 1n+p _:
       ir_bad(s)
 
