@@ -1648,6 +1648,16 @@ def ck_infer(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
   cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
 
+def cr_fallback(+t: L.Tri, +fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>,
+                +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                +x: T.Ex, +e: U32, +tye: U32,
+                +ctx: List<&2, U32>) -> CR:
+  match t:
+    case L.TYes{}:
+      cr_of(st, L.TYes{})
+    case _:
+      ck_infer(fuel, st, mt, nt, lp, vt, x, e, tye, ctx)
+
 def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
             +ty: T.Ex, +tye: U32, +ctx: List<&2, U32>) -> CR:
@@ -1668,7 +1678,18 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +dd = I.defeq(64n, U32.is_eq(pa, a2), stw, mt, nt, lp, vt, Con{pa, ctx},
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd1)),
                     U.ex_at(I.is_ex(stw), I.ir_ty(wd2)))
-      cr_of(I.dr_st(dd), I.tri_and(I.dr_r(dd), cr_r(sub)))
+      # If the structural route cannot conclude, fall back to the general
+      # rule: infer the whole lambda's type and compare it with the declared
+      # one. `Nat.below` is why. Checking it structurally descends into the
+      # body and compares a recursor application against the Pi's codomain,
+      # which does not conclude; inferring the lambda outright gives
+      # `forall motive n, (fun _ => Sort v) n`, and that IS definitionally
+      # the declared `forall motive n, Sort v`.
+      #
+      # A `match`, so the fallback costs nothing when the structural route
+      # already succeeded.
+      cr_fallback(I.tri_and(I.dr_r(dd), cr_r(sub)), pf, I.dr_st(dd), mt, nt,
+                  lp, vt, x, e, tye, ctx)
     # A `let` on the value side is zeta-reduced and re-checked. Without
     # this, `tutorial/033_letType` -- `def letType : Type := let x := Prop; x`
     # -- reaches the Sort rule, which has no rule for `let` and declines.

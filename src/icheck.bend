@@ -231,6 +231,26 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ "  is-prop: " ++ show_tri(L.ln_is_zero(univ_of(st, mt, nt, lp, vt, ti)))
   # When the type is a Pi, the two halves of its `imax` separately, so a
   # SYMBOLIC answer can be attributed to one side or the other.
+  # What `ck_infer` actually concludes: reduce both sides and compare.
+  ++ "\n    defeq(inferred, declared): "
+  ++ show_tri(I.dr_r(I.defeq(64n,
+                U32.is_eq(I.ir_ty(ri), ti),
+                I.ir_st(I.whd(I.ir_st(I.whd(st2, mt, lp, vt,
+                                            I.ir_ty(ri))),
+                              mt, lp, vt, ti)),
+                mt, nt, lp, vt, Nil{},
+                U.ex_at(I.is_ex(st2), I.ir_ty(I.whd(st2, mt, lp, vt,
+                                                    I.ir_ty(ri)))),
+                U.ex_at(I.is_ex(st2), I.ir_ty(I.whd(st2, mt, lp, vt,
+                                                    ti))))))
+  # The two halves of `ck_one`'s non-inductive branch, separately.
+  ++ "\n    self-ref: " ++ vshow(C.self_ref_v(I.is_ex(st), d))
+  ++ "  ck-typed: "
+  ++ vshow(C.ck_typed(512n, st, mt, nt, lp, vt, K.dcl_is_theorem(d),
+                      K.dcl_type(d), K.dcl_value(d)))
+  ++ "  ck-value: "
+  ++ vshow(C.ck_value(512n, st, mt, nt, lp, vt, K.dcl_type(d),
+                      K.dcl_value(d)))
   ++ "\n    head-const: "
   ++ U32.show(head_const(32n, I.is_ex(st2),
                          U.ex_at(I.is_ex(st2), vi)))
