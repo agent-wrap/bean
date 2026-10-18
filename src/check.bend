@@ -156,7 +156,7 @@ def const_nm_of(+x: T.Ex) -> U32:
       0
 
 def bad_const_at(+i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> Bool:
-  +x = R.get(T.Ex, 32n, ex, i, T.EBad{})
+  +x = R.get(T.Ex, 64n, ex, i, T.EBad{})
   U32.is_gt(const_nm_of(x), 0)
   && Bool.not(R.get(Bool, 32n, dn, const_nm_of(x), False{}))
 
@@ -175,7 +175,7 @@ def tele_n(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +cnt: U32) -> U32:
     case 0n _:
       cnt
     case 1n+p T.EAll{n, t, b, bi}:
-      tele_n(p, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}), (cnt + 1 : U32))
+      tele_n(p, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}), (cnt + 1 : U32))
     case 1n+p _:
       cnt
 
@@ -184,7 +184,7 @@ def tele_res(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
     case 0n _:
       T.EBad{}
     case 1n+p T.EAll{n, t, b, bi}:
-      tele_res(p, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}))
+      tele_res(p, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}))
     case 1n+p y:
       y
 
@@ -240,7 +240,7 @@ def ind_one(+ex: R.Tr<T.Ex>, +nt: R.Tr<U32>, +vt: R.Tr<U32>,
             +it: K.IItem) -> V:
   match it:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
-      +x = R.get(T.Ex, 32n, ex, ty, T.EBad{})
+      +x = R.get(T.Ex, 64n, ex, ty, T.EBad{})
       ind_item_v(ind_res_tri(ex, nt, vt, tele_res(256n, ex, x)),
                  U32.is_ge(tele_n(256n, ex, x, 0), (np + ni : U32)))
     # Not an inductive type: not this check's business. Declining here made
@@ -698,27 +698,27 @@ def bvar_occurs(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +k: U32) -> Bool:
       U32.is_eq(i, k)
     case 1n+p T.EApp{f, a}:
       +pf = p
-      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}), k)
-      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, a, T.EBad{}), k)
+      bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, f, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, a, T.EBad{}), k)
     case 1n+p T.ELam{n, t, b, bi}:
       +pf = p
-      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
-      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+      bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}),
                      (k + 1 : U32))
     case 1n+p T.EAll{n, t, b, bi}:
       +pf = p
-      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
-      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+      bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}),
                      (k + 1 : U32))
     case 1n+p T.ELet{n, t, v, b}:
       +pf = p
-      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, t, T.EBad{}), k)
-      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, v, T.EBad{}), k)
-      || bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+      bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, t, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, v, T.EBad{}), k)
+      || bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}),
                      (k + 1 : U32))
     case 1n+p T.EProj{tn, i, sx}:
       +pf = p
-      bvar_occurs(pf, ex, R.get(T.Ex, 32n, ex, sx, T.EBad{}), k)
+      bvar_occurs(pf, ex, R.get(T.Ex, 64n, ex, sx, T.EBad{}), k)
     case 1n+p _:
       False{}
 
@@ -744,7 +744,7 @@ def occurs_in_any(idxs: List<&2, U32>, +ex: R.Tr<T.Ex>, +k: U32) -> Bool:
     case Nil{}:
       False{}
     case Con{head, tail}:
-      is_bvar_k(R.get(T.Ex, 32n, ex, head, T.EBad{}), k)
+      is_bvar_k(R.get(T.Ex, 64n, ex, head, T.EBad{}), k)
       || occurs_in_any(tail, ex, k)
 
 # Every field of the constructor must be a proposition.

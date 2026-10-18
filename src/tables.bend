@@ -27,7 +27,7 @@ def build_ex(rs: List<&2, D.Rec>, +t: R.Tr<T.Ex>) -> R.Tr<T.Ex>:
           +k = kind
           build_ex(tail,
             R.sub(T.Ex, K.is_ex_kind(k),
-                  R.set(T.Ex, 32n, t, ix,
+                  R.set(T.Ex, 64n, t, ix,
                         T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb),
                         T.EBad{}),
                   t))

@@ -41,11 +41,22 @@ def pick_sr(+z: Bool, +x: SR, +y: SR) -> SR:
     case False{}:
       y
 
+# Depth 64, not 32, for the expression trie and the reduction memo keyed by
+# expression index.
+#
+# `set` materialises a `TNil` node AND descends, so a key into a sparse
+# region costs up to twice its bit width in fuel -- and on exhaustion `set`
+# returns `TNil{}`, discarding the entire trie. That is a silent,
+# catastrophic failure mode: the checker gets FASTER and starts declining
+# everything. It was found by an interning experiment whose keys sat around
+# 2^26, but it is not specific to that: a file with more than about two
+# million expressions reaches 21-bit indices, and 32 fuel is then within
+# a factor of two of wiping the trie on a cold path. 64 removes the cliff.
 def ex_at(+t: R.Tr<T.Ex>, +i: U32) -> T.Ex:
-  R.get(T.Ex, 32n, t, i, T.EBad{})
+  R.get(T.Ex, 64n, t, i, T.EBad{})
 
 def alloc(+t: R.Tr<T.Ex>, +nx: U32, +x: T.Ex) -> SR:
-  SR{R.set(T.Ex, 32n, t, nx, x, T.EBad{}), (nx + 1 : U32), nx}
+  SR{R.set(T.Ex, 64n, t, nx, x, T.EBad{}), (nx + 1 : U32), nx}
 
 # Nothing to build: the index is already right.
 def keep(+t: R.Tr<T.Ex>, +nx: U32, +i: U32) -> SR:

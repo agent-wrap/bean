@@ -241,7 +241,7 @@ def lns_of(us: List<&2, U32>, +ln: R.Tr<L.LN>) -> List<&2, L.LN>:
 # level when the entry is a Sort. Anything else needs reduction.
 def sl_bvar(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +ctx: List<&2, U32>,
             +i: U32) -> L.LN:
-  +tx = R.get(T.Ex, 32n, ex, nth_u(ctx, i, 4294967295), T.EBad{})
+  +tx = R.get(T.Ex, 64n, ex, nth_u(ctx, i, 4294967295), T.EBad{})
   L.pick_ln(is_sortx(tx),
             R.get(L.LN, 32n, ln, sort_lvl_of(tx), L.LNun{}), L.LNun{})
 
@@ -250,7 +250,7 @@ def sl_bvar(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +ctx: List<&2, U32>,
 def sl_const(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +n: U32,
              +us: List<&2, U32>) -> L.LN:
-  +tx = R.get(T.Ex, 32n, ex, R.get(U32, 32n, nt, n, 4294967295), T.EBad{})
+  +tx = R.get(T.Ex, 64n, ex, R.get(U32, 32n, nt, n, 4294967295), T.EBad{})
   L.pick_ln(is_sortx(tx),
             L.ln_subst(R.get(L.LN, 32n, ln, sort_lvl_of(tx), L.LNun{}),
                        R.get(List<&2, U32>, 32n, lp, n, Nil{}),
@@ -276,7 +276,7 @@ def sl_spine_hd(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
     case 0n _:
       T.EBad{}
     case 1n+p T.EApp{f, a}:
-      sl_spine_hd(p, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}))
+      sl_spine_hd(p, ex, R.get(T.Ex, 64n, ex, f, T.EBad{}))
     case 1n+p y:
       y
 
@@ -285,7 +285,7 @@ def sl_nargs(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +acc: U32) -> U32:
     case 0n _:
       acc
     case 1n+p T.EApp{f, a}:
-      sl_nargs(p, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}), (acc + 1 : U32))
+      sl_nargs(p, ex, R.get(T.Ex, 64n, ex, f, T.EBad{}), (acc + 1 : U32))
     case 1n+p _:
       acc
 
@@ -294,7 +294,7 @@ def sl_tele_after(n: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
     case 0n y:
       y
     case 1n+q T.EAll{nm, t, b, bi}:
-      sl_tele_after(q, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}))
+      sl_tele_after(q, ex, R.get(T.Ex, 64n, ex, b, T.EBad{}))
     case 1n+q _:
       T.EBad{}
 
@@ -338,7 +338,7 @@ def sl_app(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
   +nm = sl_const_nm(hd)
   +ti = sl_head_ty(hd, nt, ctx)
   +res = sl_tele_after(U32.to_nat(sl_nargs(256n, ex, x, 0)), ex,
-                       R.get(T.Ex, 32n, ex, ti, T.EBad{}))
+                       R.get(T.Ex, 64n, ex, ti, T.EBad{}))
   L.pick_ln(Bool.not(U32.is_eq(ti, 4294967295)) && is_sortx(res),
             L.ln_subst(R.get(L.LN, 32n, ln, sort_lvl_of(res), L.LNun{}),
                        R.get(List<&2, U32>, 32n, lp, nm, Nil{}),
@@ -356,8 +356,8 @@ def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
       +pt = t
       +pf = p
       L.ln_imax(
-        sl(pf, ex, ln, nt, lp, R.get(T.Ex, 32n, ex, pt, T.EBad{}), ctx),
-        sl(pf, ex, ln, nt, lp, R.get(T.Ex, 32n, ex, b, T.EBad{}),
+        sl(pf, ex, ln, nt, lp, R.get(T.Ex, 64n, ex, pt, T.EBad{}), ctx),
+        sl(pf, ex, ln, nt, lp, R.get(T.Ex, 64n, ex, b, T.EBad{}),
            Con{pt, ctx}))
     case 1n+p T.EBVar{i}:
       sl_bvar(ex, ln, ctx, i)
@@ -400,7 +400,7 @@ def not_a_type(+ex: R.Tr<T.Ex>, +nt: R.Tr<U32>, +x: T.Ex) -> Bool:
     case T.EStr{d}:
       True{}
     case T.EConst{n, us}:
-      head_not_sort(R.get(T.Ex, 32n, ex,
+      head_not_sort(R.get(T.Ex, 64n, ex,
                           R.get(U32, 32n, nt, n, 4294967295), T.EBad{}))
     case _:
       False{}
@@ -478,27 +478,27 @@ def eq_ex(+fuel: Nat, +same: Bool, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
     case 1n+p False{} T.EApp{f1, a1} T.EApp{f2, a2}:
       +pf = p
       tri_and(eq_ex(pf, U32.is_eq(f1, f2), ex, ln,
-                    R.get(T.Ex, 32n, ex, f1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, f2, T.EBad{})),
+                    R.get(T.Ex, 64n, ex, f1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, f2, T.EBad{})),
               eq_ex(pf, U32.is_eq(a1, a2), ex, ln,
-                    R.get(T.Ex, 32n, ex, a1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, a2, T.EBad{})))
+                    R.get(T.Ex, 64n, ex, a1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, a2, T.EBad{})))
     case 1n+p False{} T.EAll{n1, t1, b1, i1} T.EAll{n2, t2, b2, i2}:
       +pf = p
       tri_and(eq_ex(pf, U32.is_eq(t1, t2), ex, ln,
-                    R.get(T.Ex, 32n, ex, t1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, t2, T.EBad{})),
+                    R.get(T.Ex, 64n, ex, t1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, t2, T.EBad{})),
               eq_ex(pf, U32.is_eq(b1, b2), ex, ln,
-                    R.get(T.Ex, 32n, ex, b1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, b2, T.EBad{})))
+                    R.get(T.Ex, 64n, ex, b1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, b2, T.EBad{})))
     case 1n+p False{} T.ELam{n1, t1, b1, i1} T.ELam{n2, t2, b2, i2}:
       +pf = p
       tri_and(eq_ex(pf, U32.is_eq(t1, t2), ex, ln,
-                    R.get(T.Ex, 32n, ex, t1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, t2, T.EBad{})),
+                    R.get(T.Ex, 64n, ex, t1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, t2, T.EBad{})),
               eq_ex(pf, U32.is_eq(b1, b2), ex, ln,
-                    R.get(T.Ex, 32n, ex, b1, T.EBad{}),
-                    R.get(T.Ex, 32n, ex, b2, T.EBad{})))
+                    R.get(T.Ex, 64n, ex, b1, T.EBad{}),
+                    R.get(T.Ex, 64n, ex, b2, T.EBad{})))
     case 1n+p False{} _ _:
       L.TUnk{}
 
@@ -551,7 +551,7 @@ def alloc_lvl(+s: IS, +u: L.LN) -> IR:
 def alloc_ex(+s: IS, +x: T.Ex) -> IR:
   match s:
     case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
-      IR{IS{R.set(T.Ex, 32n, ex, nx, x, T.EBad{}), (nx + 1 : U32), lnt,
+      IR{IS{R.set(T.Ex, 64n, ex, nx, x, T.EBad{}), (nx + 1 : U32), lnt,
             nlx, wm, ht, natn, strn}, nx, True{}}
 
 # `Sort u` for a universe given as a normal form.
@@ -901,7 +901,7 @@ def whd_store(+i: U32, r: IR) -> IR:
       match st:
         case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
           +pty = ty
-          IR{IS{ex, nx, lnt, nlx, R.set(U32, 32n, wm, i, pty, 4294967295), ht,
+          IR{IS{ex, nx, lnt, nlx, R.set(U32, 64n, wm, i, pty, 4294967295), ht,
              natn, strn},
              pty, ok}
 
@@ -928,7 +928,7 @@ def whd_sel(+hit: Bool, +h: U32, +st: IS, +mt: R.Tr<Meta>,
 
 def whd(+st: IS, +mt: R.Tr<Meta>, +lp: R.Tr<List<&2, U32>>,
         +vt: R.Tr<U32>, +i: U32) -> IR:
-  +h = R.get(U32, 32n, is_wm(st), i, 4294967295)
+  +h = R.get(U32, 64n, is_wm(st), i, 4294967295)
   whd_sel(U32.is_ne(h, 4294967295), h, st, mt, lp, vt, i)
 
 # Weak head normal form WITHOUT delta: beta, zeta, iota and projection only.
