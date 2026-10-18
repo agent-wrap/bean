@@ -334,7 +334,7 @@ def bytes_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
     case _ _:
       False{}
 
-def find_name(rs: List<&2, D.Rec>, +want: List<&2, U32>,
+def find_name(+rs: List<&2, D.Rec>, +want: List<&2, U32>,
               +acc: U32) -> U32:
   match rs:
     case Nil{}:
@@ -350,6 +350,40 @@ def find_name(rs: List<&2, D.Rec>, +want: List<&2, U32>,
                            && U32.is_eq(T.fld(fs, 111267, 1), 0)
                            && bytes_eq(sb, want),
                            pix, acc))
+
+# The quotient package's four names, which the kernel needs by identity to
+# implement `Quot.lift` and `Quot.ind` reduction. The export declares them as
+# `quot` declarations with a `kind` string, but the scanner captures one
+# string payload per record and a `quot` record has others, so they are found
+# by NAME instead: `Quot` at top level, then `mk`, `lift` and `ind` under it.
+#
+# Slot 0 is `Quot.lift`, 1 is `Quot.ind`, 2 is `Quot.mk`. A name the file
+# never declares stays 4294967295 and the corresponding rule never fires.
+def find_under(+rs: List<&2, D.Rec>, +pre: U32, +want: List<&2, U32>,
+               +acc: U32) -> U32:
+  match rs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case D.Rec{kind, ix, flds, b1, b2, sb}:
+          +k = kind
+          +fs = flds
+          +pix = ix
+          find_under(tail, pre, want,
+                     S.pick(U32.is_eq(k, 114225)
+                            && U32.is_eq(T.fld(fs, 111267, 4294967295), pre)
+                            && bytes_eq(sb, want),
+                            pix, acc))
+
+def build_quot(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  +q = find_name(rs, [81, 117, 111, 116], 4294967295)
+  R2.set(U32, 32n, R2.set(U32, 32n,
+           R2.set(U32, 32n, t, 0,
+                  find_under(rs, q, [108, 105, 102, 116], 4294967295),
+                  4294967295),
+           1, find_under(rs, q, [105, 110, 100], 4294967295), 4294967295),
+         2, find_under(rs, q, [109, 107], 4294967295), 4294967295)
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:

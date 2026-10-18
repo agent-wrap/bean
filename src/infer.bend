@@ -136,52 +136,62 @@ def meta_recs(+m: Meta) -> List<&2, U32>:
 # names them, in which case a literal cannot be typed and declines.
 type IS is Data:
   IS{ex: R.Tr<T.Ex>, nx: U32, lnt: R.Tr<L.LN>, nlx: U32,
-     wm: R.Tr<U32>, ht: R.Tr<U32>, natn: U32, strn: U32}
+     wm: R.Tr<U32>, ht: R.Tr<U32>, natn: U32, strn: U32,
+     qt: R.Tr<U32>}
 
 type IR is Data:
   IR{st: IS, ty: U32, ok: Bool}
 
 def is_ex(+s: IS) -> R.Tr<T.Ex>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       ex
 
 def is_nx(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       nx
 
 def is_lnt(+s: IS) -> R.Tr<L.LN>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       lnt
 
 def is_nlx(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       nlx
 
 # Memo for weak head normalisation, keyed by expression index. Terms are
 # immutable once built, so an entry never needs invalidating.
 def is_wm(+s: IS) -> R.Tr<U32>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       wm
 
 def is_ht(+s: IS) -> R.Tr<U32>:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       ht
 
 def is_natn(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       natn
 
 def is_strn(+s: IS) -> U32:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       strn
+
+def is_qt_t(+s: IS) -> R.Tr<U32>:
+  match s:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
+      qt
+
+# The quotient names: 0 = `Quot.lift`, 1 = `Quot.ind`, 2 = `Quot.mk`.
+def is_qt(+s: IS, +i: U32) -> U32:
+  R.get(U32, 32n, is_qt_t(s), i, 4294967295)
 
 def ir_st(+r: IR) -> IS:
   match r:
@@ -544,15 +554,15 @@ def all_bi(+x: T.Ex) -> U32:
 # level this checker builds itself.
 def alloc_lvl(+s: IS, +u: L.LN) -> IR:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       IR{IS{ex, nx, R.set(L.LN, 32n, lnt, nlx, u, L.LNun{}),
-            (nlx + 1 : U32), wm, ht, natn, strn}, nlx, True{}}
+            (nlx + 1 : U32), wm, ht, natn, strn, qt}, nlx, True{}}
 
 def alloc_ex(+s: IS, +x: T.Ex) -> IR:
   match s:
-    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       IR{IS{R.set(T.Ex, 64n, ex, nx, x, T.EBad{}), (nx + 1 : U32), lnt,
-            nlx, wm, ht, natn, strn}, nx, True{}}
+            nlx, wm, ht, natn, strn, qt}, nx, True{}}
 
 # `Sort u` for a universe given as a normal form.
 def alloc_sort(+s: IS, +u: L.LN) -> IR:
@@ -797,6 +807,26 @@ def iota_tgt(+ok2: Bool, +can: Bool, +st: IS, +lp: R.Tr<List<&2, U32>>,
       pick_ir(can, unfold_const(st, lp, n, vi, us),
               IR{st, 4294967295, True{}})
 
+# Quotient reduction.
+#
+#   Quot.lift a r b f h (Quot.mk a r v)  ~>  f v
+#   Quot.ind  a r b f   (Quot.mk a r v)  ~>  f v
+#
+# Both are "apply the function argument to the value inside the `mk`", and
+# both are recognised by NAME: the quotient package is built into the kernel
+# rather than declared as an inductive, so there is no `Meta` entry to match
+# on and no recursor to derive. `Quot.lift` takes its major premise sixth and
+# `Quot.ind` fifth; the function is the fourth of either, and `Quot.mk` holds
+# the value third.
+#
+# A `match`, so nothing is built unless the rule fires.
+def quot_tgt(+ok: Bool, +st: IS, +f: U32, +v: U32) -> IR:
+  match ok:
+    case False{}:
+      IR{st, 4294967295, False{}}
+    case True{}:
+      alloc_ex(st, T.EApp{f, v})
+
 def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
          +args: List<&2, U32>) -> IR:
@@ -809,13 +839,13 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       +pf = p
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), b), b, 0,
                   a)
-      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
+      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
       whnf(pf, delta, s2, mt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(r)), U.sr_i(r), rest)
     case 1n+p T.ELet{n, ty, v, b} _:
       +pf = p
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), b), b, 0,
                   v)
-      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
+      +s2 : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
       whnf(pf, delta, s2, mt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(r)), U.sr_i(r), args)
     # A constant with no unfolding leaves `e` alone and reads as EBad next
     # round, which falls through to rebuild: one wasted step rather than the
@@ -858,15 +888,35 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # Delta happens only when the caller allows it. `defeq` turns it
       # off so it can drive unfolding itself, by height.
       +can = delta && U32.is_ne(vi, 4294967295)
-      +tgt = iota_tgt(ok2, can, ir_st(wm), lp, n, us, vi, meta_recs(cmi),
-                      args, need,
-                      S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
-                                                    Nil{}), pp), Nil{}),
-                      meta_ci(cmi), pp)
+      # --- quotients -----------------------------------------------------
+      +isql = U32.is_eq(n, is_qt(st, 0)) && U32.is_gt(len_u(args, 0), 5)
+      +isqi = U32.is_eq(n, is_qt(st, 1)) && U32.is_gt(len_u(args, 0), 4)
+      +qneed = S.pick(isql, 5, 4)
+      +qmaj = S.pick(isql || isqi, nth_u(args, qneed, 4294967295),
+                     4294967295)
+      +qw = whnf(pf, delta, ir_st(wm), mt, lp, vt,
+                 U.ex_at(is_ex(ir_st(wm)), qmaj), qmaj, Nil{})
+      +qex = is_ex(ir_st(qw))
+      +qargs = spine_ar(256n, qex, U.ex_at(qex, ir_ty(qw)), Nil{})
+      +qok = (isql || isqi)
+             && U32.is_eq(const_nm2(spine_hd(256n, qex,
+                                             U.ex_at(qex, ir_ty(qw)))),
+                          is_qt(st, 2))
+             && U32.is_gt(len_u(qargs, 0), 2)
+      +qt2 = quot_tgt(qok, ir_st(qw), nth_u(args, 3, 4294967295),
+                      nth_u(qargs, 2, 4294967295))
+      +tgt0 = iota_tgt(ok2, can, ir_st(qt2), lp, n, us, vi, meta_recs(cmi),
+                       args, need,
+                       S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
+                                                     Nil{}), pp), Nil{}),
+                       meta_ci(cmi), pp)
+      +tgt = pick_ir(qok, qt2, tgt0)
       +s4 = ir_st(tgt)
       whnf(pf, delta, s4, mt, lp, vt, U.ex_at(is_ex(s4), ir_ty(tgt)),
-           S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e)),
-           S.pick_l(ok2, skip_u(args, (need + 1 : U32)), args))
+           S.pick(qok, ir_ty(tgt),
+                  S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e))),
+           S.pick_l(qok, skip_u(args, (qneed + 1 : U32)),
+                    S.pick_l(ok2, skip_u(args, (need + 1 : U32)), args)))
     # Projection reduction: `(c a-bar f-bar).i` is the matching field.
     case 1n+p T.EProj{tn, idx, sx} _:
       +pf = p
@@ -899,10 +949,10 @@ def whd_store(+i: U32, r: IR) -> IR:
   match r:
     case IR{st, ty, ok}:
       match st:
-        case IS{ex, nx, lnt, nlx, wm, ht, natn, strn}:
+        case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
           +pty = ty
           IR{IS{ex, nx, lnt, nlx, R.set(U32, 64n, wm, i, pty, 4294967295), ht,
-             natn, strn},
+             natn, strn, qt},
              pty, ok}
 
 def whd_sel(+hit: Bool, +h: U32, +st: IS, +mt: R.Tr<Meta>,
@@ -993,7 +1043,7 @@ def peel_tele(n: Nat, +st: IS, +tyi: U32, vals: List<&2, U32>) -> IR:
       +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), cod), cod,
                   0, v)
       +nst : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
-                     is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
+                     is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
       +rec = peel_tele(q, nst, U.sr_i(r), rest)
       pick_ir(is_all(node), rec, ir_bad(ir_st(rec)))
 
@@ -1164,7 +1214,7 @@ def dq_head_ty(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       +ti = nth_u(ctx, i, 4294967295)
       +lr = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ti), ti,
                    0, (i + 1 : U32))
-      IR{IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st)},
+      IR{IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(st), is_nlx(st), is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)},
          U.sr_i(lr), Bool.not(U32.is_eq(ti, 4294967295))}
     case _:
       IR{st, 4294967295, False{}}
@@ -1267,11 +1317,11 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +la = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ta), ta,
                    0, (pa2 + 1 : U32))
       +s1 : IS = IS{U.sr_t(la), U.sr_nx(la), is_lnt(st), is_nlx(st),
-                    is_wm(st), is_ht(st), is_natn(st), is_strn(st)}
+                    is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
       +lb = U.lift(256n, is_ex(s1), is_nx(s1), U.ex_at(is_ex(s1), tb), tb,
                    0, (pb2 + 1 : U32))
       +s2 : IS = IS{U.sr_t(lb), U.sr_nx(lb), is_lnt(s1), is_nlx(s1),
-                    is_wm(s1), is_ht(s1), is_natn(s1), is_strn(s1)}
+                    is_wm(s1), is_ht(s1), is_natn(s1), is_strn(s1), is_qt_t(s1)}
       +samety = L.tri_is_yes(eq_ex(256n, U32.is_eq(U.sr_i(la), U.sr_i(lb)),
                                    is_ex(s2), is_lnt(s2),
                                    U.ex_at(is_ex(s2), U.sr_i(la)),
@@ -1369,7 +1419,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +lr = U.lift(256n, is_ex(sy), is_nx(sy),
                    U.ex_at(is_ex(sy), ir_ty(ay)), ir_ty(ay), 0, 1)
       +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sy), is_nlx(sy),
-                    is_wm(sy), is_ht(sy), is_natn(sy), is_strn(sy)}
+                    is_wm(sy), is_ht(sy), is_natn(sy), is_strn(sy), is_qt_t(sy)}
       +bv = alloc_ex(s1, T.EBVar{0})
       +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
       +s2 : IS = ir_st(ap)
@@ -1388,7 +1438,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +lr = U.lift(256n, is_ex(sx), is_nx(sx),
                    U.ex_at(is_ex(sx), ir_ty(ax)), ir_ty(ax), 0, 1)
       +s1 : IS = IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(sx), is_nlx(sx),
-                    is_wm(sx), is_ht(sx), is_natn(sx), is_strn(sx)}
+                    is_wm(sx), is_ht(sx), is_natn(sx), is_strn(sx), is_qt_t(sx)}
       +bv = alloc_ex(s1, T.EBVar{0})
       +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
       +s2 : IS = ir_st(ap)
@@ -1521,7 +1571,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +ti = nth_u(ctx, i, 4294967295)
       +sr = U.lift(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), ti), ti, 0,
                    (i + 1 : U32))
-      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s)}, U.sr_i(sr),
+      IR{IS{U.sr_t(sr), U.sr_nx(sr), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s), is_qt_t(s)}, U.sr_i(sr),
          U32.is_ne(ti, 4294967295)}
     # A literal's type is the constant `Nat` or `String`. Without this,
     # `infer` had no case for literals at all and answered BAD.
@@ -1540,7 +1590,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     case 1n+p T.ELet{n, ty, v, b}:
       +pf = p
       +rz = U.inst(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), b), b, 0, v)
-      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s)}
+      +s2 : IS = IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(s), is_nlx(s), is_wm(s), is_ht(s), is_natn(s), is_strn(s), is_qt_t(s)}
       infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), U.sr_i(rz)),
             U.sr_i(rz), ctx)
     case 1n+p T.EApp{f, a} :
@@ -1586,7 +1636,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +sd : IS = dr_st(dq)
       +rz = U.inst(256n, is_ex(sd), is_nx(sd),
                    U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
-      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd)},
+      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
          U.sr_i(rz),
          ir_ok(rf) && ir_ok(ra) && is_all(node)
          && L.tri_is_yes(dr_r(dq))}

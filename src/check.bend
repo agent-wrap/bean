@@ -1714,7 +1714,7 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                    U.ex_at(I.is_ex(st), lb1), lb1, 0, lv1)
       +st2 : I.IS = I.IS{U.sr_t(rz), U.sr_nx(rz), I.is_lnt(st),
                          I.is_nlx(st), I.is_wm(st), I.is_ht(st),
-                        I.is_natn(st), I.is_strn(st)}
+                        I.is_natn(st), I.is_strn(st), I.is_qt_t(st)}
       ck_expr(pf, st2, mt, nt, lp, vt,
               U.ex_at(I.is_ex(st2), U.sr_i(rz)), U.sr_i(rz), ty, tye, ctx)
     # The value is checked against a Sort by comparing its universe. `sl`
@@ -1876,7 +1876,8 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     K.find_name(recs, [78, 97, 116], 4294967295),
                     K.find_name(recs,
-                                [83, 116, 114, 105, 110, 103], 4294967295)}
+                                [83, 116, 114, 105, 110, 103], 4294967295),
+                    K.build_quot(recs, R.TNil{})}
   +strt = build_str(ds, R.TNil{})
   comb(comb(pre_check(ds),
             comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
