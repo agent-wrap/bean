@@ -271,9 +271,28 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ show_ln(univ_of(st, mt, nt, lp, vt,
                      I.all_cod(U.ex_at(I.is_ex(st), ti))))
 
+# For a declining inductive block: the five sub-checks of `ck_one`'s DInd
+# branch, reported separately. The block's verdict is their conjunction, so
+# this says which one is undecided.
+def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+             +items: List<&2, K.IItem>) -> String:
+  +its = items
+  "\n    telescope: "
+  ++ vshow(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}))
+  ++ "  ctors: "
+  ++ vshow(C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
+                      C.VAccept{}))
+  ++ "  rec-count: "
+  ++ vshow(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), nt, lp))
+  ++ "  derived: "
+  ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), nt, lp))
+  ++ "  names: "
+  ++ vshow(C.block_names_v(its, nmt))
+
 def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-              +d: K.Dcl) -> String:
+              +nmt: R.Tr<T.Nm>, +d: K.Dcl) -> String:
   match show:
     case False{}:
       ""
@@ -282,7 +301,7 @@ def maybe_cmp(+show: Bool, +v: C.V, +st: I.IS, +mt: R.Tr<I.Meta>,
         case C.VDecline{}:
           match d:
             case K.DInd{nms, items}:
-              ""
+              show_ind(st, mt, nt, lp, vt, nmt, items)
             case K.DNone{}:
               ""
             case _:
@@ -303,7 +322,7 @@ def walk(ds: List<&2, K.Dcl>, +fuel: Nat, +st: I.IS,
       +h = head
       +vd = C.ck_one(fuel, st, mt, nt, lp, vt, nmt, h)
       +line = vshow(vd) ++ " " ++ U32.show(dname(h)) ++ " " ++ kshow(h)
-              ++ maybe_cmp(verbose, vd, st, mt, nt, lp, vt, h) ++ "\n"
+              ++ maybe_cmp(verbose, vd, st, mt, nt, lp, vt, nmt, h) ++ "\n"
       walk(tail, fuel, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
            B.add_vt(h, vt), nmt, verbose, acc ++ line)
 

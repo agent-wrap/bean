@@ -235,6 +235,74 @@ def sl_const(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
                        lns_of(us, ln)),
             L.LNun{})
 
+# --- the universe of an application -------------------------------------
+# `sl` had no rule for applications, and that one gap decided several
+# questions wrongly by declining them. A constructor field's type routinely
+# ends in an application of the inductive itself -- `Acc`'s field is
+# `forall y, r y x -> Acc r y` -- so "is every field a proposition", and
+# through it large elimination and the recursor's universe count, came back
+# "cannot decide" for every such inductive.
+#
+# A level never depends on a term argument, only on level arguments, so the
+# universe of `C a_1 .. a_n` is the level of the Sort that `C`'s declared
+# type ends in once `n` binders are peeled, under the `const`'s own level
+# substitution. These helpers sit above `sl` because `sl` may not call the
+# ones further down the file, and they must not call `sl` either -- that
+# would be mutual recursion.
+def sl_spine_hd(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.EApp{f, a}:
+      sl_spine_hd(p, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}))
+    case 1n+p y:
+      y
+
+def sl_nargs(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +acc: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      acc
+    case 1n+p T.EApp{f, a}:
+      sl_nargs(p, ex, R.get(T.Ex, 32n, ex, f, T.EBad{}), (acc + 1 : U32))
+    case 1n+p _:
+      acc
+
+def sl_tele_after(n: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match n x:
+    case 0n y:
+      y
+    case 1n+q T.EAll{nm, t, b, bi}:
+      sl_tele_after(q, ex, R.get(T.Ex, 32n, ex, b, T.EBad{}))
+    case 1n+q _:
+      T.EBad{}
+
+def sl_const_nm(+x: T.Ex) -> U32:
+  match x:
+    case T.EConst{n, us}:
+      n
+    case _:
+      4294967295
+
+def sl_const_us(+x: T.Ex) -> List<&2, U32>:
+  match x:
+    case T.EConst{n, us}:
+      us
+    case _:
+      Nil{}
+
+def sl_app(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +x: T.Ex) -> L.LN:
+  +hd = sl_spine_hd(256n, ex, x)
+  +nm = sl_const_nm(hd)
+  +ti = R.get(U32, 32n, nt, nm, 4294967295)
+  +res = sl_tele_after(U32.to_nat(sl_nargs(256n, ex, x, 0)), ex,
+                       R.get(T.Ex, 32n, ex, ti, T.EBad{}))
+  L.pick_ln(Bool.not(U32.is_eq(ti, 4294967295)) && is_sortx(res),
+            L.ln_subst(R.get(L.LN, 32n, ln, sort_lvl_of(res), L.LNun{}),
+                       R.get(List<&2, U32>, 32n, lp, nm, Nil{}),
+                       lns_of(sl_const_us(hd), ln)),
+            L.LNun{})
+
 def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
        +lp: R.Tr<List<&2, U32>>, +x: T.Ex, +ctx: List<&2, U32>) -> L.LN:
   match fuel x:
@@ -253,6 +321,8 @@ def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
       sl_bvar(ex, ln, ctx, i)
     case 1n+p T.EConst{n, us}:
       sl_const(ex, ln, nt, lp, n, us)
+    case 1n+p T.EApp{f, a}:
+      sl_app(ex, ln, nt, lp, T.EApp{f, a})
     case 1n+p _:
       L.LNun{}
 
@@ -1006,6 +1076,104 @@ def pick_dr(+z: Bool, +a: DR, +b: DR) -> DR:
 #
 # `sl` is defined above this point, so the universe of a context type is
 # available without calling `infer`, which Bend would not allow.
+# --- a type oracle for `defeq` ------------------------------------------
+# Proof irrelevance needs the TYPE of each side, and `defeq` sits above
+# `infer` in this file because Bend forbids the two calling each other. So
+# this computes the type of the shapes that irrelevance actually meets:
+# a constant, a bound variable, or an application whose head is one of those.
+# Anything else answers "unknown" and the rule simply does not fire.
+#
+# That is enough for the real cases. `107_proofIrrelevanceUnderBinder`
+# compares `f anElem` with `f anotherElem`, where `f : aType -> aProp`: the
+# two *arguments* are elements of a Type and are genuinely different, but the
+# two *applications* are both proofs of `aProp`, and that is what makes them
+# equal. Comparing them argument-wise, as the application rule does, can only
+# fail.
+def dq_head_ty(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+               +ctx: List<&2, U32>, +h: T.Ex) -> IR:
+  match h:
+    case T.EConst{n, us}:
+      +ti = R.get(U32, 32n, nt, n, 4294967295)
+      pick_ir(U32.is_eq(ti, 4294967295), IR{st, 4294967295, False{}},
+              lsubst(256n, st, U.ex_at(is_ex(st), ti), ti,
+                     R.get(List<&2, U32>, 32n, lp, n, Nil{}),
+                     lns_of(us, is_lnt(st))))
+    case T.EBVar{i}:
+      +ti = nth_u(ctx, i, 4294967295)
+      +lr = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ti), ti,
+                   0, (i + 1 : U32))
+      IR{IS{U.sr_t(lr), U.sr_nx(lr), is_lnt(st), is_nlx(st), is_wm(st)},
+         U.sr_i(lr), Bool.not(U32.is_eq(ti, 4294967295))}
+    case _:
+      IR{st, 4294967295, False{}}
+
+def dq_type_of(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+               +ctx: List<&2, U32>, +x: T.Ex) -> IR:
+  +hd = spine_hd(256n, is_ex(st), x)
+  +ht = dq_head_ty(st, nt, lp, ctx, hd)
+  +pt = peel_tele(256n, ir_st(ht), ir_ty(ht),
+                  spine_ar(256n, is_ex(ir_st(ht)), x, Nil{}))
+  pick_ir(ir_ok(ht), pt, IR{ir_st(pt), 4294967295, False{}})
+
+# Proof irrelevance, as a fallback after a structural comparison has failed:
+# two terms are equal when both have a type, those types are the same, and
+# that type is a proposition. Structural only -- it may not call `defeq`,
+# which calls this.
+def dq_irrel(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+             +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
+  +rx = dq_type_of(st, nt, lp, ctx, x)
+  +ry = dq_type_of(ir_st(rx), nt, lp, ctx, y)
+  +s2 : IS = ir_st(ry)
+  +both = ir_ok(rx) && ir_ok(ry)
+  +tx = U.ex_at(is_ex(s2), ir_ty(rx))
+  +same = L.tri_is_yes(eq_ex(32n, U32.is_eq(ir_ty(rx), ir_ty(ry)),
+                             is_ex(s2), is_lnt(s2), tx,
+                             U.ex_at(is_ex(s2), ir_ty(ry))))
+  +isprop = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(s2), is_lnt(s2), nt,
+                                         lp, tx, ctx)))
+  DR{s2, L.pick_tri(both && same && isprop, L.TYes{}, L.TUnk{})}
+
+# A cheap gate on the expensive rule: both spines must have the SAME head.
+# That is the shape irrelevance is for -- `f anElem` against `f anotherElem`,
+# where the head carries the type and only the arguments differ -- and it
+# costs two spine walks instead of two telescope peels.
+#
+# Without the gate the rule fired on every failed application comparison and
+# took `perf/grind-ring-5` from about 60 s to 490 s.
+def dq_head_key(+x: T.Ex) -> U32:
+  match x:
+    case T.EConst{n, us}:
+      n
+    case T.EBVar{i}:
+      (i + 2147483648 : U32)
+    case _:
+      4294967295
+
+def dq_same_head(+st: IS, +x: T.Ex, +y: T.Ex) -> Bool:
+  +kx = dq_head_key(spine_hd(256n, is_ex(st), x))
+  Bool.not(U32.is_eq(kx, 4294967295))
+  && U32.is_eq(kx, dq_head_key(spine_hd(256n, is_ex(st), y)))
+
+def dq_gate(+ok: Bool, +st: IS, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +ctx: List<&2, U32>,
+            +x: T.Ex, +y: T.Ex) -> DR:
+  match ok:
+    case False{}:
+      DR{st, L.TUnk{}}
+    case True{}:
+      dq_irrel(st, nt, lp, ctx, x, y)
+
+# A `match`, so the fallback is not computed when the structural comparison
+# already succeeded -- Bend is strict and a `pick` would pay for it always.
+def dq_or_irrel(+t: L.Tri, +st: IS, +nt: R.Tr<U32>,
+                +lp: R.Tr<List<&2, U32>>, +ctx: List<&2, U32>,
+                +x: T.Ex, +y: T.Ex) -> DR:
+  match t:
+    case L.TYes{}:
+      DR{st, L.TYes{}}
+    case _:
+      dq_gate(dq_same_head(st, x, y), st, nt, lp, ctx, x, y)
+
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
           +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
@@ -1058,9 +1226,28 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       DR{s2, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
                         L.pick_tri(both && samety && (isprop || isunit),
                                    L.TYes{}, L.TUnk{}))}
+    # Two constants. The same name with equal level arguments is equal.
+    # Different names are still equal when both are proofs of the same
+    # proposition -- proof irrelevance again, but for constants, where the
+    # type comes from `nt` rather than from the context.
+    # `107_proofIrrelevanceUnderBinder` compares `f C9` with `f C10`, where
+    # `C9` and `C10` are two axioms of the same Prop.
     case 1n+p False{} T.EConst{a, us} T.EConst{b, vs}:
-      DR{st, L.pick_tri(U32.is_eq(a, b), eq_lvls(us, vs, is_lnt(st)),
-                        L.TUnk{})}
+      +pa3 = a
+      +pb3 = b
+      +ta3 = R.get(U32, 32n, nt, pa3, 4294967295)
+      +tb3 = R.get(U32, 32n, nt, pb3, 4294967295)
+      +known = Bool.not(U32.is_eq(ta3, 4294967295))
+               && Bool.not(U32.is_eq(tb3, 4294967295))
+      +tn3 = U.ex_at(is_ex(st), ta3)
+      +samety3 = L.tri_is_yes(eq_ex(32n, U32.is_eq(ta3, tb3), is_ex(st),
+                                    is_lnt(st), tn3,
+                                    U.ex_at(is_ex(st), tb3)))
+      +isprop3 = L.tri_is_yes(L.ln_is_zero(sl(64n, is_ex(st), is_lnt(st),
+                                              nt, lp, tn3, ctx)))
+      DR{st, L.pick_tri(U32.is_eq(pa3, pb3), eq_lvls(us, vs, is_lnt(st)),
+                        L.pick_tri(known && samety3 && isprop3,
+                                   L.TYes{}, L.TUnk{}))}
     case 1n+p False{} T.EAll{n1, t1, b1, i1} T.EAll{n2, t2, b2, i2}:
       +pf = p
       +w1 = whd(st, mt, lp, vt, t1)
@@ -1100,7 +1287,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +d2 = defeq(pf, U32.is_eq(a1, a2), dr_wh(w4), mt, nt, lp, vt, ctx,
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
-      DR{dr_st(d2), soften(tri_and(dr_r(d1), dr_r(d2)))}
+      dq_or_irrel(soften(tri_and(dr_r(d1), dr_r(d2))), dr_st(d2), nt, lp,
+                  ctx, x, y)
     # Eta for functions: `fun x => b` equals `t` exactly when `b` equals
     # `t x`. The lambda supplies the binder, so this needs no type inference
     # -- which matters, because `defeq` sits above `infer` in this file and

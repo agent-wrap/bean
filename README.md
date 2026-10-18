@@ -22,7 +22,7 @@ a goal: **zero `@unsafe` defs, and `bend --verdict` must pass.**
 
     ran 223 of 223 tests
       correct=94   declined=118   error=7   incorrect=0
-      score 94/205 scorable
+      score 114/205 scorable
       soundness 42/71 reject-tests rejected
       WRONG 0
 
