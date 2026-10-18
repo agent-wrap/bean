@@ -718,7 +718,7 @@ def whnf(+fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
       # Meanwhile it takes `perf/magma-string-n4` from 44 s to 63-81 s
       # against a 70 s limit -- measured twice, 30% apart, so a pass there is
       # luck. Zero gain for a coin-flip timeout is a bad trade.
-      +canio = False{} && meta_is_rec(mi) && U32.is_eq(meta_k(mi), 0)
+      +canio = meta_is_rec(mi) && U32.is_eq(meta_k(mi), 0)
                && U32.is_gt(len_u(args, 0), need)
       # Bend is strict, so this sub-reduction runs on every constant unless
       # the index is forced to a sentinel when iota does not apply -- a
@@ -803,7 +803,7 @@ def whd_sel(+hit: Bool, +h: U32, +st: IS, +mt: R.Tr<Meta>,
       # see the note there. The earlier claim that it *hung*
       # `bugs/nested-unused-param` was wrong: re-measured at 0.21 s. Iota was
       # the hang, not the memo.
-      whnf(256n, st, mt, lp, vt, U.ex_at(is_ex(st), i), i, Nil{})
+      whd_store(i, whnf(256n, st, mt, lp, vt, U.ex_at(is_ex(st), i), i, Nil{}))
 
 def whd(+st: IS, +mt: R.Tr<Meta>, +lp: R.Tr<List<&2, U32>>,
         +vt: R.Tr<U32>, +i: U32) -> IR:
@@ -1191,6 +1191,35 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
               DR{st, mismatch(px, py)})
 
 
+# Argument-versus-domain equality, cheapest first: structural, then one
+# `whd` per side and structural again, then `defeq`. See the long note at the
+# application rule in `infer` for why reducing here is needed at all, and
+# docs/measurements.md for the cost of each tier.
+def arg_eq2(+mid: L.Tri, +fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
+            +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+            +ctx: List<&2, U32>, +xi: U32, +yi: U32) -> DR:
+  match mid:
+    case L.TYes{}:
+      DR{st, L.TYes{}}
+    case _:
+      defeq(fuel, U32.is_eq(xi, yi), st, mt, nt, lp, vt, ctx,
+            U.ex_at(is_ex(st), xi), U.ex_at(is_ex(st), yi))
+
+def arg_eq(+cheap: L.Tri, +fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
+           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+           +ctx: List<&2, U32>, +xi: U32, +yi: U32) -> DR:
+  match cheap:
+    case L.TYes{}:
+      DR{st, L.TYes{}}
+    case _:
+      +w1 = whd(st, mt, lp, vt, xi)
+      +w2 = whd(ir_st(w1), mt, lp, vt, yi)
+      +s2 : IS = ir_st(w2)
+      arg_eq2(eq_ex(32n, U32.is_eq(ir_ty(w1), ir_ty(w2)), is_ex(s2),
+                    is_lnt(s2), U.ex_at(is_ex(s2), ir_ty(w1)),
+                    U.ex_at(is_ex(s2), ir_ty(w2))),
+              fuel, s2, mt, nt, lp, vt, ctx, ir_ty(w1), ir_ty(w2))
+
 # --- infer ---------------------------------------------------------------
 # One self-recursive function. The application case is the reason accessor
 # defs exist above: after normalising the function's type there is no way to
@@ -1291,14 +1320,18 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # do. Reduction here is the second half of that fix, so it belongs
       # with the first half, not before it. See docs/measurements.md.
       +ex2 = is_ex(ir_st(ra))
-      +eq = eq_ex(32n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
-                  is_lnt(ir_st(ra)), U.ex_at(ex2, ir_ty(ra)),
-                  U.ex_at(ex2, all_dom(node)))
-      +rz = U.inst(256n, ex2, is_nx(ir_st(ra)),
-                   U.ex_at(ex2, all_cod(node)), all_cod(node), 0, pa)
-      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(ir_st(ra)),
-            is_nlx(ir_st(ra)), is_wm(ir_st(ra))}, U.sr_i(rz),
-         ir_ok(rf) && ir_ok(ra) && is_all(node) && L.tri_is_yes(eq)}
+      +dq = arg_eq(eq_ex(32n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
+                         is_lnt(ir_st(ra)), U.ex_at(ex2, ir_ty(ra)),
+                         U.ex_at(ex2, all_dom(node))),
+                   24n, ir_st(ra), mt, nt, lp, vt, ctx, ir_ty(ra),
+                   all_dom(node))
+      +sd : IS = dr_st(dq)
+      +rz = U.inst(256n, is_ex(sd), is_nx(sd),
+                   U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
+      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd)},
+         U.sr_i(rz),
+         ir_ok(rf) && ir_ok(ra) && is_all(node)
+         && L.tri_is_yes(dr_r(dq))}
     # `s.i` has the (i+1)-th field type of the structure's constructor, with
     # the parameters and the earlier fields substituted.
     case 1n+p T.EProj{tn, idx, sx}:

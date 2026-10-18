@@ -62,19 +62,25 @@ def not_empty(xs: List<&2, U32>) -> Bool:
     case Con{head, tail}:
       True{}
 
-def guard_eof(+more: Bool, v: C.V) -> IO(C.V):
-  match more:
-    case True{}:
-      IO.die(C.V, 3, "input exceeds this version's single-read limit")
-    case False{}:
-      IO.pure(C.V, v)
-
 def judge(+bs: List<&2, U32>) -> C.V:
   +recs = D.decode(bs, S.Sc.start(), D.Acc.start(), Nil{})
   +nex = U32.to_nat((K.max_ex_ix(recs, 0) + 1 : U32))
   +nlv = U32.to_nat((K.max_lvl_ix(recs, 0) + 1 : U32))
   C.judge(recs, K.decls_of(recs, Nil{}), nex, nlv, 32n,
           (K.max_any_ix(recs, 0) + 1 : U32))
+
+# The truncation test comes BEFORE the check, not after. Bend is strict, so
+# passing `judge(bs)` as an argument here meant the whole truncated prefix
+# was checked and then thrown away: `navier-stokes-euler` spent 39 minutes
+# doing that before answering 3. Taking the bytes instead of the verdict,
+# and judging only in the branch that can use the answer, makes the oversized
+# corpora fail in about a second.
+def guard_eof(+more: Bool, bs: List<&2, U32>) -> IO(C.V):
+  match more:
+    case True{}:
+      IO.die(C.V, 3, "input exceeds this version's single-read limit")
+    case False{}:
+      IO.pure(C.V, judge(bs))
 
 # The read's (File, Result) pair is matched here rather than in `main`,
 # because a `do` block admits no destructuring let and the pair is affine, so
@@ -87,7 +93,7 @@ def read_and_judge(pr: File & Result<&1, &1, U32 & String, List<&2, U32>>) -> IO
         pr2 : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, 1)
         more : List<&2, U32> <- IO.pass(List<&2, U32>,
           Pair.snd(File, Result<&1, &1, U32 & String, List<&2, U32>>, pr2))
-        guard_eof(not_empty(more), judge(bs))
+        guard_eof(not_empty(more), bs)
 
 def main() -> IO(Unit):
   do IO<Unit>:
