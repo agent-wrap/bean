@@ -1079,41 +1079,40 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +s2 : IS = ir_st(w)
       +node = U.ex_at(is_ex(s2), ir_ty(w))
       +ra = infer(pf, s2, mt, nt, lp, vt, U.ex_at(is_ex(s2), pa), pa, ctx)
-      # The argument's type is compared with the domain by `defeq`, which
-      # reduces, not by the structural `eq_ex`, which does not -- and BOTH
-      # sides are reduced first, exactly as `ck_infer` does.
+      # Argument equality is STRUCTURAL, and that is a known limitation
+      # rather than an oversight. `eq_ex` answers TYes or TUnk and never
+      # TNo, so an application whose argument type is not syntactically
+      # recognisable comes back "cannot infer" rather than wrong.
       #
-      # Together these are why recursor applications could not be inferred.
-      # Every minor premise's domain mentions `motive (c ..)`, which once the
-      # motive is substituted is a beta-redex, so it matches the argument's
-      # type only after reduction; and `defeq` dispatches on the pair of node
-      # shapes, reducing only the children of a matching pair, so an
-      # unreduced head makes it give up at once. A recursor's second argument
-      # has domain `motive N.zero` = `(fun _ => N -> N) N.zero`, an
-      # application, against an argument type that is already a Pi: `EAll`
-      # versus `EApp`, catch-all, "cannot decide". The type `infer` computed
-      # was right all along; only the ok flag was wrong.
+      # What it cannot do is accept a recursor application. Every minor
+      # premise's domain mentions `motive (c ..)`, which once the motive is
+      # substituted is a beta-redex, so it matches the argument's type only
+      # after reduction -- and a recursor's second argument has domain
+      # `motive N.zero` = `(fun _ => N -> N) N.zero`, an application,
+      # against an argument type that is already a Pi. So `N.add`, `count`,
+      # `Nat.below`, `Nat.brecOn`, every `*.match_1` and `*._f` and
+      # everything built on them decline: about 40 declining declarations,
+      # the largest single cluster.
       #
-      # That was the largest single cluster of declines: `N.add`, `count`,
-      # `Nat.below`, `Nat.brecOn`, every `*.match_1` and `*._f`, and
-      # everything defined in terms of them.
-      #
-      # `defeq` may answer no, which `tri_is_yes` reads as "cannot infer"
-      # rather than "wrong", keeping the conservative reading.
-      +wa1 = whd(ir_st(ra), mt, lp, vt, ir_ty(ra))
-      +wa2 = whd(ir_st(wa1), mt, lp, vt, all_dom(node))
-      +sa2 : IS = ir_st(wa2)
-      +ex2 = is_ex(sa2)
-      +dq = defeq(24n, U32.is_eq(ir_ty(wa1), ir_ty(wa2)), sa2, mt,
-                  lp, vt, U.ex_at(ex2, ir_ty(wa1)),
-                  U.ex_at(ex2, ir_ty(wa2)))
-      +sd : IS = dr_st(dq)
-      +rz = U.inst(256n, is_ex(sd), is_nx(sd),
-                   U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
-      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd),
-            is_nlx(sd), is_wm(sd)}, U.sr_i(rz),
-         ir_ok(rf) && ir_ok(ra) && is_all(node)
-         && L.tri_is_yes(dr_r(dq))}
+      # Reducing here fixes all of them, and was measured three ways:
+      # `defeq` alone, a `whd`-then-retry tier, and both behind a cheap
+      # structural pre-test. Every version scored *exactly* 104/205 -- the
+      # same as this one -- while turning declines into timeouts
+      # (`grind-ring-5` 24 s -> 77 s against 60 s, `magma-string-n4`
+      # 45 s -> 82 s against 70 s, plus `fueled-chain`). The reason it buys
+      # no test is that every file in the cluster also has a theorem whose
+      # check needs `defeq` to *prove* an equality, which it still cannot
+      # do. Reduction here is the second half of that fix, so it belongs
+      # with the first half, not before it. See docs/measurements.md.
+      +ex2 = is_ex(ir_st(ra))
+      +eq = eq_ex(32n, U32.is_eq(ir_ty(ra), all_dom(node)), ex2,
+                  is_lnt(ir_st(ra)), U.ex_at(ex2, ir_ty(ra)),
+                  U.ex_at(ex2, all_dom(node)))
+      +rz = U.inst(256n, ex2, is_nx(ir_st(ra)),
+                   U.ex_at(ex2, all_cod(node)), all_cod(node), 0, pa)
+      IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(ir_st(ra)),
+            is_nlx(ir_st(ra)), is_wm(ir_st(ra))}, U.sr_i(rz),
+         ir_ok(rf) && ir_ok(ra) && is_all(node) && L.tri_is_yes(eq)}
     # `s.i` has the (i+1)-th field type of the structure's constructor, with
     # the parameters and the earlier fields substituted.
     case 1n+p T.EProj{tn, idx, sx}:
