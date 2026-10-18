@@ -652,6 +652,25 @@ def list_len(xs: List<&2, U32>, +acc: U32) -> U32:
 def prop_or_unknown(+t: L.Tri) -> L.Tri:
   t
 
+# Is this constructor field a PROOF? Three-valued, and the middle case has to
+# fall the right way.
+#
+# A field whose universe is a bare parameter `u` is a proof exactly when
+# `u = 0`, which is not known when the recursor is derived. Lean resolves
+# that conservatively -- it denies large elimination -- so "might not be a
+# proof" must read as "not a proof" HERE, which is the opposite of what
+# `ln_is_zero`'s "cannot decide" means on its own. `Exists {a : Sort u}` is
+# the case: its field `w : a` has universe `u`, and `Exists.rec` is declared
+# with no extra universe, so Lean denied it.
+#
+# A genuinely unknown universe -- `sl` answering `LNun`, meaning the type
+# could not be read at all -- still declines. That distinction is the whole
+# content of this function: "a parameter, so possibly not a proof" is a
+# decision, "unreadable" is not.
+def field_is_proof(+u: L.LN) -> L.Tri:
+  L.pick_tri(L.is_un(u), L.TUnk{},
+             L.pick_tri(L.tri_is_yes(L.ln_is_zero(u)), L.TYes{}, L.TNo{}))
+
 # --- the subsingleton rule's index exception -----------------------------
 # A Prop inductive with one constructor supports large elimination when every
 # field of that constructor is EITHER a proof OR one of the index arguments
@@ -761,9 +780,8 @@ def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                   L.pick_tri(U32.is_lt(pi, nskip), acc,
                              L.pick_tri(isidx, acc,
                                I.tri_and(acc,
-                                 prop_or_unknown(
-                                   L.ln_is_zero(I.sl(64n, ex, ln, nt, lp,
-                                     U.ex_at(ex, ph), ctx)))))))
+                                 field_is_proof(I.sl(64n, ex, ln, nt, lp,
+                                   U.ex_at(ex, ph), ctx))))))
 
 def subsingleton(+nc: U32, +fp: L.Tri) -> L.Tri:
   L.pick_tri(U32.is_eq(nc, 0), L.TYes{},
