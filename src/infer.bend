@@ -1543,15 +1543,30 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                                    U.ex_at(is_ex(s3), ir_ty(wa2)),
                                    U.ex_at(is_ex(s3), ir_ty(wb2))))
       +tynode = U.ex_at(is_ex(s3), ir_ty(wa2))
-      +isprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s3), is_lnt(s3),
-                                            nt, lp, tynode, ctx)))
-      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s3),
+      # "Is this a proposition?" is answered by taking the type OF the type
+      # and reducing it, not by `sl` -- which cannot reduce, and so could not
+      # see through `106_proofIrrelevanceWhnf`, where the variables' type is
+      # a bound variable `P` whose own type is `constType (Sort u) Prop`.
+      # The type oracle already handles a const- or bvar-headed spine, which
+      # is every shape this meets.
+      +rt = dq_type_of(s3, nt, lp, ctx, tynode)
+      +wrt = whd(ir_st(rt), mt, lp, vt, ir_ty(rt))
+      +s4 : IS = ir_st(wrt)
+      +ks = U.ex_at(is_ex(s4), ir_ty(wrt))
+      +isprop = (ir_ok(rt) && is_sortx(ks)
+                 && L.tri_is_yes(L.ln_is_zero(R.get(L.LN, 32n, is_lnt(s4),
+                                                    sort_lvl_of(ks),
+                                                    L.LNun{}))))
+                || L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s4),
+                                                is_lnt(s4), nt, lp,
+                                                tynode, ctx)))
+      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s4),
                                                      tynode)), MNone{})
       +isunit = meta_is_ind(smi) && U32.is_eq(meta_nf(smi), 0)
       +both = U32.is_lt(pa2, 4294967295) && U32.is_lt(pb2, 4294967295)
               && Bool.not(U32.is_eq(ta, 4294967295))
               && Bool.not(U32.is_eq(tb, 4294967295))
-      DR{s3, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
+      DR{s4, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
                         L.pick_tri(both && samety && (isprop || isunit),
                                    L.TYes{}, L.TUnk{}))}
     # Two constants. The same name with equal level arguments is equal.
