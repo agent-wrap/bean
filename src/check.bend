@@ -1648,6 +1648,21 @@ def ck_infer(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
   cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
 
+# As `cr_fallback`, but a definite "not a type" is preserved: only an
+# undecided universe comparison is retried.
+def cr_sort_fallback(+t: L.Tri, +nat: Bool, +fuel: Nat, +st: I.IS,
+                     +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                     +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                     +x: T.Ex, +e: U32, +tye: U32,
+                     +ctx: List<&2, U32>) -> CR:
+  match t:
+    case L.TYes{}:
+      cr_of(st, L.TYes{})
+    case L.TNo{}:
+      cr_of(st, L.TNo{})
+    case L.TUnk{}:
+      ck_infer(fuel, st, mt, nt, lp, vt, x, e, tye, ctx)
+
 def cr_fallback(+t: L.Tri, +fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>,
                 +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                 +x: T.Ex, +e: U32, +tye: U32,
@@ -1702,13 +1717,24 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                         I.is_natn(st), I.is_strn(st)}
       ck_expr(pf, st2, mt, nt, lp, vt,
               U.ex_at(I.is_ex(st2), U.sr_i(rz)), U.sr_i(rz), ty, tye, ctx)
+    # The value is checked against a Sort by comparing its universe. `sl`
+    # does not reduce, so when the universe cannot be read this falls back to
+    # the general rule rather than declining: `008_forallSortWhnf` declares
+    # `Sort 0` for a Pi whose domain is an application that has to be
+    # unfolded before its universe is visible -- `sl` answers unknown, while
+    # inferring the Pi outright gets it right.
+    #
+    # A definite NO is kept: `not_a_type` is a structural fact, not a
+    # failure to compute, so it still rejects.
     case 1n+p _ T.ESort{lt}:
-      cr_of(st,
-            L.pick_tri(I.not_a_type(I.is_ex(st), nt, x), L.TNo{},
-                       L.ln_cmp(R.get(L.LN, 32n, I.is_lnt(st), lt,
-                                      L.LNun{}),
-                                I.sl(fuel, I.is_ex(st), I.is_lnt(st), nt,
-                                     lp, x, ctx))))
+      +pf = p
+      +pnat = I.not_a_type(I.is_ex(st), nt, x)
+      +scmp = L.pick_tri(pnat, L.TNo{},
+                         L.ln_cmp(R.get(L.LN, 32n, I.is_lnt(st), lt,
+                                        L.LNun{}),
+                                  I.sl(fuel, I.is_ex(st), I.is_lnt(st), nt,
+                                       lp, x, ctx)))
+      cr_sort_fallback(scmp, pnat, pf, st, mt, nt, lp, vt, x, e, tye, ctx)
     case 1n+p _ _:
       ck_infer(fuel, st, mt, nt, lp, vt, x, e, tye, ctx)
 
