@@ -1286,11 +1286,17 @@ def derive_block_v(+items: List<&2, K.IItem>, +st: I.IS,
       +pnm = nm
       +ex = I.is_ex(st)
       +rc = rec_of(its, K.IOther{})
-      derive_go(U32.is_eq(nn, 0) && L.tri_is_yes(le)
+      # The derivation now runs for BOTH elimination strengths. Only an
+      # undecided one declines: with large elimination the motive's universe
+      # is the recursor's extra level parameter, without it the motive goes
+      # to `Prop`, and the sentinel name picks between them.
+      derive_go(U32.is_eq(nn, 0) && Bool.not(L.tri_is_unk(le))
                 && no_deep_fields(its, ex, [pnm], pnm)
                 && U32.is_ne(rec_ty_of(rc), 4294967295),
                 its, st, mt, nt, lp, vt, ex, pnm, lps, ty, np, ni, nc,
-                head_u(rec_lps_of(rc), 0), rec_ty_of(rc))
+                S.pick(L.tri_is_yes(le), head_u(rec_lps_of(rc), 0),
+                       4294967295),
+                rec_ty_of(rc))
     case _:
       VDecline{}
 

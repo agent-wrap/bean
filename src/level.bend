@@ -112,6 +112,13 @@ def tri_is_yes(+t: Tri) -> Bool:
     case _:
       False{}
 
+def tri_is_unk(+t: Tri) -> Bool:
+  match t:
+    case TUnk{}:
+      True{}
+    case _:
+      False{}
+
 def tri_is_no(+t: Tri) -> Bool:
   match t:
     case TNo{}:

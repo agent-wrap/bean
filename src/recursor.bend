@@ -34,6 +34,18 @@ import ./infer.bend as I
 def param_lvl(+st: I.IS, +nm: U32) -> I.IR:
   I.alloc_lvl(st, L.LNmax{[L.At{(nm + 1 : U32), 0}]})
 
+# The motive's universe. A recursor that eliminates into any sort takes an
+# extra level PARAMETER for it; one that eliminates only into `Prop` does
+# not, and its motive goes to `Sort 0`. The sentinel name says which.
+#
+# Without this, the derivation ran only for inductives that DO have large
+# elimination, so every Prop-valued inductive that legitimately eliminates
+# into Prop alone was never checked against the recursor the kernel would
+# derive -- it just declined.
+def motive_lvl(+st: I.IS, +nm: U32) -> I.IR:
+  I.pick_ir(U32.is_eq(nm, 4294967295), I.alloc_lvl(st, L.ln_zero()),
+            param_lvl(st, nm))
+
 def param_lvls(ns: List<&2, U32>, +st: I.IS,
                acc: List<&2, U32>) -> I.LS:
   match ns:
@@ -69,7 +81,7 @@ def rec_core(+st: I.IS, +ic: U32, +n: U32) -> I.IR:
 
 # forall (_ : I), Sort v
 def motive_type(+st: I.IS, +ic: U32, +vnm: U32) -> I.IR:
-  +vl = param_lvl(st, vnm)
+  +vl = motive_lvl(st, vnm)
   +so = I.alloc_ex(I.ir_st(vl), T.ESort{I.ir_ty(vl)})
   I.alloc_ex(I.ir_st(so), T.EAll{0, ic, I.ir_ty(so), 0})
 
@@ -225,7 +237,7 @@ def ind_app(+st: I.IS, +nm: U32, +us: List<&2, U32>, +p: U32, +k: U32,
 def motive_ty(+st: I.IS, +nm: U32, +us: List<&2, U32>, +p: U32, +k: U32,
               +bs: List<&2, U32>, +vnm: U32) -> I.IR:
   +ia = ind_app(st, nm, us, p, k, k)
-  +vl = param_lvl(I.ir_st(ia), vnm)
+  +vl = motive_lvl(I.ir_st(ia), vnm)
   +so = I.alloc_ex(I.ir_st(vl), T.ESort{I.ir_ty(vl)})
   +tb = I.alloc_ex(I.ir_st(so), T.EAll{0, I.ir_ty(ia), I.ir_ty(so), 0})
   wrap_alls(bs, I.ir_st(tb), I.ir_ty(tb))
