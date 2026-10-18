@@ -276,6 +276,56 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 # this says which one is undecided.
 # The three inputs to the large-elimination decision, which is what
 # `rec-count` and `derived` both hinge on.
+# Per-field: the universe `sl` computes for the field's type, and whether
+# the index exception applies. `fields_prop` is a conjunction, so one
+# unknown field hides the rest.
+def show_fields(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
+                +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +nskip: U32,
+                +i: U32, +ctx: List<&2, U32>, +idxs: List<&2, U32>,
+                +nf: U32, +acc: String) -> String:
+  match doms:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +pi = i
+      +ph = head
+      +isidx = U32.is_ge(pi, nskip) && U32.is_gt(nf, 0)
+               && C.occurs_in_any(idxs, ex,
+                                  (nf - 1 - (pi - nskip : U32) : U32))
+      show_fields(tail, ex, ln, nt, lp, nskip, (pi + 1 : U32),
+                  Con{ph, ctx}, idxs, nf,
+                  acc ++ "\n      field " ++ U32.show(pi) ++ ": univ="
+                  ++ show_ln(I.sl(256n, ex, ln, nt, lp, U.ex_at(ex, ph),
+                                  ctx))
+                  ++ "  is-index=" ++ pick_s(isidx, "yes", "no")
+                  ++ "  param=" ++ pick_s(U32.is_lt(pi, nskip), "yes", "no"))
+
+def show_ctor_fields(items: List<&2, K.IItem>, +ind: U32, +ex: R.Tr<T.Ex>,
+                     +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                     +lp: R.Tr<List<&2, U32>>, +acc: String) -> String:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
+          +pnp = np
+          +pty = ty
+          +pnf = nf
+          show_ctor_fields(tail, ind, ex, ln, nt, lp,
+            acc ++ pick_s(U32.is_eq(ind2, ind),
+              show_fields(D.rev_u32(C.tele_doms(256n, ex,
+                                               U.ex_at(ex, pty), Nil{}),
+                                    Nil{}),
+                          ex, ln, nt, lp, pnp, 0, Nil{},
+                          I.skip_u(I.spine_ar(256n, ex,
+                                              C.tele_res(256n, ex,
+                                                U.ex_at(ex, pty)), Nil{}),
+                                   pnp),
+                          pnf, ""), ""))
+        case _:
+          show_ctor_fields(tail, ind, ex, ln, nt, lp, acc)
+
 def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
             +ind: K.IItem, +items: List<&2, K.IItem>) -> String:
   match ind:
@@ -289,12 +339,15 @@ def show_le(+st: I.IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                                               L.LNun{})),
                            L.TUnk{})
       +nc = C.count_ctors(its, pnm, 0)
-      +fp = C.ctor_fields_prop(its, pnm, I.is_ex(st), I.is_lnt(st), nt, lp,
+      +fp = C.ctor_fields_prop(its, pnm, I.is_ex(st), I.is_lnt(st),
+                               B.add_items_nt(its, nt), lp,
                                L.TYes{})
       "\n    isprop: " ++ show_tri(isprop) ++ "  nctors: " ++ U32.show(nc)
       ++ "  fields-prop: " ++ show_tri(fp)
       ++ "  large-elim: " ++ show_tri(C.large_elim(isprop, nc, fp))
       ++ "  nested: " ++ U32.show(nn)
+      ++ show_ctor_fields(its, pnm, I.is_ex(st), I.is_lnt(st),
+                          B.add_items_nt(its, nt), lp, "")
     case _:
       ""
 
@@ -308,9 +361,9 @@ def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ vshow(C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
                       C.VAccept{}))
   ++ "  rec-count: "
-  ++ vshow(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), nt, lp))
+  ++ vshow(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), B.add_items_nt(its, nt), lp))
   ++ "  derived: "
-  ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), nt, lp))
+  ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), B.add_items_nt(its, nt), lp))
   ++ "  names: "
   ++ vshow(C.block_names_v(its, nmt))
   ++ show_le(st, nt, lp, C.head_item(C.ind_only(its, Nil{})), its)

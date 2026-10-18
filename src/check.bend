@@ -1708,11 +1708,25 @@ def ck_one(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   match d:
     case K.DInd{nms, items}:
       +its = items
+      # The block's own names are in scope for the checks that read a
+      # CONSTRUCTOR's type. A constructor's fields refer to the inductive
+      # being declared -- `Acc.intro`'s recursive field has type
+      # `forall y, r y x -> Acc r y` -- and with the environment extended
+      # only after the declaration is checked, `Acc` was an unknown constant
+      # there. Its universe came back unknown, so "is every field a
+      # proposition" was undecidable and the whole block declined. That is
+      # the order the kernel uses too: the inductive types are added, then
+      # the constructors are checked against them.
+      #
+      # Only these two checks see the extended table. `ind_items` and
+      # `ctor_all` are the structural ones, and `scan_consts` in `judge`
+      # still answers for genuinely unknown names.
+      +ntb = B.add_items_nt(its, nt)
       comb(comb(comb(ind_items(its, I.is_ex(st), nt, vt, VAccept{}),
                      ctor_all(its, I.is_ex(st),
                               ind_names_of(its, Nil{}), VAccept{})),
-                block_rec_v(its, I.is_ex(st), I.is_lnt(st), nt, lp)),
-           comb(block_derive_v(its, st, mt, vt, I.is_lnt(st), nt, lp),
+                block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)),
+           comb(block_derive_v(its, st, mt, vt, I.is_lnt(st), ntb, lp),
                 block_names_v(its, nmt)))
     case K.DNone{}:
       VDecline{}
