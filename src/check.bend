@@ -1441,7 +1441,14 @@ def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +w1 = I.whd(st, mt, lp, vt, mine)
   +w2 = I.whd(I.ir_st(w1), mt, lp, vt, theirs)
   +s2 = I.ir_st(w2)
-  tri_v(I.dr_r(I.defeq(64n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt, Nil{},
+  # Fuel 512, not 64. These are whole recursor types and the `bugs/rec-*`
+  # exports carry very large ones: `bugs/rec-missing-ih` is 296 KB, and the
+  # difference that matters -- a missing inductive hypothesis, so a `forall`
+  # on one side against an application on the other -- sits deep inside the
+  # minor premise. Running out of fuel there turns a definite mismatch into
+  # "cannot decide" and the lie goes uncaught.
+  tri_v(I.dr_r(I.defeq(512n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt,
+                       Nil{},
                        U.ex_at(I.is_ex(s2), I.ir_ty(w1)),
                        U.ex_at(I.is_ex(s2), I.ir_ty(w2)))))
 

@@ -1674,7 +1674,10 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                   Con{plt, ctx},
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
-      DR{dr_st(d2), soften(dr_r(d2))}
+      # Not softened: two lambdas are equal exactly when their bodies are,
+      # under the same binder, so this settles the question in both
+      # directions -- the same mistake that was made for eta.
+      DR{dr_st(d2), dr_r(d2)}
     case 1n+p False{} T.EApp{f1, a1} T.EApp{f2, a2}:
       +pf = p
       +w1 = whd(st, mt, lp, vt, f1)
