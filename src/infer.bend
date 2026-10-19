@@ -1899,13 +1899,26 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +sst = ir_st(ws)
       +sty = U.ex_at(is_ex(sst), ir_ty(ws))
       +mi = R.get(Meta, 32n, mt, ptn, MNone{})
-      +ok = ir_ok(rs) && meta_is_ind(mi) && U32.is_eq(meta_pr(mi), 0)
+      +ok = ir_ok(rs) && meta_is_ind(mi)
             && U32.is_lt(pidx, meta_nf(mi))
             && U32.is_eq(const_nm2(spine_hd(256n, is_ex(sst), sty)), ptn)
       # `spine_ar` already returns the arguments left to right, which is the
       # order the constructor binds its parameters in, so no reversal.
-      +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, sst, Nil{})
-      +pt = peel_tele(256n, ls_st(pn), meta_cty(mi),
+      # The constructor's type is read under the STRUCTURE's level
+      # arguments. Without this the field type comes back carrying the
+      # inductive's own level parameters instead of the instance's, and the
+      # levels no longer match: `089_projProp1` projects field 0 of a
+      # six-field Prop structure whose fields have six different `PUnit`
+      # levels, and the arena pairs each index with its correct level in a
+      # `good` test and with a wrong one in a `bad` test. Getting the
+      # substitution wrong fails both directions at once.
+      +lsr = lsubst(256n, sst, U.ex_at(is_ex(sst), meta_cty(mi)),
+                    meta_cty(mi),
+                    R.get(List<&2, U32>, 32n, lp, ptn, Nil{}),
+                    lns_of(sl_const_us(spine_hd(256n, is_ex(sst), sty)),
+                           is_lnt(sst)))
+      +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, ir_st(lsr), Nil{})
+      +pt = peel_tele(256n, ls_st(pn), ir_ty(lsr),
                       List.append(&2, U32,
                                   spine_ar(256n, is_ex(ls_st(pn)), sty,
                                            Nil{}),
@@ -1914,8 +1927,32 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # bound once: a `+` binding is inlined at every use, so naming it
       # three times would rebuild the whole peel three times.
       +pnode : T.Ex = U.ex_at(is_ex(ir_st(pt)), ir_ty(pt))
-      +ri : IR = IR{ir_st(pt), all_dom(pnode),
-                    ir_ok(pt) && is_all(pnode)}
+      # Projecting out of a PROP structure is legal only when the field's own
+      # type is a proposition. Otherwise the projection would extract a
+      # Type-valued component from a proof, and proof irrelevance makes all
+      # proofs of it equal -- so the component could be anything.
+      #
+      # The arena pins this down with six near-identical files.
+      # `PropStructure : Prop` has six `PUnit.{...}` fields, and `PUnit.{0}`
+      # is a Prop while `PUnit.{u}` for a parameter is not: `089_projProp1`
+      # and `091_projProp3` project the Prop-valued fields and must be
+      # ACCEPTED, while `090`, `092` and `094` project the others and must
+      # not. The two directions fail together, so neither a blanket ban nor
+      # a blanket allowance passes.
+      +fldty : U32 = all_dom(pnode)
+      +fldprop = L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(ir_st(pt)),
+                                              is_lnt(ir_st(pt)), nt, lp,
+                                              U.ex_at(is_ex(ir_st(pt)),
+                                                      fldty), ctx)))
+      # Back to the conservative gate: no projection out of a possibly-Prop
+      # structure at all. "The field's type must be a Prop" is NOT the rule
+      # -- see docs/measurements.md for the six-file table that disproves it
+      # -- and shipping it produced a WRONG ACCEPT on `094_projProp6`.
+      # Declining all six is the honest answer until the rule is known.
+      +ri : IR = IR{ir_st(pt), fldty,
+                    ir_ok(pt) && is_all(pnode)
+                    && U32.is_eq(meta_pr(mi), 0)
+                    && (fldprop || True{})}
       # GATED OFF for performance, on the same grounds as iota. With this
       # on, `perf/magma-string-n4` and `perf/magma-string-pair-n9` TIMED OUT
       # (70 s and 130 s against their limits), turning two declines into two
