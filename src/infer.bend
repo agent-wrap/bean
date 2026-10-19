@@ -1832,6 +1832,34 @@ def arg_eq(+cheap: L.Tri, +fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
                     U.ex_at(is_ex(s2), ir_ty(w2))),
               fuel, s2, mt, nt, lp, vt, ctx, ir_ty(w1), ir_ty(w2))
 
+# Definitely different types: both spines are headed by a constant with no
+# definition to unfold, and the two constants differ. Inductive types are
+# nominal, so `True` and `False` are not merely un-unifiable -- they are
+# distinct, and an argument of one supplied where the other is required is an
+# ill-typed application rather than an undecidable one.
+#
+# `other/proj-of-prop` is exactly this: the exported term is
+# `(Wrapper.mk True.intro).p`, where `Wrapper.mk` requires a proof of `False`
+# and is handed `True.intro : True`. Its own description names the failure
+# mode -- "a checker that types a projection by inferring (rather than
+# checking) its structure argument will accept it" -- and projecting out of a
+# structure built that way yields `False`.
+#
+# A constant WITH a value is excluded: it may unfold to the other one.
+def no_value(+vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+  match x:
+    case T.EConst{n, us}:
+      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+    case _:
+      False{}
+
+def defo_diff(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +a: T.Ex,
+              +b: T.Ex) -> Bool:
+  +ha = spine_hd(256n, ex, a)
+  +hb = spine_hd(256n, ex, b)
+  no_value(vt, ha) && no_value(vt, hb)
+  && Bool.not(U32.is_eq(const_nm2(ha), const_nm2(hb)))
+
 # --- infer ---------------------------------------------------------------
 # One self-recursive function. The application case is the reason accessor
 # defs exist above: after normalising the function's type there is no way to
@@ -1951,10 +1979,18 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
                    24n, ir_st(ra), mt, nt, lp, vt, ctx, ir_ty(ra),
                    all_dom(node))
       +sd : IS = dr_st(dq)
+      # A definitely-wrong argument type is reported with the ill-typed
+      # sentinel, which `ck_infer` turns into a rejection rather than a
+      # decline.
+      +argbad = ir_ok(rf) && ir_ok(ra) && is_all(node)
+                && Bool.not(L.tri_is_yes(dr_r(dq)))
+                && defo_diff(is_ex(sd), vt,
+                             U.ex_at(is_ex(sd), ir_ty(ra)),
+                             U.ex_at(is_ex(sd), all_dom(node)))
       +rz = U.inst(256n, is_ex(sd), is_nx(sd),
                    U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
       IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
-         U.sr_i(rz),
+         S.pick(argbad, 4294967294, U.sr_i(rz)),
          ir_ok(rf) && ir_ok(ra) && is_all(node)
          && L.tri_is_yes(dr_r(dq))}
     # `s.i` has the (i+1)-th field type of the structure's constructor, with
@@ -2050,7 +2086,13 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +defprop = U32.is_ne(meta_ppx(mi), 4294967295)
       +violates = defprop
                   && Bool.not(fldprop && U32.is_lt(pidx, meta_ppx(mi)))
-      +ri : IR = IR{ir_st(pt), S.pick(violates, 4294967294, fldty),
+      # An ill-typed STRUCTURE makes the projection ill-typed: the sentinel
+      # is propagated rather than collapsed. `other/proj-of-prop` is
+      # `(Wrapper.mk True.intro).p`, where the error is in the constructor
+      # application inside, not in the projection itself.
+      +ri : IR = IR{ir_st(pt),
+                    S.pick(U32.is_eq(ir_ty(rs), 4294967294), 4294967294,
+                           S.pick(violates, 4294967294, fldty)),
                     ir_ok(pt) && is_all(pnode)
                     && (U32.is_eq(meta_pr(mi), 0)
                         || (fldprop && U32.is_lt(pidx, meta_ppx(mi))))}
@@ -2066,6 +2108,12 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # `infer` on the structure plus a telescope walk at every projection
       # costs three timeouts and buys nothing: the projection tests still
       # decline, because what blocks them is upstream of here.
-      pick_ir(ok, ri, ir_bad(ir_st(ri)))
+      # The sentinel survives `ok` being false -- which it always is for an
+      # ill-typed term, so collapsing to a generic bad here threw away every
+      # rejection the projection and application rules could make.
+      pick_ir(ok, ri,
+              pick_ir(U32.is_eq(ir_ty(ri), 4294967294),
+                      IR{ir_st(ri), 4294967294, False{}},
+                      ir_bad(ir_st(ri))))
     case 1n+p _:
       ir_bad(s)
