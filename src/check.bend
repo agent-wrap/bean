@@ -1664,6 +1664,71 @@ def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
         case _:
           meta_items(tail, ex, ind, np, ni, nc, t)
 
+def ctx_upto(doms: List<&2, U32>, +i: U32,
+             acc: List<&2, U32>) -> List<&2, U32>:
+  match doms:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      +ph = head
+      +pa = acc
+      S.pick_l(U32.is_eq(i, 0), pa,
+               ctx_upto(tail, (i - 1 : U32), Con{ph, pa}))
+
+# --- the bound on projections out of a proposition -----------------------
+# The first DEPENDENT data field: the lowest index `j` whose field is data
+# (its type is not a proposition) and which some later field's type mentions.
+# A projection out of a Prop structure is allowed only strictly below this.
+#
+# A data field nothing depends on does not count -- the arena says so
+# directly: "Non-dependent data fields are not relevant."
+#
+# `nf` when there is no such field, which permits every proof field.
+def dep_data_inner(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
+                   +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                   +lp: R.Tr<List<&2, U32>>, +nskip: U32, +k: U32,
+                   +j: U32, +acc: U32) -> U32:
+  match n:
+    case 0n:
+      acc
+    case 1n+q:
+      # does field k's type mention field j? seen from field k, field j is
+      # at de Bruijn index k-1-j
+      +hit = U32.is_lt(j, k)
+             && bvar_occurs(256n, ex,
+                            U.ex_at(ex, I.nth_u(doms, (nskip + k : U32),
+                                              4294967295)),
+                            (k - 1 - j : U32))
+             && Bool.not(L.tri_is_yes(
+                  L.ln_is_zero(I.sl(256n, ex, ln, nt, lp,
+                    U.ex_at(ex, I.nth_u(doms, (nskip + j : U32),
+                                      4294967295)),
+                    ctx_upto(doms, (nskip + j : U32), Nil{})))))
+      dep_data_inner(q, doms, ex, ln, nt, lp, nskip, k, (j + 1 : U32),
+                     S.pick(hit && U32.is_lt(j, acc), j, acc))
+
+def dep_data_outer(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
+                   +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                   +lp: R.Tr<List<&2, U32>>, +nskip: U32, +nf: U32,
+                   +k: U32, +acc: U32) -> U32:
+  match n:
+    case 0n:
+      acc
+    case 1n+q:
+      dep_data_outer(q, doms, ex, ln, nt, lp, nskip, nf, (k + 1 : U32),
+                     dep_data_inner(U32.to_nat(nf), doms, ex, ln, nt, lp,
+                                    nskip, k, 0, acc))
+
+# The context for the field at position `i`: the domains before it,
+# innermost first.
+def prop_proj_bound(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                    +lp: R.Tr<List<&2, U32>>, +cty: U32, +np: U32,
+                    +nf: U32) -> U32:
+  dep_data_outer(U32.to_nat(nf),
+                 D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, cty), Nil{}),
+                           Nil{}),
+                 ex, ln, nt, lp, np, nf, 0, nf)
+
 def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                    +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>,
                    +ind: K.IItem) -> R.Tr<I.Meta>:
@@ -1692,7 +1757,13 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                         nc,
                                         ctor_fields_prop(its, pnm, ex, ln,
                                           R.TNil{}, R.TNil{}, L.TYes{}))),
-                                      0, 1)},
+                                      0, 1),
+                                    prop_proj_bound(ex, ln, R.TNil{},
+                                      R.TNil{},
+                                      ctor_ty_by_cidx(its, pnm, 0,
+                                                      4294967295),
+                                      np,
+                                      ctor_nf_by_cidx(its, pnm, 0, 0))},
                              I.MNone{}),
                        t))
     case _:

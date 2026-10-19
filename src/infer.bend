@@ -28,7 +28,10 @@ type Meta is Data:
   MCtor{ci: U32, p: U32, nf: U32, ind: U32, recs: List<&2, U32>}
   # A structure: one constructor, no indices. `cty` is that constructor's
   # type, which is where the field types come from for projection typing.
-  MInd{p: U32, nf: U32, cty: U32, pr: U32}
+  # `ppx` bounds projections out of a PROP structure: a projection is
+  # allowed only at an index strictly below it. See the note at the
+  # projection rule in `infer`.
+  MInd{p: U32, nf: U32, cty: U32, pr: U32, ppx: U32}
 
 def meta_is_rec(+m: Meta) -> Bool:
   match m:
@@ -50,14 +53,14 @@ def meta_p(+m: Meta) -> U32:
       p
     case MCtor{ci, p, nf, ind, recs}:
       p
-    case MInd{p, nf, cty, pr}:
+    case MInd{p, nf, cty, pr, ppx}:
       p
     case _:
       0
 
 def meta_is_ind(+m: Meta) -> Bool:
   match m:
-    case MInd{p, nf, cty, pr}:
+    case MInd{p, nf, cty, pr, ppx}:
       True{}
     case _:
       False{}
@@ -66,7 +69,7 @@ def meta_nf(+m: Meta) -> U32:
   match m:
     case MCtor{ci, p, nf, ind, recs}:
       nf
-    case MInd{p, nf, cty, pr}:
+    case MInd{p, nf, cty, pr, ppx}:
       nf
     case _:
       0
@@ -78,14 +81,21 @@ def meta_nf(+m: Meta) -> U32:
 # plain field-type substitution used here.
 def meta_pr(+m: Meta) -> U32:
   match m:
-    case MInd{p, nf, cty, pr}:
+    case MInd{p, nf, cty, pr, ppx}:
       pr
     case _:
       1
 
+def meta_ppx(+m: Meta) -> U32:
+  match m:
+    case MInd{p, nf, cty, pr, ppx}:
+      ppx
+    case _:
+      0
+
 def meta_cty(+m: Meta) -> U32:
   match m:
-    case MInd{p, nf, cty, pr}:
+    case MInd{p, nf, cty, pr, ppx}:
       cty
     case _:
       4294967295
@@ -1949,10 +1959,31 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # -- see docs/measurements.md for the six-file table that disproves it
       # -- and shipping it produced a WRONG ACCEPT on `094_projProp6`.
       # Declining all six is the honest answer until the rule is known.
+      # Projecting out of a PROP structure, by the rule the arena states in
+      # its own test descriptions:
+      #
+      #   "The lean kernel allows projections out of propositions if they
+      #    precede all dependent data fields. Non-dependent data fields are
+      #    not relevant."
+      #   "...rejects any projections out of a proposition that come after a
+      #    dependent data field, even if that is not used by the present
+      #    projection."
+      #
+      # So two conditions: the field taken must itself be a proof -- a data
+      # projection out of a proposition is never allowed -- and its index
+      # must precede every DEPENDENT data field, meaning a data field that
+      # some later field's type mentions. `ppx` carries that bound, computed
+      # where the field types are already being walked.
+      #
+      # The arena's six `projProp` files pin this down exactly: fields are
+      # Prop, data, Prop, data, Prop-depending-on-field-3, Prop, and the
+      # first dependent data field is 3 -- so 0 and 2 are accepted and
+      # 1, 3, 4, 5 are not. Three simpler rules each get at least one of
+      # those wrong; see docs/measurements.md.
       +ri : IR = IR{ir_st(pt), fldty,
                     ir_ok(pt) && is_all(pnode)
-                    && U32.is_eq(meta_pr(mi), 0)
-                    && (fldprop || True{})}
+                    && (U32.is_eq(meta_pr(mi), 0)
+                        || (fldprop && U32.is_lt(pidx, meta_ppx(mi))))}
       # GATED OFF for performance, on the same grounds as iota. With this
       # on, `perf/magma-string-n4` and `perf/magma-string-pair-n9` TIMED OUT
       # (70 s and 130 s against their limits), turning two declines into two
