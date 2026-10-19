@@ -24,7 +24,10 @@ import ./subst.bend as U
 # recursive, so the inductive hypotheses can be rebuilt).
 type Meta is Data:
   MNone{}
-  MRec{p: U32, k: U32, n: U32, ind: U32}
+  # `k` is the number of INDICES (not the K flag -- the name predates the
+  # flag being decoded). `kf` is the K-like claim, `cty` the single
+  # constructor's type, both needed for K-like reduction.
+  MRec{p: U32, k: U32, n: U32, ind: U32, kf: U32, cty: U32}
   MCtor{ci: U32, p: U32, nf: U32, ind: U32, recs: List<&2, U32>}
   # A structure: one constructor, no indices. `cty` is that constructor's
   # type, which is where the field types come from for projection typing.
@@ -35,7 +38,7 @@ type Meta is Data:
 
 def meta_is_rec(+m: Meta) -> Bool:
   match m:
-    case MRec{p, k, n, ind}:
+    case MRec{p, k, n, ind, kf, cty}:
       True{}
     case _:
       False{}
@@ -49,7 +52,7 @@ def meta_is_ctor(+m: Meta) -> Bool:
 
 def meta_p(+m: Meta) -> U32:
   match m:
-    case MRec{p, k, n, ind}:
+    case MRec{p, k, n, ind, kf, cty}:
       p
     case MCtor{ci, p, nf, ind, recs}:
       p
@@ -102,21 +105,35 @@ def meta_cty(+m: Meta) -> U32:
 
 def meta_k(+m: Meta) -> U32:
   match m:
-    case MRec{p, k, n, ind}:
+    case MRec{p, k, n, ind, kf, cty}:
       k
     case _:
       0
 
+def meta_kf(+m: Meta) -> U32:
+  match m:
+    case MRec{p, k, n, ind, kf, cty}:
+      kf
+    case _:
+      0
+
+def meta_rcty(+m: Meta) -> U32:
+  match m:
+    case MRec{p, k, n, ind, kf, cty}:
+      cty
+    case _:
+      4294967295
+
 def meta_n(+m: Meta) -> U32:
   match m:
-    case MRec{p, k, n, ind}:
+    case MRec{p, k, n, ind, kf, cty}:
       n
     case _:
       0
 
 def meta_ind(+m: Meta) -> U32:
   match m:
-    case MRec{p, k, n, ind}:
+    case MRec{p, k, n, ind, kf, cty}:
       ind
     case MCtor{ci, p, nf, ind, recs}:
       ind
@@ -1018,6 +1035,95 @@ def lit_major(+ok: Bool, +st: IS, +d: List<&2, U32>, +orig: U32,
     case True{}:
       nat_expand(st, d, zn, sn)
 
+# --- projection typing --------------------------------------------------
+# For `s : S a-bar` with the single constructor
+# `c : forall a-bar (f_0..f_{m-1}), S a-bar`, the type of `s.i` is the
+# (i+1)-th field type with the parameters replaced by `a-bar` and each
+# earlier field replaced by the corresponding projection of `s`.
+#
+# This is done by peeling the constructor's telescope from the OUTSIDE,
+# instantiating `bvar 0` of each Pi body in turn -- the `instantiate1` of
+# every real kernel -- and *not* by extracting the field type and
+# substituting into it afterwards.
+#
+# The difference is not cosmetic; the second way is wrong, and it was the
+# bug here. `U.inst` decrements the indices above the one it replaces, which
+# is correct for one substitution but not for a sequence: once a substituted
+# *value* is embedded in the term, the next substitution in the sequence
+# shifts it again. `Prod.snd`'s field type `#1` went
+#
+#     #1  --[subst f_0]-->  #0  --[subst beta]-->  #1  --[subst alpha]-->  #0
+#
+# where the answer is `#1`. `Prod.fst` needed one substitution fewer and
+# never re-shifted an embedded value, so it came out right -- which is why
+# every `*.fst` in the corpus passed and every `*.snd` declined.
+#
+# Peeling outside-in has no such step: each `inst` substitutes the bvar 0 of
+# a Pi body with a value from the surrounding context, and no binders remain
+# outside to shift it.
+def peel_tele(n: Nat, +st: IS, +tyi: U32, vals: List<&2, U32>) -> IR:
+  match n vals:
+    case 0n _:
+      IR{st, tyi, True{}}
+    case 1n+q Nil{}:
+      IR{st, tyi, True{}}
+    case 1n+q Con{v, rest}:
+      +node = U.ex_at(is_ex(st), tyi)
+      +cod = all_cod(node)
+      +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), cod), cod,
+                  0, v)
+      +nst : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
+                     is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
+      +rec = peel_tele(q, nst, U.sr_i(r), rest)
+      pick_ir(is_all(node), rec, ir_bad(ir_st(rec)))
+
+# Pairwise structural equality of two index-argument lists.
+def eq_u32_lists_ex(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
+                    xs: List<&2, U32>, ys: List<&2, U32>) -> L.Tri:
+  match fuel xs ys:
+    case 0n _ _:
+      L.TUnk{}
+    case 1n+p Nil{} Nil{}:
+      L.TYes{}
+    case 1n+p Con{a, ta} Con{b, tb}:
+      +pf = p
+      +pa = a
+      +pb = b
+      tri_and(eq_ex(256n, U32.is_eq(pa, pb), ex, ln,
+                    U.ex_at(ex, pa), U.ex_at(ex, pb)),
+              eq_u32_lists_ex(pf, ex, ln, ta, tb))
+    case 1n+p _ _:
+      L.TUnk{}
+
+# --- K-like reduction ----------------------------------------------------
+# A recursor whose `k` flag is set reduces to its single minor premise even
+# when the major premise is NOT a constructor application, provided the
+# indices it was given are the ones the constructor would produce. `Eq.rec`
+# is the case: `Eq.rec a x motive m y h` reduces to `m` exactly when `y` is
+# `x`.
+#
+# The condition needs no type inference, which is what makes this reachable
+# here: a recursor takes its indices as EXPLICIT arguments, so both the given
+# indices and the expected ones are in the spine. The expected ones come from
+# peeling the constructor's telescope with the recursor's own parameter
+# arguments -- for a K-like inductive the constructor has no fields, so the
+# peel consumes exactly the parameters and leaves `I a-bar e-bar`.
+#
+# The `k` flag itself is a claim, and a false one is rejected before any of
+# this runs (see `k_claim_v`): it is sound only for an inductive with one
+# constructor and no fields, which is why the reduct is just the minor.
+#
+#   args layout:  params (p) | motives (1) | minors (n) | indices (ni) | major
+def k_expected(+st: IS, +cty: U32, +p: U32, +args: List<&2, U32>) -> IR:
+  peel_tele(256n, st, cty, take_u(args, p, Nil{}))
+
+def k_tgt(+ok: Bool, +st: IS, +minor: U32) -> IR:
+  match ok:
+    case False{}:
+      IR{st, 4294967295, False{}}
+    case True{}:
+      IR{st, minor, True{}}
+
 def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
          +args: List<&2, U32>) -> IR:
@@ -1085,6 +1191,23 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # Delta happens only when the caller allows it. `defeq` turns it
       # off so it can drive unfolding itself, by height.
       +can = delta && U32.is_ne(vi, 4294967295)
+      # --- K-like reduction ----------------------------------------------
+      +ni2 = meta_k(mi)
+      +kneed = (pp + 1 + meta_n(mi) : U32)
+      +iskr = U32.is_eq(meta_kf(mi), 1)
+               && U32.is_gt(len_u(args, 0), (kneed + ni2 : U32))
+      +kexp = k_expected(st, S.pick(iskr, meta_rcty(mi), 4294967295), pp,
+                         args)
+      +kidx = skip_u(spine_ar(256n, is_ex(ir_st(kexp)),
+                              U.ex_at(is_ex(ir_st(kexp)), ir_ty(kexp)),
+                              Nil{}), pp)
+      +kgiven = take_u(skip_u(args, kneed), ni2, Nil{})
+      +kok = iskr && ir_ok(kexp)
+             && L.tri_is_yes(eq_u32_lists_ex(256n, is_ex(ir_st(kexp)),
+                                             is_lnt(ir_st(kexp)),
+                                             kidx, kgiven))
+      +kr = k_tgt(kok, ir_st(kexp), nth_u(args, (pp + 1 : U32),
+                                          4294967295))
       # --- literal arithmetic --------------------------------------------
       # `Nat.add`, `Nat.sub` and `Nat.ble` on two literals are computed on
       # the digits. Without this they would have to go through the recursor,
@@ -1126,15 +1249,16 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
                        S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
                                                      Nil{}), pp), Nil{}),
                        meta_ci(cmi), pp)
-      +tgt = pick_ir(arok, ar, pick_ir(qok, qt2, tgt0))
+      +tgt = pick_ir(kok, kr, pick_ir(arok, ar, pick_ir(qok, qt2, tgt0)))
       +s4 = ir_st(tgt)
       whnf(pf, delta, s4, mt, lp, vt, U.ex_at(is_ex(s4), ir_ty(tgt)),
-           S.pick(arok || qok, ir_ty(tgt),
+           S.pick(kok || arok || qok, ir_ty(tgt),
                   S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e))),
-           S.pick_l(arok, skip_u(args, 2),
+           S.pick_l(kok, skip_u(args, (kneed + ni2 + 1 : U32)),
+                    S.pick_l(arok, skip_u(args, 2),
                     S.pick_l(qok, skip_u(args, (qneed + 1 : U32)),
                              S.pick_l(ok2, skip_u(args, (need + 1 : U32)),
-                                      args))))
+                                      args)))))
     # Projection reduction: `(c a-bar f-bar).i` is the matching field.
     case 1n+p T.EProj{tn, idx, sx} _:
       +pf = p
@@ -1222,48 +1346,6 @@ def tele_doms_i(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex,
       tele_doms_i(p, ex, U.ex_at(ex, b), Con{t, acc})
     case 1n+p _:
       acc
-
-# --- projection typing --------------------------------------------------
-# For `s : S a-bar` with the single constructor
-# `c : forall a-bar (f_0..f_{m-1}), S a-bar`, the type of `s.i` is the
-# (i+1)-th field type with the parameters replaced by `a-bar` and each
-# earlier field replaced by the corresponding projection of `s`.
-#
-# This is done by peeling the constructor's telescope from the OUTSIDE,
-# instantiating `bvar 0` of each Pi body in turn -- the `instantiate1` of
-# every real kernel -- and *not* by extracting the field type and
-# substituting into it afterwards.
-#
-# The difference is not cosmetic; the second way is wrong, and it was the
-# bug here. `U.inst` decrements the indices above the one it replaces, which
-# is correct for one substitution but not for a sequence: once a substituted
-# *value* is embedded in the term, the next substitution in the sequence
-# shifts it again. `Prod.snd`'s field type `#1` went
-#
-#     #1  --[subst f_0]-->  #0  --[subst beta]-->  #1  --[subst alpha]-->  #0
-#
-# where the answer is `#1`. `Prod.fst` needed one substitution fewer and
-# never re-shifted an embedded value, so it came out right -- which is why
-# every `*.fst` in the corpus passed and every `*.snd` declined.
-#
-# Peeling outside-in has no such step: each `inst` substitutes the bvar 0 of
-# a Pi body with a value from the surrounding context, and no binders remain
-# outside to shift it.
-def peel_tele(n: Nat, +st: IS, +tyi: U32, vals: List<&2, U32>) -> IR:
-  match n vals:
-    case 0n _:
-      IR{st, tyi, True{}}
-    case 1n+q Nil{}:
-      IR{st, tyi, True{}}
-    case 1n+q Con{v, rest}:
-      +node = U.ex_at(is_ex(st), tyi)
-      +cod = all_cod(node)
-      +r = U.inst(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), cod), cod,
-                  0, v)
-      +nst : IS = IS{U.sr_t(r), U.sr_nx(r), is_lnt(st), is_nlx(st),
-                     is_wm(st), is_ht(st), is_natn(st), is_strn(st), is_qt_t(st)}
-      +rec = peel_tele(q, nst, U.sr_i(r), rest)
-      pick_ir(is_all(node), rec, ir_bad(ir_st(rec)))
 
 # `s.0, s.1, .., s.(i-1)` in ascending order, to be peeled after the
 # parameters -- the same order the constructor binds them in.

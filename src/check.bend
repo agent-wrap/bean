@@ -1644,7 +1644,8 @@ def block_names_v(+items: List<&2, K.IItem>, +nmt: R.Tr<T.Nm>) -> V:
 # What `whnf` needs to recognise a recursor application and its major
 # premise. The arities come from the inductive itself and the minor count
 # from its actual constructors, not from the export's `numMinors`.
-def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
+def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
+               +ex: R.Tr<T.Ex>, +ind: U32,
                +np: U32, +ni: U32, +nc: U32,
                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
   match items:
@@ -1653,12 +1654,15 @@ def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
     case Con{head, tail}:
       match head:
         case K.IRec{nm, lps, ty, rp, rni, nmo, kf}:
-          meta_items(tail, ex, ind, np, ni, nc,
-                     R.set(I.Meta, 32n, t, nm, I.MRec{np, ni, nc, ind},
+          meta_items(tail, allit, ex, ind, np, ni, nc,
+                     R.set(I.Meta, 32n, t, nm,
+                           I.MRec{np, ni, nc, ind, kf,
+                                  ctor_ty_by_cidx(allit, ind, 0,
+                                                  4294967295)},
                            I.MNone{}))
         case K.ICtor{nm, lps, ty, ind2, cnp, nf, ci}:
           +pcnp = cnp
-          meta_items(tail, ex, ind, np, ni, nc,
+          meta_items(tail, allit, ex, ind, np, ni, nc,
                      R.set(I.Meta, 32n, t, nm,
                            I.MCtor{ci, pcnp, nf, ind2,
                                    rec_positions_syn(
@@ -1669,7 +1673,7 @@ def meta_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ind: U32,
                                      ex, [ind], 1, Nil{})},
                            I.MNone{}))
         case _:
-          meta_items(tail, ex, ind, np, ni, nc, t)
+          meta_items(tail, allit, ex, ind, np, ni, nc, t)
 
 def ctx_upto(doms: List<&2, U32>, +i: U32,
              acc: List<&2, U32>) -> List<&2, U32>:
@@ -1753,7 +1757,7 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
       # an entry under its own name, so projection typing can find the
       # constructor's field types.
       +nc = count_ctors(its, pnm, 0)
-      meta_items(its, ex, pnm, np, ni, nc,
+      meta_items(its, its, ex, pnm, np, ni, nc,
                  R.sub(I.Meta,
                        U32.is_eq(nc, 1) && U32.is_eq(ni, 0)
                        && U32.is_eq(nn, 0),
