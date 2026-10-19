@@ -1509,6 +1509,21 @@ def dq_same_head(+st: IS, +x: T.Ex, +y: T.Ex) -> Bool:
   Bool.not(U32.is_eq(kx, 4294967295))
   && U32.is_eq(kx, dq_head_key(spine_hd(256n, is_ex(st), y)))
 
+def no_value_hd(+x: T.Ex) -> Bool:
+  match x:
+    case T.EConst{n, us}:
+      True{}
+    case _:
+      False{}
+
+# Cheap pre-test for the irrelevance fallback: `dq_type_of` can only read a
+# type off a spine headed by a constant or a bound variable, so there is no
+# point peeling a telescope for anything else. Two spine walks instead of two
+# telescope peels.
+def dq_typeable(+st: IS, +x: T.Ex) -> Bool:
+  +h = spine_hd(256n, is_ex(st), x)
+  no_value_hd(h) || is_bvarx(h)
+
 def dq_gate(+ok: Bool, +st: IS, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +ctx: List<&2, U32>,
             +x: T.Ex, +y: T.Ex) -> DR:
@@ -1536,8 +1551,13 @@ def dq_or_irrel(+t: L.Tri, +st: IS, +nt: R.Tr<U32>,
       # not a trade worth making. Two proofs of the same proposition are
       # equal however different they look.
       +pt0 = t
-      +pfb = dq_gate(dq_same_head(st, x, y) || L.tri_is_no(pt0), st, nt,
-                     lp, ctx, x, y)
+      # Unconditional on a pending no -- that is the direction that can
+      # produce a wrong reject -- but only when the types are actually
+      # readable, which is the cheap part to check.
+      +pfb = dq_gate(dq_same_head(st, x, y)
+                     || (L.tri_is_no(pt0) && dq_typeable(st, x)
+                         && dq_typeable(st, y)),
+                     st, nt, lp, ctx, x, y)
       DR{dr_st(pfb), L.pick_tri(L.tri_is_yes(dr_r(pfb)), L.TYes{}, pt0)}
 
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
