@@ -1667,15 +1667,17 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
                            I.MNone{}))
         case K.ICtor{nm, lps, ty, ind2, cnp, nf, ci}:
           +pcnp = cnp
+          +pty2 = ty
           meta_items(tail, allit, ex, ind, np, ni, nc,
                      R.set(I.Meta, 32n, t, nm,
                            I.MCtor{ci, pcnp, nf, ind2,
                                    rec_positions_syn(
                                      skip_n(D.rev_u32(
                                        tele_doms(256n, ex,
-                                                 U.ex_at(ex, ty), Nil{}),
+                                                 U.ex_at(ex, pty2),
+                                                 Nil{}),
                                        Nil{}), pcnp),
-                                     ex, [ind], 1, Nil{})},
+                                     ex, [ind], 1, Nil{}), pty2},
                            I.MNone{}))
         case _:
           meta_items(tail, allit, ex, ind, np, ni, nc, t)
