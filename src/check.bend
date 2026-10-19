@@ -1721,13 +1721,19 @@ def dep_data_outer(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
 
 # The context for the field at position `i`: the domains before it,
 # innermost first.
-def prop_proj_bound(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
-                    +lp: R.Tr<List<&2, U32>>, +cty: U32, +np: U32,
-                    +nf: U32) -> U32:
-  dep_data_outer(U32.to_nat(nf),
-                 D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, cty), Nil{}),
-                           Nil{}),
-                 ex, ln, nt, lp, np, nf, 0, nf)
+# 4294967295 when the structure is not DEFINITELY a proposition. The bound is
+# only meaningful for one that is, and the distinction matters: a definite
+# violation of the rule is a REJECT, while "this might be a Prop and I cannot
+# tell" must only decline.
+def prop_proj_bound(+isprop: L.Tri, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
+                    +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +cty: U32,
+                    +np: U32, +nf: U32) -> U32:
+  S.pick(L.tri_is_yes(isprop),
+         dep_data_outer(U32.to_nat(nf),
+                        D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, cty),
+                                            Nil{}), Nil{}),
+                        ex, ln, nt, lp, np, nf, 0, nf),
+         4294967295)
 
 def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                    +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>,
@@ -1758,7 +1764,11 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                         ctor_fields_prop(its, pnm, ex, ln,
                                           R.TNil{}, R.TNil{}, L.TYes{}))),
                                       0, 1),
-                                    prop_proj_bound(ex, ln, R.TNil{},
+                                    prop_proj_bound(
+                                      L.ln_is_zero(R.get(L.LN, 32n, ln,
+                                        I.sort_lvl_of(tele_res(256n, ex,
+                                          U.ex_at(ex, ty))), L.LNun{})),
+                                      ex, ln, R.TNil{},
                                       R.TNil{},
                                       ctor_ty_by_cidx(its, pnm, 0,
                                                       4294967295),
@@ -1844,7 +1854,14 @@ def ck_infer(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +d = I.defeq(64n, U32.is_eq(I.ir_ty(ri), tye), st3, mt, nt, lp, vt, ctx,
                U.ex_at(I.is_ex(st3), I.ir_ty(w1)),
                U.ex_at(I.is_ex(st3), I.ir_ty(w2)))
-  cr_of(I.dr_st(d), L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{}))
+  # A definite type error -- `infer` reporting the ill-typed sentinel -- is a
+  # REJECTION, not a failure to decide. Everything else keeps the
+  # conservative reading: a failed inference answers "cannot decide", never
+  # "no", because the checker must not reject a declaration it was unable to
+  # analyse.
+  cr_of(I.dr_st(d),
+        L.pick_tri(U32.is_eq(I.ir_ty(ri), 4294967294), L.TNo{},
+                   L.pick_tri(I.ir_ok(ri), I.dr_r(d), L.TUnk{})))
 
 # As `cr_fallback`, but a definite "not a type" is preserved: only an
 # undecided universe comparison is retried.

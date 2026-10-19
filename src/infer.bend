@@ -1822,9 +1822,14 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +pty = ty
       +rb = infer(pf, s, mt, nt, lp, vt, U.ex_at(is_ex(s), b), b,
                   Con{pty, ctx})
+      # The ill-typed sentinel is PROPAGATED rather than collapsed into a
+      # generic failure. A lambda whose body is ill-typed is ill-typed, and
+      # that is a different answer from "the body could not be inferred".
       pick_ir(ir_ok(rb),
               alloc_ex(ir_st(rb), T.EAll{n, pty, ir_ty(rb), bi}),
-              ir_bad(ir_st(rb)))
+              pick_ir(U32.is_eq(ir_ty(rb), 4294967294),
+                      IR{ir_st(rb), 4294967294, False{}},
+                      ir_bad(ir_st(rb))))
     case 1n+p T.EBVar{i}:
       +ti = nth_u(ctx, i, 4294967295)
       +sr = U.lift(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), ti), ti, 0,
@@ -1980,7 +1985,18 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # first dependent data field is 3 -- so 0 and 2 are accepted and
       # 1, 3, 4, 5 are not. Three simpler rules each get at least one of
       # those wrong; see docs/measurements.md.
-      +ri : IR = IR{ir_st(pt), fldty,
+      # A DEFINITE violation of the Prop rule is reported with a distinct
+      # sentinel type, which `ck_infer` turns into a rejection. Merely
+      # "cannot tell" keeps the ordinary not-ok and declines.
+      #
+      # The sentinel rather than a three-valued `ok` flag: `IR` is built at
+      # 33 sites and `ir_ok` consumed in boolean position at 15, so widening
+      # it would mean re-deciding "no" versus "unknown" at every one of them.
+      # One extra sentinel changes nothing that already works.
+      +defprop = U32.is_ne(meta_ppx(mi), 4294967295)
+      +violates = defprop
+                  && Bool.not(fldprop && U32.is_lt(pidx, meta_ppx(mi)))
+      +ri : IR = IR{ir_st(pt), S.pick(violates, 4294967294, fldty),
                     ir_ok(pt) && is_all(pnode)
                     && (U32.is_eq(meta_pr(mi), 0)
                         || (fldprop && U32.is_lt(pidx, meta_ppx(mi))))}
