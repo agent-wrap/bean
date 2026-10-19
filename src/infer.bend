@@ -1208,6 +1208,25 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
                                              kidx, kgiven))
       +kr = k_tgt(kok, ir_st(kexp), nth_u(args, (pp + 1 : U32),
                                           4294967295))
+      # --- a recursor on a unit-like structure ---------------------------
+      # Every element of a structure with NO fields is its constructor, so
+      # the recursor reduces even on a variable:
+      # `075_typeSingletonRecReduction` is `NewSingleton.rec true x` with `x`
+      # a variable, and its description says why -- "because `NewSingleton`
+      # is a singleton". The export marks `NewSingleton.rec` with `k = false`,
+      # so this is structure eta rather than K-like reduction, reached by a
+      # different route to the same reduct: the single minor premise.
+      #
+      # Restricted to a registered STRUCTURE with zero fields, which means
+      # one constructor and no indices. `113_indexedStructEta` (indices) and
+      # `125_accRecNoEta` (recursive, with fields) are exactly the exports
+      # that must not get this, and neither qualifies.
+      +uind = R.get(Meta, 32n, mt, meta_ind(mi), MNone{})
+      +isue = meta_is_rec(mi) && meta_is_ind(uind)
+              && U32.is_eq(meta_nf(uind), 0)
+              && U32.is_eq(meta_k(mi), 0)
+              && U32.is_gt(len_u(args, 0), (pp + 1 + meta_n(mi) : U32))
+      +ur = k_tgt(isue, st, nth_u(args, (pp + 1 : U32), 4294967295))
       # --- literal arithmetic --------------------------------------------
       # `Nat.add`, `Nat.sub` and `Nat.ble` on two literals are computed on
       # the digits. Without this they would have to go through the recursor,
@@ -1249,16 +1268,20 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
                        S.pick_l(ok2, skip_u(spine_ar(256n, exm, mnode,
                                                      Nil{}), pp), Nil{}),
                        meta_ci(cmi), pp)
-      +tgt = pick_ir(kok, kr, pick_ir(arok, ar, pick_ir(qok, qt2, tgt0)))
+      +tgt = pick_ir(kok, kr,
+                     pick_ir(isue, ur,
+                             pick_ir(arok, ar, pick_ir(qok, qt2, tgt0))))
       +s4 = ir_st(tgt)
       whnf(pf, delta, s4, mt, lp, vt, U.ex_at(is_ex(s4), ir_ty(tgt)),
-           S.pick(kok || arok || qok, ir_ty(tgt),
+           S.pick(kok || isue || arok || qok, ir_ty(tgt),
                   S.pick(ok2, ir_ty(tgt), S.pick(can, ir_ty(tgt), e))),
            S.pick_l(kok, skip_u(args, (kneed + ni2 + 1 : U32)),
+                    S.pick_l(isue,
+                             skip_u(args, (pp + 1 + meta_n(mi) + 1 : U32)),
                     S.pick_l(arok, skip_u(args, 2),
                     S.pick_l(qok, skip_u(args, (qneed + 1 : U32)),
                              S.pick_l(ok2, skip_u(args, (need + 1 : U32)),
-                                      args)))))
+                                      args))))))
     # Projection reduction: `(c a-bar f-bar).i` is the matching field.
     case 1n+p T.EProj{tn, idx, sx} _:
       +pf = p
