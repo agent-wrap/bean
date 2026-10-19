@@ -1717,6 +1717,17 @@ def k_idx_cmp(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     case _ _:
       L.TUnk{}
 
+# An application headed by a constructor: in weak head normal form it stays
+# one forever.
+def ctor_headed(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+  match x:
+    case T.EApp{f, a}:
+      meta_is_ctor(R.get(Meta, 32n, mt,
+                         const_nm2(spine_hd(256n, is_ex(st),
+                                            T.EApp{f, a})), MNone{}))
+    case _:
+      False{}
+
 # A recursor application that can NEVER reduce. Iota needs the major premise
 # to become a constructor application; the K rule needs the K flag and the
 # given indices to match the constructor's. So the application is permanently
@@ -2303,10 +2314,20 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # A permanently stuck recursor application is rigid too: the catch-all
       # means the two shapes differ, and a stuck application can never
       # become the other shape.
+      # A constructor application is stuck too -- constructors never unfold
+      # -- and the structure-eta route above has already had its chance: it
+      # only declines to apply when the inductive is indexed or recursive,
+      # which is exactly when Lean itself refuses eta. So a variable against
+      # a constructor application of an indexed family is a genuine
+      # mismatch; proof irrelevance is still consulted downstream before the
+      # denial surfaces. `113_indexedStructEta`'s own description names this
+      # trap: field-wise comparison plus irrelevance "would wrongly accept".
       +rg = L.pick_tri((rigid(is_ex(se), px)
-                        || rec_stuck(se, mt, nt, lp, vt, px))
+                        || rec_stuck(se, mt, nt, lp, vt, px)
+                        || ctor_headed(se, mt, vt, px))
                        && (rigid(is_ex(se), py)
-                           || rec_stuck(se, mt, nt, lp, vt, py)),
+                           || rec_stuck(se, mt, nt, lp, vt, py)
+                           || ctor_headed(se, mt, vt, py)),
                        L.TNo{}, L.TUnk{})
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
               dq_or_delta(rg, se, mt, nt, lp,
