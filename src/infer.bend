@@ -1660,6 +1660,108 @@ def soften(+t: L.Tri) -> L.Tri:
 def mismatch(+ex: R.Tr<T.Ex>, +x: T.Ex, +y: T.Ex) -> L.Tri:
   L.pick_tri(rigid(ex, x) && rigid(ex, y), L.TNo{}, L.TUnk{})
 
+def tri_and2(+a: L.Tri, +b: L.Tri) -> L.Tri:
+  match a b:
+    case L.TNo{} _:
+      L.TNo{}
+    case _ L.TNo{}:
+      L.TNo{}
+    case L.TUnk{} _:
+      L.TUnk{}
+    case _ L.TUnk{}:
+      L.TUnk{}
+    case _ _:
+      L.TYes{}
+
+# Pairwise comparison of two index lists, with denial. It may not call
+# `defeq` -- that would be mutual recursion -- so it carries its own copy of
+# the one denial it needs: two distinct value-less constants of the same,
+# definitely-non-Prop type are definitely different.
+def cdeny(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +a: T.Ex,
+          +b: T.Ex) -> Bool:
+  match a b:
+    case T.EConst{n1, u1} T.EConst{n2, u2}:
+      +pn1 = n1
+      +pn2 = n2
+      +t1 = R.get(U32, 32n, nt, pn1, 4294967295)
+      +t2 = R.get(U32, 32n, nt, pn2, 4294967295)
+      Bool.not(U32.is_eq(pn1, pn2))
+      && U32.is_eq(R.get(U32, 32n, vt, pn1, 4294967295), 4294967295)
+      && U32.is_eq(R.get(U32, 32n, vt, pn2, 4294967295), 4294967295)
+      && Bool.not(U32.is_eq(t1, 4294967295))
+      && L.tri_is_yes(eq_ex(256n, U32.is_eq(t1, t2), is_ex(st),
+                            is_lnt(st), U.ex_at(is_ex(st), t1),
+                            U.ex_at(is_ex(st), t2)))
+      && L.tri_is_no(L.ln_is_zero(sl(256n, is_ex(st), is_lnt(st), nt, lp,
+                                     U.ex_at(is_ex(st), t1), Nil{})))
+    case _ _:
+      False{}
+
+def k_idx_cmp(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+              xs: List<&2, U32>, ys: List<&2, U32>) -> L.Tri:
+  match xs ys:
+    case Nil{} Nil{}:
+      L.TYes{}
+    case Con{a, ta} Con{b, tb}:
+      +pa4 = a
+      +pb4 = b
+      +e2 = eq_ex(256n, U32.is_eq(pa4, pb4), is_ex(st), is_lnt(st),
+                  U.ex_at(is_ex(st), pa4), U.ex_at(is_ex(st), pb4))
+      +d2 = L.pick_tri(cdeny(st, mt, nt, lp, vt,
+                             U.ex_at(is_ex(st), pa4),
+                             U.ex_at(is_ex(st), pb4)),
+                       L.TNo{}, e2)
+      tri_and2(d2, k_idx_cmp(st, mt, nt, lp, vt, ta, tb))
+    case _ _:
+      L.TUnk{}
+
+# A recursor application that can NEVER reduce. Iota needs the major premise
+# to become a constructor application; the K rule needs the K flag and the
+# given indices to match the constructor's. So the application is permanently
+# stuck when the major premise reduces to something rigid that is not a
+# constructor application, and either there is no K flag or the K index
+# comparison answers a definite no.
+#
+# `100_ruleKbad` is the case: `Eq.rec` whose major premise is a variable and
+# whose given index is `C16` where the constructor produces `C17` -- two
+# distinct irreducible constants, definitely different, so the K rule can
+# never fire and the variable never becomes `Eq.refl`.
+def rec_stuck(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+  +hd = spine_hd(256n, is_ex(st), x)
+  +mi = R.get(Meta, 32n, mt, const_nm2(hd), MNone{})
+  +args = spine_ar(256n, is_ex(st), x, Nil{})
+  +pp = meta_p(mi)
+  +ni = meta_k(mi)
+  +nmj = (pp + 1 + meta_n(mi) + ni : U32)
+  +ok0 = meta_is_rec(mi) && U32.is_gt(len_u(args, 0), nmj)
+  +maj = S.pick(ok0, nth_u(args, nmj, 4294967295), 4294967295)
+  +wm2 = whd(st, mt, lp, vt, maj)
+  +mn2 = U.ex_at(is_ex(ir_st(wm2)), ir_ty(wm2))
+  +mhd = spine_hd(256n, is_ex(ir_st(wm2)), mn2)
+  +cmi2 = R.get(Meta, 32n, mt, const_nm2(mhd), MNone{})
+  # the major is stuck and not a constructor
+  +mstuck = rigid(is_ex(ir_st(wm2)), mn2) && Bool.not(meta_is_ctor(cmi2))
+  # the inductive is not a zero-field structure (those reduce regardless)
+  +uind2 = R.get(Meta, 32n, mt, meta_ind(mi), MNone{})
+  +nue = Bool.not(meta_is_ind(uind2) && U32.is_eq(meta_nf(uind2), 0))
+  # and K can never fire: no flag, or a definite index mismatch
+  +kexp2 = k_expected(ir_st(wm2),
+                      S.pick(U32.is_eq(meta_kf(mi), 1), meta_rcty(mi),
+                             4294967295), pp, args)
+  +kidx2 = skip_u(spine_ar(256n, is_ex(ir_st(kexp2)),
+                           U.ex_at(is_ex(ir_st(kexp2)), ir_ty(kexp2)),
+                           Nil{}), pp)
+  +knever = U32.is_eq(meta_kf(mi), 0)
+            || (ir_ok(kexp2)
+                && L.tri_is_no(k_idx_cmp(st, mt, nt, lp, vt, kidx2,
+                                         take_u(skip_u(args, (pp + 1
+                                                + meta_n(mi) : U32)),
+                                                ni, Nil{}))))
+  ok0 && mstuck && nue && knever
+
 # --- structure eta -------------------------------------------------------
 # `S.mk s.0 .. s.(k-1)` equals `s` for a structure `S`. Rather than looping
 # over the fields and comparing each -- a loop that would call `defeq` while
@@ -2198,8 +2300,16 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +se : IS = ir_st(eta)
       +de = defeq(pf, False{}, se, mt, nt, lp, vt, ctx, px,
                   U.ex_at(is_ex(se), ir_ty(eta)))
+      # A permanently stuck recursor application is rigid too: the catch-all
+      # means the two shapes differ, and a stuck application can never
+      # become the other shape.
+      +rg = L.pick_tri((rigid(is_ex(se), px)
+                        || rec_stuck(se, mt, nt, lp, vt, px))
+                       && (rigid(is_ex(se), py)
+                           || rec_stuck(se, mt, nt, lp, vt, py)),
+                       L.TNo{}, L.TUnk{})
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
-              dq_or_delta(mismatch(is_ex(se), px, py), se, mt, nt, lp,
+              dq_or_delta(rg, se, mt, nt, lp,
                           vt, ctx, px, py))
 
 
