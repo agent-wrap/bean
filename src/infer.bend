@@ -2001,6 +2001,22 @@ def pick_exx(+z: Bool, +a: T.Ex, +b: T.Ex) -> T.Ex:
     case False{}:
       b
 
+# The type-and-universe half of the rigid denial, run only when the cheap
+# rigidity predicate already holds (see the call site). Denies only when the
+# common type is definitely not a proposition.
+def rg_denial(+rig: Bool, +st: IS, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +ctx: List<&2, U32>,
+              +px: T.Ex) -> L.Tri:
+  match rig:
+    case False{}:
+      L.TUnk{}
+    case True{}:
+      +rty = dq_type_of(st, nt, lp, ctx, px)
+      +np = L.tri_is_no(L.ln_is_zero(
+              sl(256n, is_ex(ir_st(rty)), is_lnt(ir_st(rty)), nt, lp,
+                 U.ex_at(is_ex(ir_st(rty)), ir_ty(rty)), ctx)))
+      L.pick_tri(ir_ok(rty) && np, L.TNo{}, L.TUnk{})
+
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
           +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
@@ -2339,19 +2355,19 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # is what wrongly rejected `magma-list-pair`. The type is read off the
       # left side through the oracle; unknown reads as "might be Prop", so no
       # denial.
-      +rty = dq_type_of(se, nt, lp, ctx, px)
-      +notprop_rg = L.tri_is_no(L.ln_is_zero(
-                      sl(256n, is_ex(ir_st(rty)), is_lnt(ir_st(rty)), nt,
-                         lp, U.ex_at(is_ex(ir_st(rty)), ir_ty(rty)),
-                         ctx)))
-      +rg = L.pick_tri(ir_ok(rty) && notprop_rg
-                       && (rigid(is_ex(se), px)
-                           || rec_stuck(se, mt, nt, lp, vt, px)
-                           || ctor_headed(se, mt, vt, px))
-                       && (rigid(is_ex(se), py)
-                           || rec_stuck(se, mt, nt, lp, vt, py)
-                           || ctor_headed(se, mt, vt, py)),
-                       L.TNo{}, L.TUnk{})
+      # The cheap rigidity test gates the EXPENSIVE type-and-universe check:
+      # `dq_type_of` peels a telescope and `sl` walks it, and in strict Bend
+      # a `+` binding runs regardless, so computing them unconditionally cost
+      # a telescope walk on EVERY catch-all comparison. `rg_denial` is a
+      # `match` on the cheap predicate, so the type work runs only when both
+      # sides are already rigid.
+      +cheaprig = (rigid(is_ex(se), px)
+                   || rec_stuck(se, mt, nt, lp, vt, px)
+                   || ctor_headed(se, mt, vt, px))
+                  && (rigid(is_ex(se), py)
+                      || rec_stuck(se, mt, nt, lp, vt, py)
+                      || ctor_headed(se, mt, vt, py))
+      +rg = rg_denial(cheaprig, se, nt, lp, ctx, px)
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
               dq_or_delta(rg, se, mt, nt, lp,
                           vt, ctx, px, py))
