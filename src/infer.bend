@@ -1369,6 +1369,20 @@ def eq_u32s(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
     case _ _:
       False{}
 
+# Do the two function sides share a head that need not be unfolded? Either
+# the same expression index -- the export is a heavily shared DAG, so this is
+# common -- or the same constant with the same level arguments.
+#
+# `perf/args-before-unfold` asks this question directly: it compares
+# `count #n` with `count (N.add #(n-1) #1)`, where the arguments agree in
+# Th(n) steps while evaluating either application costs Th(n^2). Unfolding
+# the shared `count` before looking at the arguments is the expensive choice,
+# and whd-ing the function side with delta on is exactly that.
+def same_fn(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +f1: U32, +f2: U32) -> Bool:
+  U32.is_eq(f1, f2)
+  || L.tri_is_yes(eq_ex(256n, False{}, ex, ln, U.ex_at(ex, f1),
+                        U.ex_at(ex, f2)))
+
 # --- definitional equality ----------------------------------------------
 # Both arguments are already in weak head normal form; the recursive calls
 # normalise the children before descending. Same shape as `eq_ex`: the nodes
@@ -1782,9 +1796,14 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       DR{dr_st(d2), dr_r(d2)}
     case 1n+p False{} T.EApp{f1, a1} T.EApp{f2, a2}:
       +pf = p
-      +w1 = whd(st, mt, lp, vt, f1)
-      +w2 = whd(dr_wh(w1), mt, lp, vt, f2)
-      +d1 = defeq(pf, U32.is_eq(f1, f2), dr_wh(w2), mt, nt, lp, vt, ctx,
+      # When the function sides already agree, neither is reduced: the
+      # arguments are tried first. The sentinel index makes both `whd` calls
+      # trivial and `same` short-circuits the comparison.
+      +fsame = same_fn(is_ex(st), is_lnt(st), f1, f2)
+      +w1 = whd(st, mt, lp, vt, S.pick(fsame, 4294967295, f1))
+      +w2 = whd(dr_wh(w1), mt, lp, vt, S.pick(fsame, 4294967295, f2))
+      +d1 = defeq(pf, fsame || U32.is_eq(f1, f2), dr_wh(w2), mt, nt, lp,
+                  vt, ctx,
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w1)),
                   U.ex_at(is_ex(dr_wh(w2)), ir_ty(w2)))
       +w3 = whd(dr_st(d1), mt, lp, vt, a1)

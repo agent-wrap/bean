@@ -468,7 +468,12 @@ def occ_go(+fuel: Nat, +skip: Bool, +ex: R.Tr<T.Ex>,
       OM{m, L.TNo{}}
 
 def occurs_tri(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +x: T.Ex) -> L.Tri:
-  om_r(occ_go(512n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
+  # Fuel 8192, not 512. The walk is memoised, so the bound is a depth
+  # limit rather than a cost -- and the `perf` files reach it easily:
+  # `folded-constant-last` carries 1000-deep numerals, so the self-reference
+  # check answered "cannot decide" and declined the whole file before any
+  # of the interesting work began.
+  om_r(occ_go(8192n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
 
 # A bound variable with the wrong index, or anything else rigid, is a real
 # mismatch; an application or a let might reduce and so declines.
@@ -1447,7 +1452,7 @@ def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   # on one side against an application on the other -- sits deep inside the
   # minor premise. Running out of fuel there turns a definite mismatch into
   # "cannot decide" and the lie goes uncaught.
-  tri_v(I.dr_r(I.defeq(512n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt,
+  tri_v(I.dr_r(I.defeq(8192n, U32.is_eq(mine, theirs), s2, mt, nt, lp, vt,
                        Nil{},
                        U.ex_at(I.is_ex(s2), I.ir_ty(w1)),
                        U.ex_at(I.is_ex(s2), I.ir_ty(w2)))))
@@ -2109,6 +2114,6 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
             comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
                                    False{})),
                  scan_projs(nex, 0, ex, strt, VAccept{}))),
-       ck_all(ds, 512n, st, build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+       ck_all(ds, 8192n, st, build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
               R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}),
               VAccept{}))
