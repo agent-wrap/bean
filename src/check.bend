@@ -2046,8 +2046,14 @@ def ck_typed(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                  R.get(L.LN, 32n, I.is_lnt(st2), I.sort_lvl_of(kx),
                        L.LNun{}),
                  L.LNun{})
-  ck_typed2(I.type_tri(I.not_a_type(I.is_ex(st2), nt, tx), u), fuel, st2,
-            mt, nt, lp, vt, isthm, u, ti1, vi)
+  # A declared type that is itself ILL-TYPED -- `infer` reporting the
+  # sentinel -- is a rejection, not a failure to decide. `093_projProp5`
+  # declares a type mentioning `proj 3` of a Prop structure whose dependent
+  # data field is 3, and declining there masked the value check, which
+  # already rejects.
+  pick_v(U32.is_eq(I.ir_ty(ri), 4294967294), VReject{},
+         ck_typed2(I.type_tri(I.not_a_type(I.is_ex(st2), nt, tx), u), fuel,
+                   st2, mt, nt, lp, vt, isthm, u, ti1, vi))
 
 def ck_one(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,

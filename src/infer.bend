@@ -2117,7 +2117,15 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
                              4294967295)
       +notprop = L.tri_is_no(L.ln_is_zero(sl(256n, is_ex(st), is_lnt(st),
                                              nt, lp, tn3, ctx)))
-      DR{st, L.pick_tri(U32.is_eq(pa3, pb3), eq_lvls(us, vs, is_lnt(st)),
+      # Same name: the level comparison's NO is only trusted when the
+      # constant has no definition -- a def can unfold, and the unfolding
+      # may erase the level difference.
+      +lv3 = eq_lvls(us, vs, is_lnt(st))
+      +hasval3 = Bool.not(U32.is_eq(R.get(U32, 32n, vt, pa3, 4294967295),
+                                    4294967295))
+      DR{st, L.pick_tri(U32.is_eq(pa3, pb3),
+                        L.pick_tri(L.tri_is_no(lv3) && hasval3, L.TUnk{},
+                                   lv3),
                         L.pick_tri(known && samety3 && isprop3,
                                    L.TYes{},
                                    L.pick_tri(known && samety3 && novals
@@ -2376,19 +2384,36 @@ def arg_eq(+cheap: L.Tri, +fuel: Nat, +st: IS, +mt: R.Tr<Meta>,
 # checking) its structure argument will accept it" -- and projecting out of a
 # structure built that way yields `False`.
 #
-# A constant WITH a value is excluded: it may unfold to the other one.
-def no_value(+vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+# A constant WITH a value is excluded: it may unfold to the other one. So is
+# any constant with a REDUCTION RULE -- a recursor (iota), the quotient
+# operators, and the literal-arithmetic names -- because an application
+# headed by one may reduce even though the head itself has no value. Treating
+# a recursor-headed application as irreducible produced the first two WRONG
+# answers this project ever shipped (`magma-list-pair-*`, wrongly rejected),
+# and they came from exactly this: `defo_diff` claiming two types definitely
+# different when one of them could still reduce.
+#
+# A BARE constant is a different matter: an unapplied recursor cannot reduce
+# by itself. This test is about spine heads, so it excludes them all.
+def no_value(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   match x:
     case T.EConst{n, us}:
-      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+      +pn5 = n
+      U32.is_eq(R.get(U32, 32n, vt, pn5, 4294967295), 4294967295)
+      && Bool.not(meta_is_rec(R.get(Meta, 32n, mt, pn5, MNone{})))
+      && Bool.not(U32.is_eq(pn5, is_qt(st, 0)))
+      && Bool.not(U32.is_eq(pn5, is_qt(st, 1)))
+      && Bool.not(U32.is_eq(pn5, is_qt(st, 5)))
+      && Bool.not(U32.is_eq(pn5, is_qt(st, 6)))
+      && Bool.not(U32.is_eq(pn5, is_qt(st, 7)))
     case _:
       False{}
 
-def defo_diff(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +a: T.Ex,
+def defo_diff(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +a: T.Ex,
               +b: T.Ex) -> Bool:
-  +ha = spine_hd(256n, ex, a)
-  +hb = spine_hd(256n, ex, b)
-  no_value(vt, ha) && no_value(vt, hb)
+  +ha = spine_hd(256n, is_ex(st), a)
+  +hb = spine_hd(256n, is_ex(st), b)
+  no_value(st, mt, vt, ha) && no_value(st, mt, vt, hb)
   && Bool.not(U32.is_eq(const_nm2(ha), const_nm2(hb)))
 
 # Definitely never a sort, for a term already in weak head normal form with
@@ -2397,7 +2422,7 @@ def defo_diff(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +a: T.Ex,
 # ever reduce it to a Sort node. `009_forallSortBad`'s bad domain has type
 # `constType (Sort 1) (Sort 0)` with `constType` an axiom: an application in
 # normal form, never a sort.
-def never_sort(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+def never_sort(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   match x:
     case T.EAll{n, t, b, bi}:
       True{}
@@ -2408,7 +2433,7 @@ def never_sort(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
     case T.EStr{d}:
       True{}
     case T.EConst{n, us}:
-      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+      no_value(st, mt, vt, T.EConst{n, us})
     # A variable never reduces, so a variable (or a spine headed by one) in
     # weak head normal form is never a sort. `009_forallSortBad` is
     # `forall (x : Prop) (y : x) (z : y), ..`: the domain `y` is a PROOF, and
@@ -2416,8 +2441,8 @@ def never_sort(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
     case T.EBVar{i}:
       True{}
     case T.EApp{f, a}:
-      +hd2 = spine_hd(256n, ex, T.EApp{f, a})
-      no_value(vt, hd2) || is_bvarx(hd2)
+      +hd2 = spine_hd(256n, is_ex(st), T.EApp{f, a})
+      no_value(st, mt, vt, hd2) || is_bvarx(hd2)
     case _:
       False{}
 
@@ -2460,8 +2485,8 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # in weak head normal form here, so `head_not_sort` is a definite
       # answer, the same test `not_a_type` relies on.
       +defbad = ir_ok(ra) && ir_ok(rb)
-                && (never_sort(is_ex(sb), vt, ka)
-                    || never_sort(is_ex(sb), vt, kb))
+                && (never_sort(sb, mt, vt, ka)
+                    || never_sort(sb, mt, vt, kb))
       # The ill-typed sentinel also PROPAGATES from either side: a Pi whose
       # domain or codomain is ill-typed is ill-typed, exactly as in the
       # lambda rule. `009_forallSortBad` nests the violation two binders
@@ -2566,13 +2591,29 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +argbad = ir_ok(rf) && ir_ok(ra) && is_all(node)
                 && (L.tri_is_no(dr_r(dq))
                     || (Bool.not(L.tri_is_yes(dr_r(dq)))
-                        && defo_diff(is_ex(sd), vt,
+                        && defo_diff(sd, mt, vt,
                                      U.ex_at(is_ex(sd), ir_ty(ra)),
                                      U.ex_at(is_ex(sd), all_dom(node)))))
       +rz = U.inst(256n, is_ex(sd), is_nx(sd),
                    U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
+      # The sentinel also propagates from either side: an application whose
+      # function or argument is ill-typed is ill-typed.
+      # GATED OFF, and the reason is recorded in full in
+      # docs/measurements.md. Propagating the sentinel through applications
+      # let a definite-NO from deep inside a comparison surface as a
+      # rejection -- and the full run then produced the first two WRONG
+      # answers this project ever shipped (`perf/magma-list-pair-*`, wrongly
+      # rejected). Bisecting found no single unsound denial: at least two of
+      # the deep sources are wrong only in combination, on a 600 KB file,
+      # and that cannot be isolated by gate-and-rebuild. Until a defeq trace
+      # instrument exists, deep denials stay swallowed here; the shallow
+      # rejection channels (`ck_infer`'s direct verdict, `ck_typed`'s
+      # sentinel, the projection and Pi rules) remain, and every reject they
+      # produce has been verified against the suite.
+      +apbad = False{} && (U32.is_eq(ir_ty(rf), 4294967294)
+               || U32.is_eq(ir_ty(ra), 4294967294))
       IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
-         S.pick(argbad, 4294967294, U.sr_i(rz)),
+         S.pick(argbad || apbad, 4294967294, U.sr_i(rz)),
          ir_ok(rf) && ir_ok(ra) && is_all(node)
          && L.tri_is_yes(dr_r(dq))}
     # `s.i` has the (i+1)-th field type of the structure's constructor, with

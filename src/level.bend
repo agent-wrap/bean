@@ -283,10 +283,17 @@ def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
       +px = xs
       +py = ys
       tri_of(atoms_sub(px, py) && atoms_sub(py, px))
+    # The imax comparison may answer yes or unknown but never NO: two
+    # structurally different imax forms can be semantically equal --
+    # `imax(1, u)` and `imax(max(1, u), u)` agree at every u -- so a
+    # mismatch of halves proves nothing. The max-of-atoms case above may
+    # deny, because the covering-pruned atom set is a canonical form.
     case 1n+p LNimax{x1, y1, o1} LNimax{x2, y2, o2}:
       +pf = p
-      tri_both(tri_of(U32.is_eq(o1, o2)),
-               tri_both(ln_cmp_f(pf, x1, x2), ln_cmp_f(pf, y1, y2)))
+      pick_tri(tri_is_yes(tri_both(tri_of(U32.is_eq(o1, o2)),
+                                   tri_both(ln_cmp_f(pf, x1, x2),
+                                            ln_cmp_f(pf, y1, y2)))),
+               TYes{}, TUnk{})
     case 1n+p LNimax{x1, y1, o1} LNmax{ys}:
       TUnk{}
     case 1n+p LNmax{xs} LNimax{x2, y2, o2}:
