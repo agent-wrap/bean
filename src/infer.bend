@@ -2332,9 +2332,22 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # mismatch; proof irrelevance is still consulted downstream before the
       # denial surfaces. `113_indexedStructEta`'s own description names this
       # trap: field-wise comparison plus irrelevance "would wrongly accept".
-      +rg = L.pick_tri((rigid(is_ex(se), px)
-                        || rec_stuck(se, mt, nt, lp, vt, px)
-                        || ctor_headed(se, mt, vt, px))
+      # Denying two rigid-but-differently-shaped terms is sound ONLY when
+      # their common type is definitely NOT a proposition. If it is, or might
+      # be, the two could be equal by proof irrelevance even when their
+      # shapes differ and the irrelevance check could not compute it -- which
+      # is what wrongly rejected `magma-list-pair`. The type is read off the
+      # left side through the oracle; unknown reads as "might be Prop", so no
+      # denial.
+      +rty = dq_type_of(se, nt, lp, ctx, px)
+      +notprop_rg = L.tri_is_no(L.ln_is_zero(
+                      sl(256n, is_ex(ir_st(rty)), is_lnt(ir_st(rty)), nt,
+                         lp, U.ex_at(is_ex(ir_st(rty)), ir_ty(rty)),
+                         ctx)))
+      +rg = L.pick_tri(ir_ok(rty) && notprop_rg
+                       && (rigid(is_ex(se), px)
+                           || rec_stuck(se, mt, nt, lp, vt, px)
+                           || ctor_headed(se, mt, vt, px))
                        && (rigid(is_ex(se), py)
                            || rec_stuck(se, mt, nt, lp, vt, py)
                            || ctor_headed(se, mt, vt, py)),
@@ -2612,7 +2625,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # rejection channels (`ck_infer`'s direct verdict, `ck_typed`'s
       # sentinel, the projection and Pi rules) remain, and every reject they
       # produce has been verified against the suite.
-      +apbad = False{} && (U32.is_eq(ir_ty(rf), 4294967294)
+      +apbad = (U32.is_eq(ir_ty(rf), 4294967294)
                || U32.is_eq(ir_ty(ra), 4294967294))
       IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
          S.pick(argbad || apbad, 4294967294, U.sr_i(rz)),
