@@ -2202,15 +2202,17 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +bv = alloc_ex(s1, T.EBVar{0})
       +ap = alloc_ex(ir_st(bv), T.EApp{U.sr_i(lr), ir_ty(bv)})
       +s2 : IS = ir_st(ap)
+      # The body and the expanded other side both live under the lambda's
+      # binder, so `ctx` is EXTENDED by its domain `t1`. Without this the
+      # bound-variable denial below looked up `bvar 0`'s type one binder too
+      # high -- a wrong or missing type -- which is one of the ways the deep
+      # denial channel misfired.
       +w1 = whd(s2, mt, lp, vt, b1)
       +w2 = whd(ir_st(w1), mt, lp, vt, ir_ty(ap))
       +s3 : IS = ir_st(w2)
-      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
+      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, Con{t1, ctx},
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
-      # Not softened: eta is a definitional equality, so comparing the body
-      # with the expanded other side settles the question in both
-      # directions.
       DR{dr_st(d), dr_r(d)}
     case 1n+p False{} _ T.ELam{n2, t2, b2, i2}:
       +pf = p
@@ -2227,7 +2229,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +w1 = whd(s2, mt, lp, vt, ir_ty(ap))
       +w2 = whd(ir_st(w1), mt, lp, vt, b2)
       +s3 : IS = ir_st(w2)
-      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
+      +d = defeq(pf, False{}, s3, mt, nt, lp, vt, Con{t2, ctx},
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
       # Not softened: eta is a definitional equality, so comparing the body
