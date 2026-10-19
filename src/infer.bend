@@ -1335,12 +1335,37 @@ def dr_r(+d: DR) -> L.Tri:
 # So the term paths are softened: they may confirm equality but never deny
 # it. Denying it there rejected `104_proofIrrelevance`, all three `unitEta`
 # tests, and three of the big perf files.
-def rigid(+x: T.Ex) -> Bool:
+def is_bvarx(+x: T.Ex) -> Bool:
+  match x:
+    case T.EBVar{i}:
+      True{}
+    case _:
+      False{}
+
+# STUCK: nothing can reduce this term's head, so two structurally different
+# stuck terms are genuinely different.
+#
+# A bound variable is stuck -- in `defeq` it is a free variable of the local
+# context, not something that can be instantiated -- and so is an
+# application headed by one. That is the case `116_funEtaBad` needs: after
+# eta it compares `f x` against `x`, and both are bvar-headed.
+#
+# A constant is NOT counted stuck: it may delta-unfold, and `rigid` has no
+# access to the value table to tell. Nor is a projection.
+def rigid(+ex: R.Tr<T.Ex>, +x: T.Ex) -> Bool:
   match x:
     case T.ESort{l}:
       True{}
     case T.EAll{n, t, b, bi}:
       True{}
+    case T.EBVar{i}:
+      True{}
+    case T.ENat{d}:
+      True{}
+    case T.EStr{d}:
+      True{}
+    case T.EApp{f, a}:
+      is_bvarx(spine_hd(256n, ex, T.EApp{f, a}))
     case _:
       False{}
 
@@ -1358,8 +1383,8 @@ def soften(+t: L.Tri) -> L.Tri:
 # structural or inductive check. So this was carrying risk without carrying
 # score, and it can come back once reduction is complete enough that a
 # normal form really is one.
-def mismatch(+x: T.Ex, +y: T.Ex) -> L.Tri:
-  L.pick_tri(rigid(x) && rigid(y), L.TNo{}, L.TUnk{})
+def mismatch(+ex: R.Tr<T.Ex>, +x: T.Ex, +y: T.Ex) -> L.Tri:
+  L.pick_tri(rigid(ex, x) && rigid(ex, y), L.TNo{}, L.TUnk{})
 
 # --- structure eta -------------------------------------------------------
 # `S.mk s.0 .. s.(k-1)` equals `s` for a structure `S`. Rather than looping
@@ -1502,10 +1527,17 @@ def dq_or_irrel(+t: L.Tri, +st: IS, +nt: R.Tr<U32>,
     case L.TYes{}:
       DR{st, L.TYes{}}
     case _:
-      # A fallback may only UPGRADE to yes; it must not discard a definite
-      # no that the structural comparison already established.
-      +pfb = dq_gate(dq_same_head(st, x, y), st, nt, lp, ctx, x, y)
+      # A fallback may only UPGRADE to yes; it must not discard a definite no
+      # the structural comparison already established.
+      #
+      # When the pending verdict IS a no, proof irrelevance is tried
+      # unconditionally -- the same-head gate exists for speed, and skipping
+      # the check in the one direction that can produce a WRONG REJECT is
+      # not a trade worth making. Two proofs of the same proposition are
+      # equal however different they look.
       +pt0 = t
+      +pfb = dq_gate(dq_same_head(st, x, y) || L.tri_is_no(pt0), st, nt,
+                     lp, ctx, x, y)
       DR{dr_st(pfb), L.pick_tri(L.tri_is_yes(dr_r(pfb)), L.TYes{}, pt0)}
 
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
@@ -1767,7 +1799,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +de = defeq(pf, False{}, se, mt, nt, lp, vt, ctx, px,
                   U.ex_at(is_ex(se), ir_ty(eta)))
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
-              DR{st, mismatch(px, py)})
+              dq_or_irrel(mismatch(is_ex(se), px, py), se, nt, lp,
+                          ctx, px, py))
 
 
 # Argument-versus-domain equality, cheapest first: structural, then one
