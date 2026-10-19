@@ -503,6 +503,16 @@ def eq_lvls(us: List<&2, U32>, vs: List<&2, U32>, +ln: R.Tr<L.LN>) -> L.Tri:
     case _ _:
       L.TUnk{}
 
+# Byte-list equality, for literal payloads.
+def eq_u32s(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{h1, t1} Con{h2, t2}:
+      U32.is_eq(h1, h2) && eq_u32s(t1, t2)
+    case _ _:
+      False{}
+
 # One self-recursive function, not three: `eq_ex -> eq_node -> eq_struct ->
 # eq_ex` is mutual recursion and Bend forbids it. The two nodes therefore
 # arrive as parameters, and the recursive calls fetch the children in their
@@ -546,6 +556,21 @@ def eq_ex(+fuel: Nat, +same: Bool, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
               eq_ex(pf, U32.is_eq(b1, b2), ex, ln,
                     R.get(T.Ex, 64n, ex, b1, T.EBad{}),
                     R.get(T.Ex, 64n, ex, b2, T.EBad{})))
+    # Projections and literals were missing here, so the structural
+    # comparison could never confirm them -- and the delta retry at the
+    # shape mismatch (`snd p` against `proj 1 p`) ends in exactly such a
+    # pair, so structure eta was undecidable one comparison from done.
+    case 1n+p False{} T.EProj{tn1, i1, s1} T.EProj{tn2, i2, s2}:
+      +pf = p
+      L.pick_tri(U32.is_eq(tn1, tn2) && U32.is_eq(i1, i2),
+                 eq_ex(pf, U32.is_eq(s1, s2), ex, ln,
+                       R.get(T.Ex, 64n, ex, s1, T.EBad{}),
+                       R.get(T.Ex, 64n, ex, s2, T.EBad{})),
+                 L.TUnk{})
+    case 1n+p False{} T.ENat{d1} T.ENat{d2}:
+      L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})
+    case 1n+p False{} T.EStr{d1} T.EStr{d2}:
+      L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})
     case 1n+p False{} _ _:
       L.TUnk{}
 
@@ -1522,16 +1547,6 @@ def proj_nodes(n: Nat, +i: U32, +tn: U32, +sx: U32, +st: IS,
       proj_nodes(q, (i + 1 : U32), tn, sx, ir_st(pr),
                  Con{ir_ty(pr), acc})
 
-# Byte-list equality, for literal payloads.
-def eq_u32s(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
-  match xs ys:
-    case Nil{} Nil{}:
-      True{}
-    case Con{h1, t1} Con{h2, t2}:
-      U32.is_eq(h1, h2) && eq_u32s(t1, t2)
-    case _ _:
-      False{}
-
 # Do the two function sides share a head that need not be unfolded? Either
 # the same expression index -- the export is a heavily shared DAG, so this is
 # common -- or the same constant with the same level arguments.
@@ -1819,6 +1834,41 @@ def dq_or_irrel(+t: L.Tri, +st: IS, +nt: R.Tr<U32>,
                      st, nt, lp, ctx, x, y)
       DR{dr_st(pfb), L.pick_tri(L.tri_is_yes(dr_r(pfb)), L.TYes{}, pt0)}
 
+# One reduction of each side at the point two different SHAPES meet, then a
+# structural retry. This is where `fst y` -- an application of a definition
+# -- meets `proj 0 y`, the projection it unfolds to: one delta-plus-beta step
+# apart, and no other rule relates them.
+def dq_delta1(+st: IS, +mt: R.Tr<Meta>, +lp: R.Tr<List<&2, U32>>,
+              +vt: R.Tr<U32>, +x: T.Ex, +y: T.Ex) -> L.Tri:
+  +ax = alloc_ex(st, x)
+  +ay = alloc_ex(ir_st(ax), y)
+  +w1 = whd(ir_st(ay), mt, lp, vt, ir_ty(ax))
+  +w2 = whd(ir_st(w1), mt, lp, vt, ir_ty(ay))
+  +s2 : IS = ir_st(w2)
+  eq_ex(256n, U32.is_eq(ir_ty(w1), ir_ty(w2)), is_ex(s2), is_lnt(s2),
+        U.ex_at(is_ex(s2), ir_ty(w1)), U.ex_at(is_ex(s2), ir_ty(w2)))
+
+# As `dq_or_irrel`, plus one reduction of each side on an UNDECIDED shape
+# mismatch. Used by the catch-all only.
+def dq_or_delta(+t: L.Tri, +st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
+                +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
+  match t:
+    case L.TYes{}:
+      DR{st, L.TYes{}}
+    case L.TNo{}:
+      dq_or_irrel(L.TNo{}, st, nt, lp, ctx, x, y)
+    case L.TUnk{}:
+      +d1 = dq_delta1(st, mt, lp, vt, x, y)
+      dq_or_irrel(d1, st, nt, lp, ctx, x, y)
+
+def pick_exx(+z: Bool, +a: T.Ex, +b: T.Ex) -> T.Ex:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
           +ctx: List<&2, U32>, +x: T.Ex, +y: T.Ex) -> DR:
@@ -2060,9 +2110,21 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
     # already are.
     case 1n+p False{} _ _:
       +pf = p
-      +px : T.Ex = x
-      +py : T.Ex = y
-      +hd = spine_hd(256n, is_ex(st), px)
+      # SYMMETRIC: the constructor application may be on either side.
+      # `112_structEta` states `Eq p (Prod.mk p.1 p.2)` with the constructor
+      # on the right, and the comparison arrives here as
+      # `p` against `Prod.mk (fst p) (snd p)`. The sides are swapped when
+      # only the right head is a constructor -- equality is symmetric, so
+      # nothing else changes.
+      +hdl = spine_hd(256n, is_ex(st), x)
+      +hdr = spine_hd(256n, is_ex(st), y)
+      +swap = Bool.not(meta_is_ctor(R.get(Meta, 32n, mt, const_nm2(hdl),
+                                          MNone{})))
+              && meta_is_ctor(R.get(Meta, 32n, mt, const_nm2(hdr),
+                                    MNone{}))
+      +px : T.Ex = pick_exx(swap, y, x)
+      +py : T.Ex = pick_exx(swap, x, y)
+      +hd = pick_exx(swap, hdr, hdl)
       +cmi = R.get(Meta, 32n, mt, const_nm2(hd), MNone{})
       # The inductive must be a registered STRUCTURE -- one constructor,
       # no indices -- which is what `MInd` means here. That restriction is
@@ -2086,8 +2148,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +de = defeq(pf, False{}, se, mt, nt, lp, vt, ctx, px,
                   U.ex_at(is_ex(se), ir_ty(eta)))
       pick_dr(eok, DR{dr_st(de), soften(dr_r(de))},
-              dq_or_irrel(mismatch(is_ex(se), px, py), se, nt, lp,
-                          ctx, px, py))
+              dq_or_delta(mismatch(is_ex(se), px, py), se, mt, nt, lp,
+                          vt, ctx, px, py))
 
 
 # Argument-versus-domain equality, cheapest first: structural, then one
