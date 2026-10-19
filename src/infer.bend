@@ -2260,6 +2260,36 @@ def defo_diff(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +a: T.Ex,
   no_value(vt, ha) && no_value(vt, hb)
   && Bool.not(U32.is_eq(const_nm2(ha), const_nm2(hb)))
 
+# Definitely never a sort, for a term already in weak head normal form with
+# delta: a Pi, a lambda or a literal is one on its face, and a constant or
+# application whose head has no definition to unfold is STUCK -- nothing can
+# ever reduce it to a Sort node. `009_forallSortBad`'s bad domain has type
+# `constType (Sort 1) (Sort 0)` with `constType` an axiom: an application in
+# normal form, never a sort.
+def never_sort(+ex: R.Tr<T.Ex>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
+  match x:
+    case T.EAll{n, t, b, bi}:
+      True{}
+    case T.ELam{n, t, b, bi}:
+      True{}
+    case T.ENat{d}:
+      True{}
+    case T.EStr{d}:
+      True{}
+    case T.EConst{n, us}:
+      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+    # A variable never reduces, so a variable (or a spine headed by one) in
+    # weak head normal form is never a sort. `009_forallSortBad` is
+    # `forall (x : Prop) (y : x) (z : y), ..`: the domain `y` is a PROOF, and
+    # its type is the stuck variable `x`.
+    case T.EBVar{i}:
+      True{}
+    case T.EApp{f, a}:
+      +hd2 = spine_hd(256n, ex, T.EApp{f, a})
+      no_value(vt, hd2) || is_bvarx(hd2)
+    case _:
+      False{}
+
 # --- infer ---------------------------------------------------------------
 # One self-recursive function. The application case is the reason accessor
 # defs exist above: after normalising the function's type there is no way to
@@ -2292,13 +2322,29 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +wb = whd(ir_st(rb), mt, lp, vt, ir_ty(rb))
       +sb = ir_st(wb)
       +kb = U.ex_at(is_ex(sb), ir_ty(wb))
+      # A domain or codomain whose REDUCED type is definitely not a sort --
+      # a Pi, a lambda, a literal -- makes the whole Pi ill-typed rather
+      # than undecidable: "the binding domain of a forall has to be a sort"
+      # (`009_forallSortBad`'s own description). `ka` and `kb` are already
+      # in weak head normal form here, so `head_not_sort` is a definite
+      # answer, the same test `not_a_type` relies on.
+      +defbad = ir_ok(ra) && ir_ok(rb)
+                && (never_sort(is_ex(sb), vt, ka)
+                    || never_sort(is_ex(sb), vt, kb))
+      # The ill-typed sentinel also PROPAGATES from either side: a Pi whose
+      # domain or codomain is ill-typed is ill-typed, exactly as in the
+      # lambda rule. `009_forallSortBad` nests the violation two binders
+      # deep, so without this the sentinel died one Pi out.
+      +subbad = U32.is_eq(ir_ty(ra), 4294967294)
+                || U32.is_eq(ir_ty(rb), 4294967294)
       pick_ir(ir_ok(ra) && ir_ok(rb) && is_sortx(ka) && is_sortx(kb),
               sort_of(sb,
                       L.ln_imax(R.get(L.LN, 32n, is_lnt(sb),
                                       sort_lvl_of(ka), L.LNun{}),
                                 R.get(L.LN, 32n, is_lnt(sb),
                                       sort_lvl_of(kb), L.LNun{}))),
-              ir_bad(sb))
+              pick_ir(defbad || subbad, IR{sb, 4294967294, False{}},
+                      ir_bad(sb)))
     case 1n+p T.ELam{n, ty, b, bi}:
       +pf = p
       +pty = ty
@@ -2382,11 +2428,16 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # A definitely-wrong argument type is reported with the ill-typed
       # sentinel, which `ck_infer` turns into a rejection rather than a
       # decline.
+      # Either the comparison itself answered a definite NO -- every TNo
+      # `defeq` can produce is a vetted denial: unequal concrete sorts,
+      # unequal literals, distinct irreducible non-Prop constants, distinct
+      # stuck variables -- or the nominal head test says the types differ.
       +argbad = ir_ok(rf) && ir_ok(ra) && is_all(node)
-                && Bool.not(L.tri_is_yes(dr_r(dq)))
-                && defo_diff(is_ex(sd), vt,
-                             U.ex_at(is_ex(sd), ir_ty(ra)),
-                             U.ex_at(is_ex(sd), all_dom(node)))
+                && (L.tri_is_no(dr_r(dq))
+                    || (Bool.not(L.tri_is_yes(dr_r(dq)))
+                        && defo_diff(is_ex(sd), vt,
+                                     U.ex_at(is_ex(sd), ir_ty(ra)),
+                                     U.ex_at(is_ex(sd), all_dom(node)))))
       +rz = U.inst(256n, is_ex(sd), is_nx(sd),
                    U.ex_at(is_ex(sd), all_cod(node)), all_cod(node), 0, pa)
       IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
