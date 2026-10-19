@@ -1359,7 +1359,7 @@ def soften(+t: L.Tri) -> L.Tri:
 # score, and it can come back once reduction is complete enough that a
 # normal form really is one.
 def mismatch(+x: T.Ex, +y: T.Ex) -> L.Tri:
-  L.pick_tri(False{} && rigid(x) && rigid(y), L.TNo{}, L.TUnk{})
+  L.pick_tri(rigid(x) && rigid(y), L.TNo{}, L.TUnk{})
 
 # --- structure eta -------------------------------------------------------
 # `S.mk s.0 .. s.(k-1)` equals `s` for a structure `S`. Rather than looping
@@ -1502,7 +1502,11 @@ def dq_or_irrel(+t: L.Tri, +st: IS, +nt: R.Tr<U32>,
     case L.TYes{}:
       DR{st, L.TYes{}}
     case _:
-      dq_gate(dq_same_head(st, x, y), st, nt, lp, ctx, x, y)
+      # A fallback may only UPGRADE to yes; it must not discard a definite
+      # no that the structural comparison already established.
+      +pfb = dq_gate(dq_same_head(st, x, y), st, nt, lp, ctx, x, y)
+      +pt0 = t
+      DR{dr_st(pfb), L.pick_tri(L.tri_is_yes(dr_r(pfb)), L.TYes{}, pt0)}
 
 def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
@@ -1576,9 +1580,20 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +both = U32.is_lt(pa2, 4294967295) && U32.is_lt(pb2, 4294967295)
               && Bool.not(U32.is_eq(ta, 4294967295))
               && Bool.not(U32.is_eq(tb, 4294967295))
+      # Two DIFFERENT bound variables are different terms. Nothing reduces
+      # them, so once proof irrelevance and unit-like eta have been ruled
+      # out, this is a definite NO rather than "cannot decide" -- and that
+      # is the only way the eta-bad tests can be rejected:
+      # `116_funEtaBad` eta-expands to `f (g x)` against `h x`, whose heads
+      # are two distinct variables.
+      #
+      # Conditional on `both`: the denial requires knowing BOTH types, since
+      # it is exactly the types that could make irrelevance or unit eta
+      # apply. Without them the honest answer is still "cannot decide".
       DR{s4, L.pick_tri(U32.is_eq(pa2, pb2), L.TYes{},
                         L.pick_tri(both && samety && (isprop || isunit),
-                                   L.TYes{}, L.TUnk{}))}
+                                   L.TYes{},
+                                   L.pick_tri(both, L.TNo{}, L.TUnk{})))}
     # Two constants. The same name with equal level arguments is equal.
     # Different names are still equal when both are proofs of the same
     # proposition -- proof irrelevance again, but for constants, where the
@@ -1640,7 +1655,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +d2 = defeq(pf, U32.is_eq(a1, a2), dr_wh(w4), mt, nt, lp, vt, ctx,
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w3)),
                   U.ex_at(is_ex(dr_wh(w4)), ir_ty(w4)))
-      dq_or_irrel(soften(tri_and(dr_r(d1), dr_r(d2))), dr_st(d2), nt, lp,
+      dq_or_irrel(tri_and(dr_r(d1), dr_r(d2)), dr_st(d2), nt, lp,
                   ctx, x, y)
     # Eta for functions: `fun x => b` equals `t` exactly when `b` equals
     # `t x`. The lambda supplies the binder, so this needs no type inference
@@ -1670,7 +1685,10 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
-      DR{dr_st(d), soften(dr_r(d))}
+      # Not softened: eta is a definitional equality, so comparing the body
+      # with the expanded other side settles the question in both
+      # directions.
+      DR{dr_st(d), dr_r(d)}
     case 1n+p False{} _ T.ELam{n2, t2, b2, i2}:
       +pf = p
       +px : T.Ex = x
@@ -1689,7 +1707,10 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +d = defeq(pf, False{}, s3, mt, nt, lp, vt, ctx,
                  U.ex_at(is_ex(s3), ir_ty(w1)),
                  U.ex_at(is_ex(s3), ir_ty(w2)))
-      DR{dr_st(d), soften(dr_r(d))}
+      # Not softened: eta is a definitional equality, so comparing the body
+      # with the expanded other side settles the question in both
+      # directions.
+      DR{dr_st(d), dr_r(d)}
     # Literals: two `Nat` or `String` literals are equal exactly when their
     # digits are. Without this they fell to the catch-all and compared as
     # "cannot decide", so even a literal against itself was undecided.
