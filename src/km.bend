@@ -77,6 +77,7 @@ def wp_bump(+w: WP) -> WP:
 type MG is Data:
   MX{x: T.Ex}
   MSP{hd: T.Ex, sargs: List<&2, U32>}
+  MTri{t: L.Tri}
   MN{}
 
 # --- frames ----------------------------------------------------------------
@@ -116,6 +117,36 @@ type KF is Data:
   # branch point for projection reduction: take the field or rebuild
   WPrjGo{okp: Bool, delta: Bool, e: U32, fld: U32, args: List<&2, U32>,
          fu: U32}
+  # ---- telescope peel (infer.bend's peel_tele), reused by K and iota ----
+  # expect MX of the current type node; instantiate its codomain per value
+  WPlE{tyi: U32, vals: List<&2, U32>}
+  # an instantiation finished; fetch the new type node and continue peeling
+  WPlC{vals: List<&2, U32>}
+  # ---- the EConst reduction pipeline (K-like, unit-eta, delta) ----
+  # phase 1 gate: K-like reduction applies?
+  WPh1{iskr: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, pp: U32, mn: U32, mk: U32, rcty: U32}
+  # peel of the recursor's constructor type finished (ri = peeled type)
+  WK2{isue: Bool, can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>,
+      qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32, pp: U32,
+      mn: U32, mk: U32}
+  # spine of the peeled type collected; compare expected vs given indices
+  WK3{pok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
+      ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+      fu: U32, pp: U32, mn: U32, mk: U32}
+  # the index comparison's verdict arrives here (MTri)
+  WK4{pok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
+      ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+      fu: U32, pp: U32, mn: U32, mk: U32}
+  # index comparison answered; fire K or fall through
+  WKGo{kok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, pp: U32, mn: U32, mk: U32}
+  # phase 2 gate: unit-like structure eta
+  WPh2{isue: Bool, can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>,
+       qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32, pp: U32,
+       mn: U32}
 
 type KS is Data:
   KNil{}
@@ -183,6 +214,144 @@ def klsub_lvls(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +nlx: U32,
                                   L.LNun{}),
                             (nlx + 1 : U32), ps, qs)
       LVS{lvs_t(r), lvs_nx(r), Con{nlx, lvs_xs(r)}}
+
+# --- structural equality over the flat store (infer.bend's eq_ex) ----------
+# A worklist walker: each pair carries its remaining DEPTH budget (the trie
+# version's per-pair fuel), children get dep-1, dep 0 answers TUnk, and an
+# equal-index pair answers TYes without reading (TUnk at dep 0) -- exactly
+# the trie semantics. eq_ex never answers TNo, so TUnk absorbs.
+type QI is Data:
+  QA{a: U32, b: U32, dep: U32}
+  QB{an: T.Ex, b: U32, dep: U32}
+
+type QR is Data:
+  QR{t: L.Tri, kids: List<&2, QI>}
+
+def qr_t(+r: QR) -> L.Tri:
+  match r:
+    case QR{t, kids}:
+      t
+
+def qr_kids(+r: QR) -> List<&2, QI>:
+  match r:
+    case QR{t, kids}:
+      kids
+
+def pick_qis(+z: Bool, +x: List<&2, QI>, +y: List<&2, QI>) -> List<&2, QI>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+# a child pair's contribution when the indices are already equal
+def keq_same(+cdep: U32) -> L.Tri:
+  L.pick_tri(U32.is_eq(cdep, 0), L.TUnk{}, L.TYes{})
+
+# fold one child pair: equal indices contribute directly, unequal ones queue
+def kq1(+x: U32, +y: U32, +cdep: U32, +t: L.Tri,
+        kids: List<&2, QI>) -> QR:
+  +k2 : List<&2, QI> = kids
+  QR{I.tri_and(t, L.pick_tri(U32.is_eq(x, y), keq_same(cdep), L.TYes{})),
+     pick_qis(U32.is_eq(x, y), k2, Con{QA{x, y, cdep}, k2})}
+
+def kq2(+x1: U32, +y1: U32, +x2: U32, +y2: U32, +cdep: U32) -> QR:
+  +r : QR = kq1(x2, y2, cdep, L.TYes{}, Nil{})
+  kq1(x1, y1, cdep, qr_t(r), qr_kids(r))
+
+# compare two fetched nodes; levels resolve through the level trie
+def keq_cmp(x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
+  match x y:
+    case T.ESort{a} T.ESort{b}:
+      QR{L.ln_cmp(R.get(L.LN, 32n, lnt, a, L.LNun{}),
+                  R.get(L.LN, 32n, lnt, b, L.LNun{})), Nil{}}
+    case T.EBVar{a} T.EBVar{b}:
+      QR{L.pick_tri(U32.is_eq(a, b), L.TYes{}, L.TUnk{}), Nil{}}
+    case T.EConst{a, us} T.EConst{b, vs}:
+      QR{L.pick_tri(U32.is_eq(a, b), I.eq_lvls(us, vs, lnt), L.TUnk{}),
+         Nil{}}
+    case T.EApp{f1, a1} T.EApp{f2, a2}:
+      kq2(f1, f2, a1, a2, (dep - 1 : U32))
+    case T.EAll{n1, t1, b1, i1} T.EAll{n2, t2, b2, i2}:
+      kq2(t1, t2, b1, b2, (dep - 1 : U32))
+    case T.ELam{n1, t1, b1, i1} T.ELam{n2, t2, b2, i2}:
+      kq2(t1, t2, b1, b2, (dep - 1 : U32))
+    case T.EProj{tn1, i1, s1} T.EProj{tn2, i2, s2}:
+      +sc : Bool = U32.is_eq(tn1, tn2) && U32.is_eq(i1, i2)
+      +r : QR = kq1(s1, s2, (dep - 1 : U32), L.TYes{}, Nil{})
+      QR{L.pick_tri(sc, qr_t(r), L.TUnk{}),
+         pick_qis(sc, qr_kids(r), Nil{})}
+    case T.ENat{d1} T.ENat{d2}:
+      QR{L.pick_tri(I.eq_u32s(d1, d2), L.TYes{}, L.TUnk{}), Nil{}}
+    case T.EStr{d1} T.EStr{d2}:
+      QR{L.pick_tri(I.eq_u32s(d1, d2), L.TYes{}, L.TUnk{}), Nil{}}
+    case _ _:
+      QR{L.TUnk{}, Nil{}}
+
+# a dep-0 pair answers TUnk without comparing (the trie's fuel-0 entry)
+def keq_cmp0b(z: Bool, x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
+  match z:
+    case True{}:
+      QR{L.TUnk{}, Nil{}}
+    case False{}:
+      keq_cmp(x, y, dep, lnt)
+
+def keq_cmp0(+dep: U32, x: T.Ex, y: T.Ex, +lnt: R.Tr<L.LN>) -> QR:
+  keq_cmp0b(U32.is_eq(dep, 0), x, y, dep, lnt)
+
+# the next index the worklist's head needs fetched
+def keq_next(wl: List<&2, QI>) -> U32:
+  match wl:
+    case Nil{}:
+      0
+    case Con{QA{a, b, dep}, tail}:
+      a
+    case Con{QB{an, b, dep}, tail}:
+      b
+
+def keq_go(fuel: Nat, +lnt: R.Tr<L.LN>, wl: List<&2, QI>, +acc: L.Tri,
+           +nx: U32,
+           pr: Array<T.Ex> & T.Ex) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fuel wl pr:
+    case 0n _ Tuple{a, nd}:
+      (((a, nx), MTri{L.TUnk{}}), 0)
+    case 1n+p Nil{} Tuple{a, nd}:
+      (((a, nx), MTri{acc}), 0)
+    case 1n+p Con{QA{x, y, dep}, tail} Tuple{a, nd}:
+      +y2 : U32 = y
+      keq_go(p, lnt, Con{QB{nd, y2, dep}, tail}, acc, nx,
+             Array.get(T.Ex, a, y2))
+    case 1n+p Con{QB{an, y, dep}, tail} Tuple{a, nd}:
+      +r : QR = keq_cmp0(dep, an, nd, lnt)
+      +w : List<&2, QI> = List.append(&2, QI, qr_kids(r), tail)
+      keq_go(p, lnt, w, I.tri_and(acc, qr_t(r)), nx,
+             Array.get(T.Ex, a, keq_next(w)))
+
+# zip two index lists into the initial worklist (infer.bend's
+# eq_u32_lists_ex: per-element depth 256; length mismatch answers TUnk)
+def kzip(xs: List<&2, U32>, ys: List<&2, U32>, +acc: L.Tri,
+         kids: List<&2, QI>) -> QR:
+  match xs ys:
+    case Nil{} Nil{}:
+      QR{acc, kids}
+    case Con{x, tx} Con{y, ty}:
+      +r : QR = kq1(x, y, 256, acc, kids)
+      kzip(tx, ty, qr_t(r), qr_kids(r))
+    case _ _:
+      QR{L.TUnk{}, kids}
+
+def keq_lists2(+r: QR, fs: Array<T.Ex> & U32,
+               +lnt: R.Tr<L.LN>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      +wl : List<&2, QI> = qr_kids(r)
+      keq_go(100000000n, lnt, wl, qr_t(r), nx,
+             Array.get(T.Ex, ex, keq_next(wl)))
+
+def keq_lists_tin(fs: Array<T.Ex> & U32, xs: List<&2, U32>,
+                  ys: List<&2, U32>,
+                  +lnt: R.Tr<L.LN>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  keq_lists2(kzip(xs, ys, L.TYes{}, Nil{}), fs, lnt)
 
 # --- store shufflers --------------------------------------------------------
 # TIN = ((Array<T.Ex> & U32) & MG) & U32 -- store, message, result register
@@ -436,12 +605,26 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EConst{n, us}}}, ri}:
       +n2 : U32 = n
+      +a2 : List<&2, U32> = args
       +vi : U32 = R.get(U32, 32n, vt, n2, 4294967295)
       +d2 : Bool = delta
       +can : Bool = Bool.and(d2, U32.is_ne(vi, 4294967295))
-      km(p, KCon{WDelGo{can, d2, vi,
-                        R.get(List<&2, U32>, 32n, lp, n2, Nil{}),
-                        klns_of(us, lnt), e, args, fu}, k},
+      +mi : I.Meta = R.get(I.Meta, 32n, mt, n2, I.MNone{})
+      +pp : U32 = I.meta_p(mi)
+      +mn : U32 = I.meta_n(mi)
+      +mk : U32 = I.meta_k(mi)
+      +la : U32 = I.len_u(a2, 0)
+      +iskr : Bool = U32.is_eq(I.meta_kf(mi), 1)
+                     && U32.is_gt(la, (pp + 1 + mn + mk : U32))
+      +uind : I.Meta = R.get(I.Meta, 32n, mt, I.meta_ind(mi), I.MNone{})
+      +isue : Bool = I.meta_is_rec(mi) && I.meta_is_ind(uind)
+                     && U32.is_eq(I.meta_nf(uind), 0)
+                     && U32.is_eq(mk, 0)
+                     && U32.is_gt(la, (pp + 1 + mn : U32))
+      km(p, KCon{WPh1{iskr, isue, can, d2, vi,
+                      R.get(List<&2, U32>, 32n, lp, n2, Nil{}),
+                      klns_of(us, lnt), e, a2, fu, pp, mn, mk,
+                      I.meta_rcty(mi)}, k},
          lnt, nlx, mt, lp, vt, knoop(fs, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EProj{tn, idx, sx}}}, ri}:
@@ -457,6 +640,90 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       km(p, KCon{kwev(delta, r2, args, fu), k}, lnt, nlx, mt, lp, vt,
          kfetch(fs, r2, 0))
+    # ---- EConst pipeline: phase 1, K-like reduction ----
+    case 1n+p KCon{WPh1{True{}, isue, can, delta, vi, ps, qs, e, args, fu,
+                        pp, mn, mk, rcty}, k} Tuple{Tuple{fs, msg}, ri}:
+      +p2 : U32 = pp
+      +r2 : U32 = rcty
+      +a2 : List<&2, U32> = args
+      km(p, KCon{WPlE{r2, I.take_u(a2, p2, Nil{})},
+                 KCon{WK2{isue, can, delta, vi, ps, qs, e, a2, fu, p2, mn,
+                          mk}, k}},
+         lnt, nlx, mt, lp, vt, kfetch(fs, r2, ri))
+    case 1n+p KCon{WPh1{False{}, isue, can, delta, vi, ps, qs, e, args, fu,
+                        pp, mn, mk, rcty}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WPh2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn},
+                 k},
+         lnt, nlx, mt, lp, vt, knoop(fs, ri))
+    # ---- telescope peel (ordered: the Pi case must precede the stuck one)
+    case 1n+p KCon{WPlE{tyi, Nil{}}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, kkeep(fs, tyi))
+    case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k}
+         Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
+      +b2 : U32 = b
+      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 256}, b2),
+                 KCon{WPlC{rest}, k}},
+         lnt, nlx, mt, lp, vt, kfetch(fs, b2, ri))
+    case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, kkeep(fs, 4294967295))
+    case 1n+p KCon{WPlC{vals}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{WPlE{r2, vals}, k}, lnt, nlx, mt, lp, vt,
+         kfetch(fs, r2, 0))
+    # ---- K: peel done -> spine of the peeled type ----
+    case 1n+p KCon{WK2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn,
+                       mk}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{WK3{U32.is_ne(r2, 4294967295), isue, can, delta, vi, ps,
+                     qs, e, args, fu, pp, mn, mk}, k},
+         lnt, nlx, mt, lp, vt,
+         kspine_tin(fs, S.pick(U32.is_ne(r2, 4294967295), r2, 0), 0))
+    # ---- K: spine done -> compare expected and given indices ----
+    case 1n+p KCon{WK3{pok, isue, can, delta, vi, ps, qs, e, args, fu, pp,
+                       mn, mk}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +a2 : List<&2, U32> = args
+      +p2 : U32 = pp
+      +m2 : U32 = mn
+      +k2 : U32 = mk
+      km(p, KCon{WK4{pok, isue, can, delta, vi, ps, qs, e, a2, fu, p2, m2,
+                     k2}, k},
+         lnt, nlx, mt, lp, vt,
+         keq_lists_tin(fs, I.skip_u(sargs, p2),
+                       I.take_u(I.skip_u(a2, (p2 + 1 + m2 : U32)), k2,
+                                Nil{}),
+                       lnt))
+    # ---- K: verdict arrived ----
+    case 1n+p KCon{WK4{pok, isue, can, delta, vi, ps, qs, e, args, fu, pp,
+                       mn, mk}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{WKGo{Bool.and(pok, L.tri_is_yes(t)), isue, can, delta, vi,
+                      ps, qs, e, args, fu, pp, mn, mk}, k},
+         lnt, nlx, mt, lp, vt, knoop(fs, ri))
+    case 1n+p KCon{WKGo{True{}, isue, can, delta, vi, ps, qs, e, args, fu,
+                        pp, mn, mk}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : List<&2, U32> = args
+      +p2 : U32 = pp
+      +mi2 : U32 = I.nth_u(a2, (p2 + 1 : U32), 4294967295)
+      km(p, KCon{kwev(delta, mi2, I.skip_u(a2, (p2 + 1 + mn + mk + 1 : U32)),
+                      (fu - 1 : U32)), k},
+         lnt, nlx, mt, lp, vt, kfetch(fs, mi2, ri))
+    case 1n+p KCon{WKGo{False{}, isue, can, delta, vi, ps, qs, e, args, fu,
+                        pp, mn, mk}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WPh2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn},
+                 k},
+         lnt, nlx, mt, lp, vt, knoop(fs, ri))
+    # ---- phase 2: unit-like structure eta ----
+    case 1n+p KCon{WPh2{True{}, can, delta, vi, ps, qs, e, args, fu, pp,
+                        mn}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : List<&2, U32> = args
+      +p2 : U32 = pp
+      +mi2 : U32 = I.nth_u(a2, (p2 + 1 : U32), 4294967295)
+      km(p, KCon{kwev(delta, mi2, I.skip_u(a2, (p2 + 1 + mn + 1 : U32)),
+                      (fu - 1 : U32)), k},
+         lnt, nlx, mt, lp, vt, kfetch(fs, mi2, ri))
+    case 1n+p KCon{WPh2{False{}, can, delta, vi, ps, qs, e, args, fu, pp,
+                        mn}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WDelGo{can, delta, vi, ps, qs, e, args, fu}, k},
+         lnt, nlx, mt, lp, vt, knoop(fs, ri))
     # ---- whnf: delta branch ----
     case 1n+p KCon{WDelGo{True{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:

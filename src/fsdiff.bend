@@ -268,14 +268,47 @@ def wh_lite(+fuel: Nat, +delta: Bool, +st: I.IS, +mt: R.Tr<I.Meta>,
               U.sr_i(r), args)
     case 1n+p T.EConst{n, us} _:
       +pf : Nat = p
+      +a2 : List<&2, U32> = args
       +vi : U32 = R.get(U32, 32n, vt, n, 4294967295)
       +can : Bool = delta && U32.is_ne(vi, 4294967295)
-      +tgt : I.IR = I.pick_ir(can, I.unfold_const(st, lp, n, vi, us),
-                              I.IR{st, 4294967295, True{}})
+      +mi : I.Meta = R.get(I.Meta, 32n, mt, n, I.MNone{})
+      +pp : U32 = I.meta_p(mi)
+      +mn : U32 = I.meta_n(mi)
+      +mk : U32 = I.meta_k(mi)
+      +la : U32 = I.len_u(a2, 0)
+      +kneed : U32 = (pp + 1 + mn : U32)
+      +iskr : Bool = U32.is_eq(I.meta_kf(mi), 1)
+                     && U32.is_gt(la, (kneed + mk : U32))
+      +kexp : I.IR = I.k_expected(st, S.pick(iskr, I.meta_rcty(mi),
+                                             4294967295), pp, a2)
+      +kok : Bool = iskr && I.ir_ok(kexp)
+                    && L.tri_is_yes(I.eq_u32_lists_ex(256n,
+                         I.is_ex(I.ir_st(kexp)), I.is_lnt(I.ir_st(kexp)),
+                         I.skip_u(I.spine_ar(256n, I.is_ex(I.ir_st(kexp)),
+                                             U.ex_at(I.is_ex(I.ir_st(kexp)),
+                                                     I.ir_ty(kexp)),
+                                             Nil{}), pp),
+                         I.take_u(I.skip_u(a2, kneed), mk, Nil{})))
+      +kr : I.IR = I.k_tgt(kok, I.ir_st(kexp),
+                           I.nth_u(a2, (pp + 1 : U32), 4294967295))
+      +uind : I.Meta = R.get(I.Meta, 32n, mt, I.meta_ind(mi), I.MNone{})
+      +isue : Bool = I.meta_is_rec(mi) && I.meta_is_ind(uind)
+                     && U32.is_eq(I.meta_nf(uind), 0)
+                     && U32.is_eq(mk, 0) && U32.is_gt(la, (kneed : U32))
+      +ur : I.IR = I.k_tgt(isue, st, I.nth_u(a2, (pp + 1 : U32),
+                                             4294967295))
+      +tgt : I.IR = I.pick_ir(kok, kr,
+                      I.pick_ir(isue, ur,
+                        I.pick_ir(can, I.unfold_const(st, lp, n, vi, us),
+                                  I.IR{st, 4294967295, True{}})))
       +s4 : I.IS = I.ir_st(tgt)
       wh_lite(pf, delta, s4, mt, lp, vt,
               U.ex_at(I.is_ex(s4), I.ir_ty(tgt)),
-              S.pick(can, I.ir_ty(tgt), e), args)
+              S.pick(kok || isue, I.ir_ty(tgt),
+                     S.pick(can, I.ir_ty(tgt), e)),
+              S.pick_l(kok, I.skip_u(a2, (kneed + mk + 1 : U32)),
+                       S.pick_l(isue, I.skip_u(a2, (kneed + 1 : U32)),
+                                a2)))
     case 1n+p T.EProj{tn, idx, sx} _:
       +pf : Nat = p
       +ws : I.IR = wh_lite(pf, delta, st, mt, lp, vt,
