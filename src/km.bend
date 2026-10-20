@@ -81,6 +81,8 @@ type MG is Data:
   # a constructor field type's telescope: binder count, binder types
   # (innermost first), and the result type's spine arguments
   MIH{q: U32, doms: List<&2, U32>, eb: List<&2, U32>}
+  # a level normal form (the sl universe oracle's answers)
+  MLn{l: L.LN}
   MN{}
 
 # --- frames ----------------------------------------------------------------
@@ -205,6 +207,23 @@ type KF is Data:
        us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
        ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32,
        args: List<&2, U32>, fu: U32}
+  # the universe oracle (infer.bend's sl): "which Sort does this type
+  # inhabit", pure reads, answers via MLn
+  SLEv{e: U32, ctx: List<&2, U32>, fu: U32}
+  SLIm{b: U32, t: U32, ctx: List<&2, U32>, fu: U32}
+  SLIm2{dln: L.LN}
+  SLBv{}
+  SLCst{n: U32, us: List<&2, U32>}
+  SLAp1{ctx: List<&2, U32>}
+  SLAp2{nm: U32, us: List<&2, U32>}
+  # fuel-exhausted oracle: answers unknown
+  SLUn{}
+  # compare the oracle's answer against an expected form (test harness)
+  SLChk{want: L.LN}
+  # memoised whnf (infer.bend's whd): check, reduce, store
+  DWhd{i: U32}
+  DWhdGo{hit: Bool, h: U32, i: U32}
+  DWhdSt{i: U32}
   WIhNext{ic: IC}
   WIhPe{h: U32, ic: IC}
   WIhFty{h: U32, ic: IC}
@@ -740,6 +759,35 @@ def ktail(xs: List<&2, U32>) -> List<&2, U32>:
     case Con{head, tail}:
       tail
 
+# the oracle eval frame, fuel-guarded (the old sl's `case 0n`: unknown)
+def kslev(+e: U32, +ctx: List<&2, U32>, +fu: U32) -> KF:
+  pick_kf(U32.is_eq(fu, 0), SLUn{}, SLEv{e, ctx, fu})
+
+# answer a level normal form
+def kmln(fs: Array<T.Ex> & U32,
+         +l: L.LN) -> ((Array<T.Ex> & U32) & MG) & U32:
+  ((fs, MLn{l}), 0)
+
+# walk n Pi binders and answer the node after them (infer.bend's
+# sl_tele_after: a non-Pi before the end answers EBad)
+def ktele_go(n: Nat, +nx: U32,
+             pr: Array<T.Ex> & T.Ex) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match n pr:
+    case 0n Tuple{a, nd}:
+      (((a, nx), MX{nd}), 0)
+    case 1n+q Tuple{a, nd}:
+      match nd:
+        case T.EAll{nm, t, b, bi}:
+          ktele_go(q, nx, Array.get(T.Ex, a, b))
+        case y:
+          (((a, nx), MX{T.EBad{}}), 0)
+
+def ktele_tin(fs: Array<T.Ex> & U32, +ti: U32,
+              +cnt: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      ktele_go(U32.to_nat(cnt), nx, Array.get(T.Ex, ex, ti))
+
 # a transition that touches no store: pass the store through, message MN
 def knoop(fs: Array<T.Ex> & U32,
           +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -751,48 +799,48 @@ def knoop(fs: Array<T.Ex> & U32,
 # Returns ((store & result) & levels).
 def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
        +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-       +qtt: R.Tr<U32>, +natn: U32,
+       +qtt: R.Tr<U32>, +natn: U32, +wm: R.Tr<U32>, +nt: R.Tr<U32>,
        tin: ((Array<T.Ex> & U32) & MG) & U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   match fuel stk tin:
     case 0n _ Tuple{Tuple{fs, msg}, ri}:
-      ((fs, 4294967295), (lnt, nlx))
+      ((fs, 4294967295), ((lnt, nlx), wm))
     case 1n+p KNil{} Tuple{Tuple{fs, msg}, ri}:
-      ((fs, ri), (lnt, nlx))
+      ((fs, ri), ((lnt, nlx), wm))
     case 1n+p KCon{KKp{e}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, e))
     # ---- eval: lift ----
     case 1n+p KCon{KEvL{c, d, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:
         case T.EBVar{i}:
-          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kbv_lift(fs, i, e, c, d))
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kbv_lift(fs, i, e, c, d))
         case T.EApp{f, a}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +f2 : U32 = f
           km(p, KCon{kev(w, f2), KCon{KAp2{w, e, f2, a}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, f2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, f2, ri))
         case T.ELam{n, t, b, bi}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLm2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EAll{n, t, b, bi}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KAl2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.ELet{n, t, v, b}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLt2{w, e, n, t2, v, b}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EProj{tn, i, s}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
           km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, s2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, s2, ri))
         case _:
-          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, e))
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, e))
     # ---- eval: inst ----
     case 1n+p KCon{KEvI{c, v, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:
@@ -804,34 +852,34 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           +tgt : U32 = S.pick(iseq, v2, 4294967295)
           km(p, KCon{kev(WP{0, 0, c2, 0, Nil{}, Nil{}, 256}, tgt),
                      KCon{KBvI{iseq, U32.is_gt(i2, c2), i2, e}, k}},
-             lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, tgt, ri))
+             lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, tgt, ri))
         case T.EApp{f, a}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +f2 : U32 = f
           km(p, KCon{kev(w, f2), KCon{KAp2{w, e, f2, a}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, f2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, f2, ri))
         case T.ELam{n, t, b, bi}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLm2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EAll{n, t, b, bi}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KAl2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.ELet{n, t, vv, b}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLt2{w, e, n, t2, vv, b}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EProj{tn, i, s}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
           km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, s2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, s2, ri))
         case _:
-          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, e))
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, e))
     # ---- eval: lsubst ----
     case 1n+p KCon{KEvS{ps, qs, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:
@@ -842,60 +890,60 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           +nl : U32 = nlx
           km(p, k,
              R.sub(L.LN, same, lnt, R.set(L.LN, 32n, lnt, nl, u, L.LNun{})),
-             S.pick(same, nl, (nl + 1 : U32)), mt, lp, vt, qtt, natn,
+             S.pick(same, nl, (nl + 1 : U32)), mt, lp, vt, qtt, natn, wm, nt,
              ksort3(same, fs, nl, e))
         case T.EConst{n, us}:
           +r : LVS = klsub_lvls(us, lnt, nlx, ps, qs)
-          km(p, k, lvs_t(r), lvs_nx(r), mt, lp, vt, qtt, natn,
+          km(p, k, lvs_t(r), lvs_nx(r), mt, lp, vt, qtt, natn, wm, nt,
              ksconst(fs, n, lvs_xs(r)))
         case T.EApp{f, a}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +f2 : U32 = f
           km(p, KCon{kev(w, f2), KCon{KAp2{w, e, f2, a}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, f2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, f2, ri))
         case T.ELam{n, t, b, bi}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLm2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EAll{n, t, b, bi}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KAl2{w, e, n, t2, b, bi}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.ELet{n, t, v, b}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLt2{w, e, n, t2, v, b}, k}}, lnt,
-             nlx, mt, lp, vt, qtt, natn, kfetch(fs, t2, ri))
+             nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
         case T.EProj{tn, i, s}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +s2 : U32 = s
           km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
-             lp, vt, qtt, natn, kfetch(fs, s2, ri))
+             lp, vt, qtt, natn, wm, nt, kfetch(fs, s2, ri))
         case _:
-          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, e))
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, e))
     # ---- whnf: rebuild on exhausted fuel ----
     case 1n+p KCon{WRb{e, args}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, krebuild(args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, krebuild(args, fs, e))
     # ---- whnf: eval (entry-level node dispatch; first match wins) ----
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{f, a}}}, ri}:
       +f2 : U32 = f
       km(p, KCon{kwev(delta, f2, Con{a, args}, (fu - 1 : U32)), k}, lnt,
-         nlx, mt, lp, vt, qtt, natn, kfetch(fs, f2, ri))
+         nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, f2, ri))
     case 1n+p KCon{WEv{delta, e, Con{a, rest}, fu}, k}
          Tuple{Tuple{fs, MX{T.ELam{n, t, b, bi}}}, ri}:
       +b2 : U32 = b
       km(p, KCon{kev(WP{1, 0, 0, a, Nil{}, Nil{}, 256}, b2),
                  KCon{WCont{delta, rest, (fu - 1 : U32)}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.ELet{n, t, v, b}}}, ri}:
       +b2 : U32 = b
       km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 256}, b2),
                  KCon{WCont{delta, args, (fu - 1 : U32)}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EConst{n, us}}}, ri}:
       +n2 : U32 = n
@@ -923,20 +971,20 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       I.meta_rcty(mi), n2,
                       P5{I.meta_is_rec(mi) && U32.is_gt(la, need), need,
                          I.meta_ind(mi), pp, mk, n2, u2}}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EProj{tn, idx, sx}}}, ri}:
       +s2 : U32 = sx
       +f2 : U32 = (fu - 1 : U32)
       km(p, KCon{kwev(delta, s2, Nil{}, f2),
                  KCon{WPrj{delta, e, tn, idx, args, f2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, s2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, s2, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, krebuild(args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, krebuild(args, fs, e))
     # ---- whnf: continue on a substitution result ----
     case 1n+p KCon{WCont{delta, args, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{kwev(delta, r2, args, fu), k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{kwev(delta, r2, args, fu), k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, r2, 0))
     # ---- EConst pipeline: phase 1, K-like reduction ----
     case 1n+p KCon{WPh1{True{}, isue, can, delta, vi, ps, qs, e, args, fu,
@@ -948,27 +996,27 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WPlE{r2, I.take_u(a2, p2, Nil{})},
                  KCon{WK2{isue, can, delta, vi, ps, qs, e, a2, fu, p2, mn,
                           mk, cn, p5}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, r2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, r2, ri))
     case 1n+p KCon{WPh1{False{}, isue, can, delta, vi, ps, qs, e, args, fu,
                         pp, mn, mk, rcty, cn, p5}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn,
                       cn, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- telescope peel (ordered: the Pi case must precede the stuck one)
     case 1n+p KCon{WPlE{tyi, Nil{}}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, tyi))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, tyi))
     case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k}
          Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
       +b2 : U32 = b
       km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 256}, b2),
                  KCon{WPlC{rest}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, ri))
     case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kkeep(fs, 4294967295))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, 4294967295))
     case 1n+p KCon{WPlC{vals}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{WPlE{r2, vals}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{WPlE{r2, vals}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, r2, 0))
     # ---- K: peel done -> spine of the peeled type ----
     case 1n+p KCon{WK2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn,
@@ -976,7 +1024,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       km(p, KCon{WK3{U32.is_ne(r2, 4294967295), isue, can, delta, vi, ps,
                      qs, e, args, fu, pp, mn, mk, cn, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kspine_tin(fs, S.pick(U32.is_ne(r2, 4294967295), r2, 0), 0))
     # ---- K: spine done -> compare expected and given indices ----
     case 1n+p KCon{WK3{pok, isue, can, delta, vi, ps, qs, e, args, fu, pp,
@@ -988,7 +1036,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +k2 : U32 = mk
       km(p, KCon{WK4{pok, isue, can, delta, vi, ps, qs, e, a2, fu, p2, m2,
                      k2, cn, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          keq_lists_tin(fs, I.skip_u(sargs, p2),
                        I.take_u(I.skip_u(a2, (p2 + 1 + m2 : U32)), k2,
                                 Nil{}),
@@ -998,7 +1046,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                        mn, mk, cn, p5}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       km(p, KCon{WKGo{Bool.and(pok, L.tri_is_yes(t)), isue, can, delta, vi,
                       ps, qs, e, args, fu, pp, mn, mk, cn, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WKGo{True{}, isue, can, delta, vi, ps, qs, e, args, fu,
                         pp, mn, mk, cn, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       +a2 : List<&2, U32> = args
@@ -1006,12 +1054,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +mi2 : U32 = I.nth_u(a2, (p2 + 1 : U32), 4294967295)
       km(p, KCon{kwev(delta, mi2, I.skip_u(a2, (p2 + 1 + mn + mk + 1 : U32)),
                       (fu - 1 : U32)), k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, mi2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, mi2, ri))
     case 1n+p KCon{WKGo{False{}, isue, can, delta, vi, ps, qs, e, args, fu,
                         pp, mn, mk, cn, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh2{isue, can, delta, vi, ps, qs, e, args, fu, pp, mn,
                       cn, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- phase 2: unit-like structure eta ----
     case 1n+p KCon{WPh2{True{}, can, delta, vi, ps, qs, e, args, fu, pp,
                         mn, cn, p5}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -1020,7 +1068,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +mi2 : U32 = I.nth_u(a2, (p2 + 1 : U32), 4294967295)
       km(p, KCon{kwev(delta, mi2, I.skip_u(a2, (p2 + 1 + mn + 1 : U32)),
                       (fu - 1 : U32)), k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, mi2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, mi2, ri))
     case 1n+p KCon{WPh2{False{}, can, delta, vi, ps, qs, e, args, fu, pp,
                         mn, cn, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       +n2 : U32 = cn
@@ -1039,7 +1087,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WPh3{U32.is_lt(aw, 3) && U32.is_gt(la, 1), aw,
                       Bool.or(isql, isqi), S.pick(isql, 5, 4), can, delta,
                       vi, ps, qs, e, a2, fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- phase 3: literal arithmetic ----
     case 1n+p KCon{WPh3{True{}, aw, isq, qneed, can, delta, vi, ps, qs, e,
                         args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -1048,12 +1096,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{kwev(delta, a0, Nil{}, (fu - 1 : U32)),
                  KCon{WLa{aw, isq, qneed, can, delta, vi, ps, qs, e, a2,
                           fu, p5}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, a0, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, a0, ri))
     case 1n+p KCon{WPh3{False{}, aw, isq, qneed, can, delta, vi, ps, qs, e,
                         args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh4{isq, qneed, can, delta, vi, ps, qs, e, args, fu, p5},
                  k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WLa{aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                        fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       +a2 : List<&2, U32> = args
@@ -1061,19 +1109,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{kwev(delta, a1, Nil{}, (fu - 1 : U32)),
                  KCon{WLb{ri, aw, isq, qneed, can, delta, vi, ps, qs, e,
                           a2, fu, p5}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, a1, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, a1, 0))
     case 1n+p KCon{WLb{r0, aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                        fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = r0
       km(p, KCon{WLc{ri, aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                      fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, r2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, r2, 0))
     case 1n+p KCon{WLc{r1, aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                        fu, p5}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +r2 : U32 = r1
       km(p, KCon{WLd{node, aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                      fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, r2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, r2, 0))
     case 1n+p KCon{WLd{na, aw, isq, qneed, can, delta, vi, ps, qs, e, args,
                        fu, p5}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +n1 : T.Ex = na
@@ -1081,18 +1129,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WLGo{I.is_nat_lit(n1) && I.is_nat_lit(n2x), aw,
                       I.nat_digits(n1), I.nat_digits(n2x), isq, qneed, can,
                       delta, vi, ps, qs, e, args, fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WLGo{True{}, aw, da, db, isq, qneed, can, delta, vi, ps,
                         qs, e, args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WCont{delta, I.skip_u(args, 2), (fu - 1 : U32)}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          klit(fs, aw, da, db, R.get(U32, 32n, qtt, 8, 4294967295),
               R.get(U32, 32n, qtt, 9, 4294967295)))
     case 1n+p KCon{WLGo{False{}, aw, da, db, isq, qneed, can, delta, vi,
                         ps, qs, e, args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh4{isq, qneed, can, delta, vi, ps, qs, e, args, fu, p5},
                  k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- phase 4: quotient reduction ----
     case 1n+p KCon{WPh4{True{}, qneed, can, delta, vi, ps, qs, e, args,
                         fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -1102,16 +1150,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{kwev(delta, qm, Nil{}, (fu - 1 : U32)),
                  KCon{WQ1{q2, can, delta, vi, ps, qs, e, a2, fu, p5},
                       k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, qm, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, qm, ri))
     case 1n+p KCon{WPh4{False{}, qneed, can, delta, vi, ps, qs, e, args,
                         fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh5{p5, can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WQ1{qneed, can, delta, vi, ps, qs, e, args, fu, p5}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, KCon{WQ2{qneed, can, delta, vi, ps, qs, e, args, fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kspine_tin(fs, r2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kspine_tin(fs, r2, 0))
     case 1n+p KCon{WQ2{qneed, can, delta, vi, ps, qs, e, args, fu, p5}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +a2 : List<&2, U32> = args
@@ -1122,32 +1170,32 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       I.nth_u(a2, 3, 4294967295), I.nth_u(sa, 2,
                                                           4294967295),
                       qneed, can, delta, vi, ps, qs, e, a2, fu, p5}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WQGo{True{}, fv, vv, qneed, can, delta, vi, ps, qs, e,
                         args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WCont{delta, I.skip_u(args, (qneed + 1 : U32)),
                        (fu - 1 : U32)}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kalloc(fs, T.EApp{fv, vv}))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kalloc(fs, T.EApp{fv, vv}))
     case 1n+p KCon{WQGo{False{}, fv, vv, qneed, can, delta, vi, ps, qs, e,
                         args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WPh5{p5, can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- whnf: delta branch ----
     case 1n+p KCon{WDelGo{True{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +v2 : U32 = vi
       km(p, KCon{kev(WP{2, 0, 0, 0, ps, qs, 256}, v2),
                  KCon{WCont{delta, args, (fu - 1 : U32)}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, v2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, v2, ri))
     case 1n+p KCon{WDelGo{False{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, krebuild(args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, krebuild(args, fs, e))
     # ---- whnf: projection, struct reduced -> collect its spine ----
     case 1n+p KCon{WPrj{delta, e, tn, idx, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, KCon{WPrjS{delta, e, tn, idx, args, fu}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, kspine_tin(fs, r2, r2))
+         vt, qtt, natn, wm, nt, kspine_tin(fs, r2, r2))
     # ---- whnf: projection, spine collected -> constructor? ----
     case 1n+p KCon{WPrjS{delta, e, tn, idx, args, fu}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
@@ -1156,16 +1204,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                         I.nth_u(sargs, (I.meta_p(cmi) + idx : U32),
                                 4294967295),
                         args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     # ---- whnf: projection branch ----
     case 1n+p KCon{WPrjGo{True{}, delta, e, fld, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +f2 : U32 = fld
-      km(p, KCon{kwev(delta, f2, args, fu), k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{kwev(delta, f2, args, fu), k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, f2, ri))
     case 1n+p KCon{WPrjGo{False{}, delta, e, fld, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, krebuild(args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, krebuild(args, fs, e))
     # ---- phase 5: iota (recursor reduction) ----
     case 1n+p KCon{WPh5{P5{True{}, need, ind, pp, mk, cn, us}, can, delta,
                         vi, ps, qs, e, args, fu}, k}
@@ -1176,18 +1224,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{kwev(delta, maj, Nil{}, (fu - 1 : U32)),
                  KCon{WI1{nd2, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                           e, a2, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, maj, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, maj, ri))
     case 1n+p KCon{WPh5{P5{False{}, need, ind, pp, mk, cn, us}, can, delta,
                         vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WDelGo{can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WI1{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                        e, args, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, KCon{WI2{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                      args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, r2, r2))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, r2, r2))
     case 1n+p KCon{WI2{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                        e, args, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +i2 : U32 = ind
@@ -1195,13 +1243,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WI2Go{I.is_nat_lit(nd) && U32.is_eq(i2, natn),
                        I.nat_digits(nd), ri, need, i2, pp, mk, cn, us, can,
                        delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, 0))
     case 1n+p KCon{WI2Go{True{}, d, orig, need, ind, pp, mk, cn, us, can,
                          delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WI2b{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                       args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          knatexp(fs, d, R.get(U32, 32n, qtt, 3, 4294967295),
                  R.get(U32, 32n, qtt, 4, 4294967295)))
     case 1n+p KCon{WI2Go{False{}, d, orig, need, ind, pp, mk, cn, us, can,
@@ -1209,13 +1257,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WI2b{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                       args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, orig))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, orig))
     case 1n+p KCon{WI2b{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                         e, args, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                      args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, kspine_tin(fs, r2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kspine_tin(fs, r2, 0))
     case 1n+p KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                        e, args, fu}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +p2 : U32 = pp
@@ -1226,7 +1274,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       I.skip_u(sargs, p2), I.meta_recs(cmi),
                       I.meta_ci(cmi), I.meta_ccty(cmi), need, p2, mk, cn,
                       us, can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WIGo{True{}, fields, recsl, ci, ccty, need, pp, mk, cn,
                         us, can, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -1236,12 +1284,107 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                             I.take_u(a2, (n2 - mk : U32), Nil{}), fields,
                             ccty, pp, mk, Nil{}, ci, n2, can, delta, vi,
                             ps, qs, e, a2, fu}}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
     case 1n+p KCon{WIGo{False{}, fields, recsl, ci, ccty, need, pp, mk, cn,
                         us, can, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WDelGo{can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
+    # ---- the universe oracle ----
+    case 1n+p KCon{SLEv{e, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      match node:
+        case T.ESort{l}:
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+             kmln(fs, L.ln_succ(R.get(L.LN, 32n, lnt, l, L.LNun{}))))
+        case T.EAll{n, t, b, bi}:
+          +t2 : U32 = t
+          +c2 : List<&2, U32> = ctx
+          +f2 : U32 = fu
+          km(p, KCon{kslev(t2, c2, (f2 - 1 : U32)),
+                     KCon{SLIm{b, t2, c2, f2}, k}},
+             lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
+        case T.EBVar{i}:
+          km(p, KCon{SLBv{}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+             kfetch(fs, I.nth_u(ctx, i, 4294967295), ri))
+        case T.EConst{n, us}:
+          +n2 : U32 = n
+          km(p, KCon{SLCst{n2, us}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+             wm, nt,
+             kfetch(fs, R.get(U32, 32n, nt, n2, 4294967295), ri))
+        case T.EApp{f, a}:
+          +e2 : U32 = e
+          km(p, KCon{SLAp1{ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+             nt, kspine_tin(fs, e2, ri))
+        case _:
+          km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+             kmln(fs, L.LNun{}))
+    case 1n+p KCon{SLIm{b, t, ctx, fu}, k} Tuple{Tuple{fs, MLn{dln}}, ri}:
+      +b2 : U32 = b
+      km(p, KCon{kslev(b2, Con{t, ctx}, (fu - 1 : U32)),
+                 KCon{SLIm2{dln}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, ri))
+    case 1n+p KCon{SLIm2{dln}, k} Tuple{Tuple{fs, MLn{cln}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kmln(fs, L.ln_imax(dln, cln)))
+    case 1n+p KCon{SLBv{}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +nd : T.Ex = node
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kmln(fs, L.pick_ln(I.is_sortx(nd),
+                            R.get(L.LN, 32n, lnt, I.sort_lvl_of(nd),
+                                  L.LNun{}),
+                            L.LNun{})))
+    case 1n+p KCon{SLCst{n, us}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +nd : T.Ex = node
+      +n2 : U32 = n
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kmln(fs, L.pick_ln(I.is_sortx(nd),
+                            L.ln_subst(R.get(L.LN, 32n, lnt,
+                                             I.sort_lvl_of(nd), L.LNun{}),
+                                       R.get(List<&2, U32>, 32n, lp, n2,
+                                             Nil{}),
+                                       klns_of(us, lnt)),
+                            L.LNun{})))
+    case 1n+p KCon{SLAp1{ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +h2 : T.Ex = hd
+      km(p, KCon{SLAp2{I.sl_const_nm(h2), I.sl_const_us(h2)}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt,
+         ktele_tin(fs, I.sl_head_ty(h2, nt, ctx), I.len_u(sargs, 0)))
+    case 1n+p KCon{SLAp2{nm, us}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +nd : T.Ex = node
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kmln(fs, L.pick_ln(I.is_sortx(nd),
+                            L.ln_subst(R.get(L.LN, 32n, lnt,
+                                             I.sort_lvl_of(nd), L.LNun{}),
+                                       R.get(List<&2, U32>, 32n, lp, nm,
+                                             Nil{}),
+                                       klns_of(us, lnt)),
+                            L.LNun{})))
+    case 1n+p KCon{SLUn{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kmln(fs, L.LNun{}))
+    case 1n+p KCon{SLChk{want}, k} Tuple{Tuple{fs, MLn{got}}, ri}:
+      +w2 : L.LN = want
+      +g2 : L.LN = got
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         kkeep(fs, S.pick(Bool.or(L.is_un(w2) && L.is_un(g2),
+                                  L.tri_is_yes(L.ln_cmp(w2, g2))), 1, 0)))
+    # ---- memoised whnf ----
+    case 1n+p KCon{DWhd{i}, k} Tuple{Tuple{fs, msg}, ri}:
+      +i2 : U32 = i
+      +h : U32 = R.get(U32, 64n, wm, i2, 4294967295)
+      +h2 : U32 = h
+      km(p, KCon{DWhdGo{U32.is_ne(h2, 4294967295), h2, i2}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, knoop(fs, ri))
+    case 1n+p KCon{DWhdGo{True{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kkeep(fs, h))
+    case 1n+p KCon{DWhdGo{False{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
+      +i2 : U32 = i
+      km(p, KCon{kwev(True{}, i2, Nil{}, 256), KCon{DWhdSt{i2}, k}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, i2, 0))
+    case 1n+p KCon{DWhdSt{i}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, i, r2, 4294967295), nt, kkeep(fs, r2))
     # ---- the IH builder loop ----
     case 1n+p KCon{WIhNext{IC{Nil{}, cn, us, pre, fields, ccty, pp, ni,
                               acc, ci, need, can, delta, vi, ps, qs, e,
@@ -1250,7 +1393,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +p2 : U32 = pp
       km(p, KCon{WCont{delta, I.skip_u(a2, (need + 1 : U32)),
                        (fu - 1 : U32)}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          ktin_of(kapargs(List.append(&2, U32, fields, krev(acc, Nil{})),
                          (fs, I.nth_u(a2, (p2 + 1 + ci : U32),
                                       4294967295)))))
@@ -1268,13 +1411,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                  KCon{WIhPe{h2, IC{t, cn, us, pr2, fl2, cc2, p2, ni, acc,
                                    ci, need, can, delta, vi, ps, qs, e,
                                    args, fu}}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, cc2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, cc2, ri))
     case 1n+p KCon{WIhPe{h, ic}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{WIhFty{h, ic}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{WIhFty{h, ic}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, r2, 0))
     case 1n+p KCon{WIhFty{h, ic}, k} Tuple{Tuple{fs, MX{node}}, ri}:
-      km(p, KCon{WIhScanned{h, ic}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{WIhScanned{h, ic}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kih_scan_tin(fs, I.all_dom(node)))
     case 1n+p KCon{WIhScanned{h, ic}, k}
          Tuple{Tuple{fs, MIH{q, doms, eb}}, ri}:
@@ -1290,11 +1433,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                            I.take_u(I.skip_u(eb, ic_pp(ic2)), ic_ni(ic2),
                                     Nil{}),
                            doms, ic2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, first, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, first, ri))
     case 1n+p KCon{WIhL{Nil{}, amt, lacc, ebni, doms, ic}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +ic2 : IC = ic
-      km(p, KCon{WIhB{ic2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{WIhB{ic2}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kih_build(fs, krev(Con{ri, lacc}, Nil{}), ebni, doms, amt,
                    ic_cn(ic2), ic_us(ic2)))
     case 1n+p KCon{WIhL{Con{x, t}, amt, lacc, ebni, doms, ic}, k}
@@ -1303,67 +1446,67 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +a2 : U32 = amt
       km(p, KCon{kev(WP{0, 0, a2, 0, Nil{}, Nil{}, 256}, x2),
                  KCon{WIhL{t, a2, Con{ri, lacc}, ebni, doms, ic}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, x2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, x2, 0))
     case 1n+p KCon{WIhB{ic}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WIhNext{ic_push(ic, ri)}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, knoop(fs, 0))
+         natn, wm, nt, knoop(fs, 0))
     # ---- resume frames for the walks ----
     case 1n+p KCon{KBvI{iseq, isgt, i, e}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, kbv_fin(iseq, isgt, fs, ri, i, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kbv_fin(iseq, isgt, fs, ri, i, e))
     case 1n+p KCon{KAp2{wp, e, f0, a0}, k} Tuple{Tuple{fs, msg}, ri}:
       +w : WP = wp
       +a2 : U32 = a0
       km(p, KCon{kev(w, a2), KCon{KAp3{e, f0, a2, ri}, k}}, lnt, nlx, mt,
-         lp, vt, qtt, natn, kfetch(fs, a2, 0))
+         lp, vt, qtt, natn, wm, nt, kfetch(fs, a2, 0))
     case 1n+p KCon{KAp3{e, f0, a0, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kalloc_if(Bool.not(U32.is_eq(r1b, f0) && U32.is_eq(rib, a0)),
                    fs, T.EApp{r1b, rib}, e))
     case 1n+p KCon{KLm2{wp, e, n, t0, b0, bi}, k} Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
       km(p, KCon{kev(wp_bump(wp), b2), KCon{KLm3{e, n, t0, b2, bi, ri}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, 0))
     case 1n+p KCon{KLm3{e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
                    fs, T.ELam{n, r1b, rib, bi}, e))
     case 1n+p KCon{KAl2{wp, e, n, t0, b0, bi}, k} Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
       km(p, KCon{kev(wp_bump(wp), b2), KCon{KAl3{e, n, t0, b2, bi, ri}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, 0))
     case 1n+p KCon{KAl3{e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
                    fs, T.EAll{n, r1b, rib, bi}, e))
     case 1n+p KCon{KLt2{wp, e, n, t0, v0, b0}, k} Tuple{Tuple{fs, msg}, ri}:
       +w : WP = wp
       +v02 : U32 = v0
       km(p, KCon{kev(w, v02), KCon{KLt3{w, e, n, t0, v02, b0, ri}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, v02, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, v02, 0))
     case 1n+p KCon{KLt3{wp, e, n, t0, v0, b0, r1}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
       km(p, KCon{kev(wp_bump(wp), b2),
                  KCon{KLt4{e, n, t0, v0, b2, r1, ri}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, kfetch(fs, b2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, b2, 0))
     case 1n+p KCon{KLt4{e, n, t0, v0, b0, r1, r2}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +r2b : U32 = r2
       +rib : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(r2b, v0)
                             && U32.is_eq(rib, b0)),
                    fs, T.ELet{n, r1b, r2b, rib}, e))
     case 1n+p KCon{KPj2{e, tn, ix, s0}, k} Tuple{Tuple{fs, msg}, ri}:
       +rib : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kalloc_if(Bool.not(U32.is_eq(rib, s0)), fs,
                    T.EProj{tn, ix, rib}, e))
 
@@ -1371,37 +1514,55 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # construction (every eval frame follows a fetch), mapped to the error
     # sentinel rather than an abort.
     case 1n+p _ Tuple{Tuple{fs, msg}, ri}:
-      ((fs, 4294967294), (lnt, nlx))
+      ((fs, 4294967294), ((lnt, nlx), wm))
 
 # --- entry points ------------------------------------------------------------
 def klift(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
           +e: U32, +c: U32, +d: U32, +fu: U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +e2 : U32 = e
   km(fuel, KCon{kev(WP{0, c, d, 0, Nil{}, Nil{}, fu}, e2), KNil{}}, lnt,
-     nlx, R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295,
-     kfetch(fs, e2, 0))
+     nlx, R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295, R.TNil{},
+     R.TNil{}, kfetch(fs, e2, 0))
 
 def kinst(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
           +e: U32, +j: U32, +v: U32, +fu: U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +e2 : U32 = e
   km(fuel, KCon{kev(WP{1, j, 0, v, Nil{}, Nil{}, fu}, e2), KNil{}}, lnt,
-     nlx, R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295,
-     kfetch(fs, e2, 0))
+     nlx, R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295, R.TNil{},
+     R.TNil{}, kfetch(fs, e2, 0))
 
 def klsubst(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
             +e: U32, +ps: List<&2, U32>, +qs: List<&2, L.LN>, +fu: U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +e2 : U32 = e
   km(fuel, KCon{kev(WP{2, 0, 0, 0, ps, qs, fu}, e2), KNil{}}, lnt, nlx,
-     R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295,
+     R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{}, 4294967295, R.TNil{},
+     R.TNil{}, kfetch(fs, e2, 0))
+
+def ksl_test(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
+             +nlx: U32, +lp: R.Tr<List<&2, U32>>, +nt: R.Tr<U32>, +e: U32,
+             +ctx: List<&2, U32>, +want: L.LN)
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
+  +e2 : U32 = e
+  km(fuel, KCon{SLEv{e2, ctx, 256}, KCon{SLChk{want}, KNil{}}}, lnt, nlx,
+     R.TNil{}, lp, R.TNil{}, R.TNil{}, 4294967295, R.TNil{}, nt,
      kfetch(fs, e2, 0))
+
+def kwhd(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
+         +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+         +qtt: R.Tr<U32>, +natn: U32, +wm: R.Tr<U32>, +nt: R.Tr<U32>,
+         +i: U32)
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
+  km(fuel, KCon{DWhd{i}, KNil{}}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+     knoop(fs, 0))
 
 def kwhnf(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
           +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-          +qtt: R.Tr<U32>, +natn: U32, +e: U32, +delta: Bool, +fu: U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+          +qtt: R.Tr<U32>, +natn: U32, +wm: R.Tr<U32>, +nt: R.Tr<U32>,
+          +e: U32, +delta: Bool, +fu: U32)
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +e2 : U32 = e
   km(fuel, KCon{kwev(delta, e2, Nil{}, fu), KNil{}}, lnt, nlx, mt, lp, vt,
-     qtt, natn, kfetch(fs, e2, 0))
+     qtt, natn, wm, nt, kfetch(fs, e2, 0))

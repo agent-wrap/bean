@@ -162,30 +162,30 @@ def fdq(fuel: Nat, +tt: R.Tr<T.Ex>, +tln: R.Tr<L.LN>, +flnt: R.Tr<L.LN>,
           Array.get(T.Ex, a, w2_fi(w)))
 
 def drive3(r: Array<T.Ex> & U32, +nx: U32, +flnt: R.Tr<L.LN>,
-           +fnlx: U32) -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+           +fnlx: U32, +fwm: R.Tr<U32>) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   match r:
     case Tuple{ex, bad}:
-      (((ex, nx), bad), (flnt, fnlx))
+      (((ex, nx), bad), ((flnt, fnlx), fwm))
 
-def drive1(kr: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32),
+def drive1(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
            +tt: R.Tr<T.Ex>, +tln: R.Tr<L.LN>, +ti: U32)
-    -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   match kr:
-    case Tuple{Tuple{Tuple{exa, nx}, fi}, Tuple{flnt, fnlx}}:
+    case Tuple{Tuple{Tuple{exa, nx}, fi}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +f2 : U32 = fi
       +fl : R.Tr<L.LN> = flnt
       drive3(fdq(50000000n, tt, tln, fl, Con{TP{ti, f2}, Nil{}}, 0,
                  Array.get(T.Ex, exa, f2)),
-             nx, fl, fnlx)
+             nx, fl, fnlx, fwm)
 
 # --- loops over every expression index --------------------------------------
 def loop_lift(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
               +nex: U32, +acc: U32,
-              kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> U32:
+              kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>)) -> U32:
   match n kfs:
     case 0n Tuple{Tuple{fs, bad}, lv}:
       (acc + bad : U32)
-    case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
+    case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +r : U.SR = U.lift(256n, ext, nex, U.ex_at(ext, e), e, 0, 1)
       loop_lift(p, (e + 1 : U32), ext, tln, nex, (acc + bad : U32),
                 drive1(M.klift(100000000n, fs, flnt, fnlx, e, 0, 1, 256),
@@ -193,11 +193,11 @@ def loop_lift(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
 
 def loop_inst(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
               +nex: U32, +acc: U32,
-              kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> U32:
+              kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>)) -> U32:
   match n kfs:
     case 0n Tuple{Tuple{fs, bad}, lv}:
       (acc + bad : U32)
-    case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
+    case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +r : U.SR = U.inst(256n, ext, nex, U.ex_at(ext, e), e, 0, 0)
       loop_inst(p, (e + 1 : U32), ext, tln, nex, (acc + bad : U32),
                 drive1(M.kinst(100000000n, fs, flnt, fnlx, e, 0, 0, 256),
@@ -216,14 +216,14 @@ def ls_qs() -> List<&2, L.LN>:
 
 def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
             +nex: U32, +nlv: U32, +acc: U32, +fb: U32,
-            kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> String:
+            kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>)) -> String:
   match n kfs:
     case 0n Tuple{Tuple{fs, bad}, lv}:
       +b2 : U32 = bad
       U32.show((acc + b2 : U32)) ++ " first "
       ++ U32.show(S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                          (e - 1 : U32), fb))
-    case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
+    case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +b2 : U32 = bad
       +r : I.IR = I.lsubst(256n, mk_is(ext, tln, R.TNil{}, 4294967295, nex,
                                        nlv),
@@ -238,34 +238,61 @@ def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
 
 def loop_wh(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
             +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-            +qt: R.Tr<U32>, +natn: U32,
+            +qt: R.Tr<U32>, +natn: U32, +ntt: R.Tr<U32>,
             +nex: U32, +nlv: U32, +acc: U32, +fb: U32,
-            kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> String:
+            kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>)) -> String:
   match n kfs:
     case 0n Tuple{Tuple{fs, bad}, lv}:
       +b2 : U32 = bad
       U32.show((acc + b2 : U32)) ++ " first "
       ++ U32.show(S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                          (e - 1 : U32), fb))
-    case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
+    case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +b2 : U32 = bad
       +r : I.IR = I.whnf(256n, True{}, mk_is(ext, tln, qt, natn, nex, nlv),
                          mt, lp, vt, U.ex_at(ext, e), e, Nil{})
-      loop_wh(p, (e + 1 : U32), ext, tln, mt, lp, vt, qt, natn, nex, nlv,
+      loop_wh(p, (e + 1 : U32), ext, tln, mt, lp, vt, qt, natn, ntt, nex,
+              nlv,
               (acc + b2 : U32),
               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                      (e - 1 : U32), fb),
               drive1(M.kwhnf(100000000n, fs, flnt, fnlx, mt, lp, vt, qt,
-                             natn, e, True{}, 256),
+                             natn, fwm, ntt, e, True{}, 256),
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
+# --- the universe oracle, machine vs trie ------------------------------------
+def fsl2(kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+         +bad: U32) -> (Array<T.Ex> & U32) & U32:
+  match kfs:
+    case Tuple{Tuple{fs, ok}, lv}:
+      (fs, (bad + (1 - ok : U32) : U32))
+
+def loop_sl2(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
+             +ntt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +acc: U32,
+             pr: (Array<T.Ex> & U32) & U32) -> U32:
+  match n pr:
+    case 0n Tuple{fs, bad}:
+      (acc + bad : U32)
+    case 1n+p Tuple{fs, bad}:
+      loop_sl2(p, (e + 1 : U32), ext, tln, ntt, lp, (acc + bad : U32),
+               fsl2(M.ksl_test(100000000n, fs, tln, 0, lp, ntt, e, Nil{},
+                               I.sl(256n, ext, tln, ntt, lp,
+                                    U.ex_at(ext, e), Nil{})),
+                    0))
+
 # --- drivers -----------------------------------------------------------------
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
-               +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
+               +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   (((F.fb_ex(recs, Array.new(T.Ex, Nat.add(F.fdepth(nex), 12n), T.EBad{})),
      nex), 0),
-   (tln, nlv))
+   ((tln, nlv), R.TNil{}))
+
+def fst_flat(r: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>))
+    -> Array<T.Ex> & U32:
+  match r:
+    case Tuple{Tuple{fs, z}, lv}:
+      fs
 
 def fsd(+recs: List<&2, D.Rec>) -> String:
   +nex = (K.max_ex_ix(recs, 0) + 1 : U32)
@@ -279,6 +306,7 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   +mt = C.build_meta(ds, ext, tln, R.TNil{})
   +qt = K.build_wk2(recs, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
+  +ntt = B.build_nt(ds, R.TNil{})
   "lift bad "
   ++ U32.show(loop_lift(U32.to_nat(nex), 0, ext, tln, nex, 0,
                         fresh_flat(recs, nex, tln, nlv)))
@@ -290,8 +318,11 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
              fresh_flat(recs, nex, tln, nlv))
   ++ " wh bad "
   ++ loop_wh(U32.to_nat(U32.min(nex, 1500)), 0, ext, tln, mt, lp, vt, qt,
-             natn, nex, nlv, 0, 4294967295,
+             natn, ntt, nex, nlv, 0, 4294967295,
              fresh_flat(recs, nex, tln, nlv))
+  ++ " sl bad "
+  ++ U32.show(loop_sl2(U32.to_nat(nex), 0, ext, tln, ntt, lp, 0,
+                       (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0)))
   ++ " of " ++ U32.show(nex)
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
