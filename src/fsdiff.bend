@@ -318,6 +318,75 @@ def loop_dq(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                                256),
                       tri_u32(I.dr_r(ld))))
 
+# --- infer: the machine against the REAL I.infer ------------------------------
+# The machine result encodes (ty*2 + ok). The gate compares the ok bit, the
+# sentinel class of ty (bad / ill-typed / real), and for real types the
+# STRUCTURE via the deep walker.
+def pick_tps(+z: Bool, +x: List<&2, TP>, +y: List<&2, TP>)
+    -> List<&2, TP>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def inf_class(+t: U32) -> U32:
+  S.pick(U32.is_eq(t, 4294967295), 0,
+         S.pick(U32.is_eq(t, 4294967294), 1, 2))
+
+def inf_fold2(r: Array<T.Ex> & U32, +nx: U32,
+              +shallow: Bool) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{ex, bad}:
+      ((ex, nx), S.pick(shallow && U32.is_eq(bad, 0), 0, 1))
+
+def inf_fold(kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+             +wantty: U32, +wantok: Bool, +tt: R.Tr<T.Ex>,
+             +tln: R.Tr<L.LN>) -> (Array<T.Ex> & U32) & U32:
+  match kfs:
+    case Tuple{Tuple{Tuple{exa, nx}, got}, Tuple{Tuple{flnt, fnlx}, fwm}}:
+      +g2 : U32 = got
+      +gok : Bool = U32.is_eq((g2 % 2 : U32), 1)
+      +gty : U32 = S.pick(U32.is_eq((g2 / 2 : U32), 2000000000),
+                          4294967295,
+                          S.pick(U32.is_eq((g2 / 2 : U32), 2000000001),
+                                 4294967294, (g2 / 2 : U32)))
+      +gt2 : U32 = gty
+      +w2 : U32 = wantty
+      +okmatch : Bool = U32.is_eq(S.pick(gok, 1, 0),
+                                  S.pick(wantok, 1, 0))
+      +clmatch : Bool = U32.is_eq(inf_class(gt2), inf_class(w2))
+      +deep : Bool = U32.is_eq(inf_class(gt2), 2)
+                     && U32.is_eq(inf_class(w2), 2)
+      inf_fold2(fdq(50000000n, tt, tln, flnt,
+                    pick_tps(deep, Con{TP{w2, gt2}, Nil{}}, Nil{}), 0,
+                    Array.get(T.Ex, exa, S.pick(deep, gt2, 0))),
+                nx, okmatch && clmatch)
+
+def loop_inf(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
+             +mt: R.Tr<I.Meta>, +ntt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+             +vt: R.Tr<U32>, +qt: R.Tr<U32>, +natn: U32, +nex: U32,
+             +nlv: U32, +acc: U32, +fb: U32,
+             pr: (Array<T.Ex> & U32) & U32) -> String:
+  match n pr:
+    case 0n Tuple{fs, bad}:
+      +b2 : U32 = bad
+      U32.show((acc + b2 : U32)) ++ " first "
+      ++ U32.show(S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                         (e - 1 : U32), fb))
+    case 1n+p Tuple{fs, bad}:
+      +b2 : U32 = bad
+      +r : I.IR = I.infer(256n, mk_is(ext, tln, qt, natn, nex, nlv), mt,
+                          ntt, lp, vt, U.ex_at(ext, e), e, Nil{})
+      loop_inf(p, (e + 1 : U32), ext, tln, mt, ntt, lp, vt, qt, natn, nex,
+               nlv, (acc + b2 : U32),
+               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                      (e - 1 : U32), fb),
+               inf_fold(M.kinfer(100000000n, fs, tln, nlv, mt, lp, vt, qt,
+                                 natn, R.TNil{}, ntt, e, Nil{}, 256),
+                        I.ir_ty(r), I.ir_ok(r), I.is_ex(I.ir_st(r)),
+                        I.is_lnt(I.ir_st(r))))
+
 # --- drivers -----------------------------------------------------------------
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
                +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
@@ -364,6 +433,10 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   ++ loop_dq(U32.to_nat(U32.min(nex, 1200)), 0, ext, tln, mt, ntt, lp, vt,
              qt, natn, nex, nlv, 0, 4294967295,
              (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0))
+  ++ " inf bad "
+  ++ loop_inf(U32.to_nat(U32.min(nex, 1200)), 0, ext, tln, mt, ntt, lp,
+              vt, qt, natn, nex, nlv, 0, 4294967295,
+              (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0))
   ++ " of " ++ U32.show(nex)
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
