@@ -62,38 +62,42 @@ def not_empty(xs: List<&2, U32>) -> Bool:
     case Con{head, tail}:
       True{}
 
-def judge(+bs: List<&2, U32>) -> C.V:
-  +recs = D.decode(bs, S.Sc.start(), D.Acc.start(), Nil{})
+def judge_recs(+recs: List<&2, D.Rec>) -> C.V:
   +nex = U32.to_nat((K.max_ex_ix(recs, 0) + 1 : U32))
   +nlv = U32.to_nat((K.max_lvl_ix(recs, 0) + 1 : U32))
   C.judge(recs, K.decls_of(recs, Nil{}), nex, nlv, 32n,
           (K.max_any_ix(recs, 0) + 1 : U32))
 
-# The truncation test comes BEFORE the check, not after. Bend is strict, so
-# passing `judge(bs)` as an argument here meant the whole truncated prefix
-# was checked and then thrown away: `navier-stokes-euler` spent 39 minutes
-# doing that before answering 3. Taking the bytes instead of the verdict,
-# and judging only in the branch that can use the answer, makes the oversized
-# corpora fail in about a second.
-def guard_eof(+more: Bool, bs: List<&2, U32>) -> IO(C.V):
-  match more:
-    case True{}:
-      IO.die(C.V, 3, "input exceeds this version's single-read limit")
-    case False{}:
-      IO.pure(C.V, judge(bs))
+# Pure: pull the record list out of a threaded decode triple.
+def trip_out(trip: S.Sc & D.Acc & List<&2, D.Rec>) -> List<&2, D.Rec>:
+  match trip:
+    case Tuple{st, Tuple{acc, out}}:
+      out
 
-# The read's (File, Result) pair is matched here rather than in `main`,
-# because a `do` block admits no destructuring let and the pair is affine, so
-# `Pair.fst`/`Pair.snd` cannot both be taken from it.
-def read_and_judge(pr: File & Result<&1, &1, U32 & String, List<&2, U32>>) -> IO(C.V):
-  match pr:
-    case Tuple{f, r}:
-      do IO<C.V>:
+# Single self-recursive streaming reader, after bench/probe.bend's `drain`:
+# the read-pair `pr` and the carried decode triple are PARAMETERS, so every
+# match is on a field scrutinee and nothing is mutually recursive. Each step
+# pulls one chunk, folds its bytes into the triple with `decode_resume` (an
+# empty chunk folds to a no-op, so reads past EOF are harmless), drops the
+# bytes, and reads the next chunk. `fuel` (1200 * 8 MB = 9.4 GB) bounds the
+# step count; the file is consumed well before it, and the remaining steps are
+# cheap empty reads. One chunk of bytes lives at a time -- no read-size cap,
+# nothing to truncate, so no truncation guard.
+def stream(fuel: Nat, +chunk: U32,
+           pr: File & Result<&1, &1, U32 & String, List<&2, U32>>,
+           trip: S.Sc & D.Acc & List<&2, D.Rec>) -> IO(List<&2, D.Rec>):
+  match fuel pr trip:
+    case 0n Tuple{f, r} Tuple{st, Tuple{acc, out}}:
+      do IO<List<&2, D.Rec>>:
         bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
-        pr2 : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, 1)
-        more : List<&2, U32> <- IO.pass(List<&2, U32>,
-          Pair.snd(File, Result<&1, &1, U32 & String, List<&2, U32>>, pr2))
-        guard_eof(not_empty(more), bs)
+        File.close(f)
+        IO.pure(List<&2, D.Rec>, trip_out(D.decode_resume(bs, st, acc, out)))
+    case 1n+p Tuple{f, r} Tuple{st, Tuple{acc, out}}:
+      do IO<List<&2, D.Rec>>:
+        bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
+        nxt : File & Result<&1, &1, U32 & String, List<&2, U32>>
+          <- File.read_bytes(f, chunk)
+        stream(p, chunk, nxt, D.decode_resume(bs, st, acc, out))
 
 def main() -> IO(Unit):
   do IO<Unit>:
@@ -101,6 +105,8 @@ def main() -> IO(Unit):
     path : String = unwrap_arg(List.get(&1, String, av, 1n))
     oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     f : File <- open_or_fail(oh)
-    pr : File & Result<&1, &1, U32 & String, List<&2, U32>> <- File.read_bytes(f, 33554432)
-    v : C.V <- read_and_judge(pr)
-    finish(v)
+    pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
+      <- File.read_bytes(f, 8388608)
+    recs : List<&2, D.Rec> <- stream(1200n, 8388608, pr,
+      Tuple{S.Sc.start(), Tuple{D.Acc.start(), Nil{}}})
+    finish(judge_recs(recs))

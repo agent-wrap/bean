@@ -212,3 +212,20 @@ def Rec.ix(+r: Rec) -> U32:
   match r:
     case Rec{kind, ix, flds, b1, b2, sb}:
       ix
+
+# Streaming variant of `decode`: consumes one chunk and returns the carried
+# scanner/accumulator state alongside the records so far, so the next chunk
+# resumes exactly where this one stopped. Threaded in file order, so the final
+# `out` is identical to a single-shot `decode` over the whole file.
+def decode_resume(bs: List<&2, U32>, +st: S.Sc, +acc: Acc,
+                  out: List<&2, Rec>) -> S.Sc & Acc & List<&2, Rec>:
+  match bs:
+    case Nil{}:
+      Tuple{st, Tuple{acc, out}}
+    case Con{head, tail}:
+      +ch = head
+      +nl = U32.is_eq(ch, 10)
+      +stt = st
+      +a = acc
+      decode_resume(tail, S.next_state(nl, ch, stt), next_acc(nl, ch, stt, a),
+                    next_recs(nl, stt, a, out))
