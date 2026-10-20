@@ -2644,7 +2644,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +apbad = (U32.is_eq(ir_ty(rf), 4294967294)
                || U32.is_eq(ir_ty(ra), 4294967294))
       IR{IS{U.sr_t(rz), U.sr_nx(rz), is_lnt(sd), is_nlx(sd), is_wm(sd), is_ht(sd), is_natn(sd), is_strn(sd), is_qt_t(sd)},
-         S.pick(argbad || apbad, 4294967294, U.sr_i(rz)),
+         S.pick(argbad, 4294967294, U.sr_i(rz)),
          ir_ok(rf) && ir_ok(ra) && is_all(node)
          && L.tri_is_yes(dr_r(dq))}
     # `s.i` has the (i+1)-th field type of the structure's constructor, with
