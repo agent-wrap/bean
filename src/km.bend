@@ -2749,9 +2749,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +a2 : U32 = a
       km(p, KCon{kev(WP{1, 0, 0, a2, Nil{}, Nil{}, 256},
                      I.all_cod(nd2)),
-                 KCon{IAp10{ok2
-                            && (L.tri_is_no(dq2)
-                                || (Bool.not(L.tri_is_yes(dq2)) && dd)),
+                 KCon{IAp10{(ok2
+                             && (L.tri_is_no(dq2)
+                                 || (Bool.not(L.tri_is_yes(dq2)) && dd)))
+                            || U32.is_eq(rf2, 4294967294)
+                            || U32.is_eq(ra2, 4294967294),
                             Bool.and(ok2, L.tri_is_yes(dq2))}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, I.all_cod(nd2), ri))
@@ -3470,9 +3472,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +a2 : U32 = a
       km(p, KCon{kev(WP{1, 0, 0, a2, Nil{}, Nil{}, 256},
                      I.all_cod(nd2)),
-                 KCon{IAp10{ok2
-                            && (L.tri_is_no(dq2)
-                                || (Bool.not(L.tri_is_yes(dq2)) && dd)),
+                 KCon{IAp10{(ok2
+                             && (L.tri_is_no(dq2)
+                                 || (Bool.not(L.tri_is_yes(dq2)) && dd)))
+                            || U32.is_eq(rf2, 4294967294)
+                            || U32.is_eq(ra2, 4294967294),
                             Bool.and(ok2, L.tri_is_yes(dq2))}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
          kfetch(fs, I.all_cod(nd2), ri))
