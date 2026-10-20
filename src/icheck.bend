@@ -215,6 +215,60 @@ def bodyr(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case _:
       I.IR{st, 4294967295, False{}}
 
+# Deep normal form (delta on), printed. Single self-recursive: the node to
+# print arrives already weak-head-reduced as a parameter, and each child is
+# whnf'd then recursed, so there is no match-on-computed-value and no mutual
+# recursion. Diagnostic only -- used to see whether two constants that `defeq`
+# calls "unknown" actually reduce to distinguishable terms.
+def nf_show(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +node: T.Ex) -> String:
+  match fuel node:
+    case 0n _:
+      "..."
+    case 1n+p T.EApp{f, a}:
+      +wf = I.whd(st, mt, lp, vt, f)
+      +sf = I.ir_st(wf)
+      +wa = I.whd(sf, mt, lp, vt, a)
+      +sa = I.ir_st(wa)
+      "(" ++ nf_show(p, sf, mt, lp, vt, U.ex_at(I.is_ex(sf), I.ir_ty(wf)))
+      ++ " " ++ nf_show(p, sa, mt, lp, vt, U.ex_at(I.is_ex(sa), I.ir_ty(wa)))
+      ++ ")"
+    case 1n+p T.ELam{n, t, b, bi}:
+      +wb = I.whd(st, mt, lp, vt, b)
+      +sb = I.ir_st(wb)
+      "(fun => " ++ nf_show(p, sb, mt, lp, vt,
+                            U.ex_at(I.is_ex(sb), I.ir_ty(wb))) ++ ")"
+    case 1n+p T.EAll{n, t, b, bi}:
+      +wb = I.whd(st, mt, lp, vt, b)
+      +sb = I.ir_st(wb)
+      "(all => " ++ nf_show(p, sb, mt, lp, vt,
+                            U.ex_at(I.is_ex(sb), I.ir_ty(wb))) ++ ")"
+    case 1n+p T.EProj{tn, j, sx}:
+      +ws = I.whd(st, mt, lp, vt, sx)
+      +ss = I.ir_st(ws)
+      "proj<" ++ U32.show(j) ++ ">(" ++ nf_show(p, ss, mt, lp, vt,
+                 U.ex_at(I.is_ex(ss), I.ir_ty(ws))) ++ ")"
+    case 1n+p T.EConst{n, us}:
+      "C" ++ U32.show(n)
+    case 1n+p T.EBVar{j}:
+      "#" ++ U32.show(j)
+    case 1n+p T.ESort{l}:
+      "Sort(l" ++ U32.show(l) ++ ")"
+    case 1n+p T.ELet{n, t, v, b}:
+      "let"
+    case 1n+p T.ENat{d}:
+      "nat"
+    case 1n+p T.EStr{d}:
+      "str"
+    case 1n+p T.EBad{}:
+      "BAD"
+
+def nf_root(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +i: U32) -> String:
+  +w = I.whd(st, mt, lp, vt, i)
+  +s1 = I.ir_st(w)
+  nf_show(fuel, s1, mt, lp, vt, U.ex_at(I.is_ex(s1), I.ir_ty(w)))
+
 def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
   +ti = K.dcl_type(d)
@@ -224,6 +278,8 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   "\n    declared: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), ti))
   ++ "\n    value:    " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), vi))
   ++ "\n    inferred: " ++ show_ex(14n, I.is_ex(st2), U.ex_at(I.is_ex(st2), I.ir_ty(ri)))
+  ++ "\n    nf(declared): " ++ nf_root(12n, st2, mt, lp, vt, ti)
+  ++ "\n    nf(inferred): " ++ nf_root(12n, st2, mt, lp, vt, I.ir_ty(ri))
   ++ "\n    infer-ok: " ++ pick_s(I.ir_ok(ri), "yes", "no")
   # The universe of the DECLARED type, and whether it is a Prop: the theorem
   # rule and the Sort comparison both hinge on these two answers.
