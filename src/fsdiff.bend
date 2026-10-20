@@ -19,6 +19,7 @@ import ./trie.bend as R
 import ./tables.bend as B
 import ./subst.bend as U
 import ./infer.bend as I
+import ./check.bend as C
 import ./fstore.bend as F
 import ./km.bend as M
 
@@ -234,6 +235,88 @@ def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
+# --- whnf reference: the old whnf restricted to beta/zeta/delta/proj --------
+# An exact copy of infer.bend's whnf control flow with the iota, K, unit-eta,
+# literal-arithmetic and quotient conditions FORCED FALSE -- the Stage-A
+# subset the machine carries. Same fuel discipline, same state threading.
+def wh_lite(+fuel: Nat, +delta: Bool, +st: I.IS, +mt: R.Tr<I.Meta>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+            +args: List<&2, U32>) -> I.IR:
+  match fuel x args:
+    case 0n _ _:
+      I.rebuild(args, st, e)
+    case 1n+p T.EApp{f, a} _:
+      wh_lite(p, delta, st, mt, lp, vt, U.ex_at(I.is_ex(st), f), f,
+              Con{a, args})
+    case 1n+p T.ELam{n, ty, b, bi} Con{a, rest}:
+      +pf : Nat = p
+      +r : U.SR = U.inst(256n, I.is_ex(st), I.is_nx(st),
+                         U.ex_at(I.is_ex(st), b), b, 0, a)
+      +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st), I.is_nlx(st),
+                        I.is_wm(st), I.is_ht(st), I.is_natn(st),
+                        I.is_strn(st), I.is_qt_t(st)}
+      wh_lite(pf, delta, s2, mt, lp, vt, U.ex_at(I.is_ex(s2), U.sr_i(r)),
+              U.sr_i(r), rest)
+    case 1n+p T.ELet{n, ty, v, b} _:
+      +pf : Nat = p
+      +r : U.SR = U.inst(256n, I.is_ex(st), I.is_nx(st),
+                         U.ex_at(I.is_ex(st), b), b, 0, v)
+      +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st), I.is_nlx(st),
+                        I.is_wm(st), I.is_ht(st), I.is_natn(st),
+                        I.is_strn(st), I.is_qt_t(st)}
+      wh_lite(pf, delta, s2, mt, lp, vt, U.ex_at(I.is_ex(s2), U.sr_i(r)),
+              U.sr_i(r), args)
+    case 1n+p T.EConst{n, us} _:
+      +pf : Nat = p
+      +vi : U32 = R.get(U32, 32n, vt, n, 4294967295)
+      +can : Bool = delta && U32.is_ne(vi, 4294967295)
+      +tgt : I.IR = I.pick_ir(can, I.unfold_const(st, lp, n, vi, us),
+                              I.IR{st, 4294967295, True{}})
+      +s4 : I.IS = I.ir_st(tgt)
+      wh_lite(pf, delta, s4, mt, lp, vt,
+              U.ex_at(I.is_ex(s4), I.ir_ty(tgt)),
+              S.pick(can, I.ir_ty(tgt), e), args)
+    case 1n+p T.EProj{tn, idx, sx} _:
+      +pf : Nat = p
+      +ws : I.IR = wh_lite(pf, delta, st, mt, lp, vt,
+                           U.ex_at(I.is_ex(st), sx), sx, Nil{})
+      +exz : R.Tr<T.Ex> = I.is_ex(I.ir_st(ws))
+      +snode : T.Ex = U.ex_at(exz, I.ir_ty(ws))
+      +cmi : I.Meta = R.get(I.Meta, 32n, mt,
+                            I.const_nm2(I.spine_hd(256n, exz, snode)),
+                            I.MNone{})
+      +okp : Bool = I.meta_is_ctor(cmi)
+      +fld : U32 = I.nth_u(I.spine_ar(256n, exz, snode, Nil{}),
+                           (I.meta_p(cmi) + idx : U32), 4294967295)
+      wh_lite(pf, delta, I.ir_st(ws), mt, lp, vt,
+              U.ex_at(exz, S.pick(okp, fld, 4294967295)),
+              S.pick(okp, fld, e), args)
+    case 1n+p _ _:
+      I.rebuild(args, st, e)
+
+def loop_wh(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
+            +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+            +nex: U32, +nlv: U32, +acc: U32, +fb: U32,
+            kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> String:
+  match n kfs:
+    case 0n Tuple{Tuple{fs, bad}, lv}:
+      +b2 : U32 = bad
+      U32.show((acc + b2 : U32)) ++ " first "
+      ++ U32.show(S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                         (e - 1 : U32), fb))
+    case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
+      +b2 : U32 = bad
+      +r : I.IR = wh_lite(256n, True{}, mk_is(ext, tln, nex, nlv), mt, lp,
+                          vt, U.ex_at(ext, e), e, Nil{})
+      loop_wh(p, (e + 1 : U32), ext, tln, mt, lp, vt, nex, nlv,
+              (acc + b2 : U32),
+              S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                     (e - 1 : U32), fb),
+              drive1(M.kwhnf(100000000n, fs, flnt, fnlx, mt, lp, vt, e,
+                             True{}, 256),
+                     I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
+                     I.ir_ty(r)))
+
 # --- drivers -----------------------------------------------------------------
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
                +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32):
@@ -247,6 +330,10 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   +ext = B.build_ex(recs, R.TNil{})
   +lvt = B.build_lv(recs, R.TNil{})
   +tln = B.lv_resolve(32n, U32.to_nat(nlv), lvt, R.TNil{})
+  +ds = K.decls_of(recs, Nil{})
+  +vt = B.build_vt(ds, R.TNil{})
+  +lp = B.build_lp(ds, R.TNil{})
+  +mt = C.build_meta(ds, ext, tln, R.TNil{})
   "lift bad "
   ++ U32.show(loop_lift(U32.to_nat(nex), 0, ext, tln, nex, 0,
                         fresh_flat(recs, nex, tln, nlv)))
@@ -256,6 +343,9 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   ++ " lsub bad "
   ++ loop_ls(U32.to_nat(nex), 0, ext, tln, nex, nlv, 0, 4294967295,
              fresh_flat(recs, nex, tln, nlv))
+  ++ " wh bad "
+  ++ loop_wh(U32.to_nat(U32.min(nex, 1500)), 0, ext, tln, mt, lp, vt, nex,
+             nlv, 0, 4294967295, fresh_flat(recs, nex, tln, nlv))
   ++ " of " ++ U32.show(nex)
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
