@@ -2119,7 +2119,7 @@ def judge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                     K.build_wk2(recs, R.TNil{})}
   +strt = build_str(ds, R.TNil{})
   comb(comb(pre_check(ds),
-            comb(bad_v(scan_consts(nex, 0, B.build_ex(recs, R.TNil{}), dn,
+            comb(bad_v(scan_consts(nex, 0, ex, dn,
                                    False{})),
                  scan_projs(nex, 0, ex, strt, VAccept{}))),
        ck_all(ds, 8192n, st, build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
