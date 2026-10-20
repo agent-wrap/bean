@@ -247,6 +247,8 @@ type KF is Data:
   # Const/Const: shared type then its universe
   DCn2{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
        tb: U32, ctx: List<&2, U32>}
+  DCn3x{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
+        tb: U32, samety: Bool, ctx: List<&2, U32>}
   DCn3{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
        tb: U32, samety: Bool}
   DCn4{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
@@ -1828,13 +1830,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DCn2{a, us, b, vs, ta, tb, ctx}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
       +t2 : U32 = ta
-      km(p, KCon{DCn3{a, us, b, vs, t2, tb, L.tri_is_yes(t)}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
-    case 1n+p KCon{DCn3{a, us, b, vs, ta, tb, samety}, k}
+      km(p, KCon{DCn3x{a, us, b, vs, t2, tb, L.tri_is_yes(t), ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
+    case 1n+p KCon{DCn3x{a, us, b, vs, ta, tb, samety, ctx}, k}
          Tuple{Tuple{fs, MX{node}}, ri}:
-      # the fetched node is ta's; its universe comes from the oracle
+      # the fetched node is ta's; its universe comes from the oracle, under
+      # the comparison's own context
       +t2 : U32 = ta
-      km(p, KCon{kslev(t2, Nil{}, 256),
+      km(p, KCon{kslev(t2, ctx, 256),
                  KCon{DCn4{a, us, b, vs, t2, tb, samety}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, kfetch(fs, t2, ri))
     case 1n+p KCon{DCn4{a, us, b, vs, ta, tb, samety}, k}
