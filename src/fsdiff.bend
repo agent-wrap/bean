@@ -281,6 +281,43 @@ def loop_sl2(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                                     U.ex_at(ext, e), Nil{})),
                     0))
 
+# --- defeq: the machine against the REAL I.defeq ----------------------------
+def tri_u32(+t: L.Tri) -> U32:
+  S.pick(L.tri_is_yes(t), 0, S.pick(L.tri_is_no(t), 1, 2))
+
+def dq_fold(kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+            +want: U32) -> (Array<T.Ex> & U32) & U32:
+  match kfs:
+    case Tuple{Tuple{fs, got}, lv}:
+      (fs, S.pick(U32.is_eq(got, want), 0, 1))
+
+def loop_dq(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
+            +mt: R.Tr<I.Meta>, +ntt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+            +vt: R.Tr<U32>, +qt: R.Tr<U32>, +natn: U32, +nex: U32,
+            +nlv: U32, +acc: U32, +fb: U32,
+            pr: (Array<T.Ex> & U32) & U32) -> String:
+  match n pr:
+    case 0n Tuple{fs, bad}:
+      +b2 : U32 = bad
+      U32.show((acc + b2 : U32)) ++ " first "
+      ++ U32.show(S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                         (e - 1 : U32), fb))
+    case 1n+p Tuple{fs, bad}:
+      +b2 : U32 = bad
+      +y : U32 = S.pick(U32.is_lt((e + 1 : U32), nex), (e + 1 : U32), 0)
+      +ld : I.DR = I.defeq(256n, False{},
+                           mk_is(ext, tln, qt, natn, nex, nlv), mt, ntt,
+                           lp, vt, Nil{}, U.ex_at(ext, e),
+                           U.ex_at(ext, y))
+      loop_dq(p, (e + 1 : U32), ext, tln, mt, ntt, lp, vt, qt, natn, nex,
+              nlv, (acc + b2 : U32),
+              S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
+                     (e - 1 : U32), fb),
+              dq_fold(M.kdefeq(100000000n, fs, tln, nlv, mt, lp, vt, qt,
+                               natn, R.TNil{}, ntt, e, y, Nil{}, False{},
+                               256),
+                      tri_u32(I.dr_r(ld))))
+
 # --- drivers -----------------------------------------------------------------
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
                +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
@@ -323,6 +360,10 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   ++ " sl bad "
   ++ U32.show(loop_sl2(U32.to_nat(nex), 0, ext, tln, ntt, lp, 0,
                        (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0)))
+  ++ " dq bad "
+  ++ loop_dq(U32.to_nat(U32.min(nex, 1200)), 0, ext, tln, mt, ntt, lp, vt,
+             qt, natn, nex, nlv, 0, 4294967295,
+             (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0))
   ++ " of " ++ U32.show(nex)
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
