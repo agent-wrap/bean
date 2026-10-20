@@ -204,9 +204,9 @@ def loop_inst(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                        U.sr_t(r), tln, U.sr_i(r)))
 
 # the trie-side lsubst needs a full IS; only ex/nx/lnt/nlx matter to it
-def mk_is(+ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>, +qt: R.Tr<U32>, +nex: U32,
-          +nlv: U32) -> I.IS:
-  I.IS{ext, nex, tln, nlv, R.TNil{}, R.TNil{}, 4294967295, 4294967295, qt}
+def mk_is(+ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>, +qt: R.Tr<U32>, +natn: U32,
+          +nex: U32, +nlv: U32) -> I.IS:
+  I.IS{ext, nex, tln, nlv, R.TNil{}, R.TNil{}, natn, 4294967295, qt}
 
 def ls_ps() -> List<&2, U32>:
   Con{1, Nil{}}
@@ -225,7 +225,8 @@ def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                          (e - 1 : U32), fb))
     case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
       +b2 : U32 = bad
-      +r : I.IR = I.lsubst(256n, mk_is(ext, tln, R.TNil{}, nex, nlv),
+      +r : I.IR = I.lsubst(256n, mk_is(ext, tln, R.TNil{}, 4294967295, nex,
+                                       nlv),
                            U.ex_at(ext, e), e, ls_ps(), ls_qs())
       loop_ls(p, (e + 1 : U32), ext, tln, nex, nlv, (acc + b2 : U32),
               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
@@ -235,141 +236,9 @@ def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
-# --- whnf reference: the old whnf restricted to beta/zeta/delta/proj --------
-# An exact copy of infer.bend's whnf control flow with the iota, K, unit-eta,
-# literal-arithmetic and quotient conditions FORCED FALSE -- the Stage-A
-# subset the machine carries. Same fuel discipline, same state threading.
-def wh_lite(+fuel: Nat, +delta: Bool, +st: I.IS, +mt: R.Tr<I.Meta>,
-            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
-            +args: List<&2, U32>) -> I.IR:
-  match fuel x args:
-    case 0n _ _:
-      I.rebuild(args, st, e)
-    case 1n+p T.EApp{f, a} _:
-      wh_lite(p, delta, st, mt, lp, vt, U.ex_at(I.is_ex(st), f), f,
-              Con{a, args})
-    case 1n+p T.ELam{n, ty, b, bi} Con{a, rest}:
-      +pf : Nat = p
-      +r : U.SR = U.inst(256n, I.is_ex(st), I.is_nx(st),
-                         U.ex_at(I.is_ex(st), b), b, 0, a)
-      +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st), I.is_nlx(st),
-                        I.is_wm(st), I.is_ht(st), I.is_natn(st),
-                        I.is_strn(st), I.is_qt_t(st)}
-      wh_lite(pf, delta, s2, mt, lp, vt, U.ex_at(I.is_ex(s2), U.sr_i(r)),
-              U.sr_i(r), rest)
-    case 1n+p T.ELet{n, ty, v, b} _:
-      +pf : Nat = p
-      +r : U.SR = U.inst(256n, I.is_ex(st), I.is_nx(st),
-                         U.ex_at(I.is_ex(st), b), b, 0, v)
-      +s2 : I.IS = I.IS{U.sr_t(r), U.sr_nx(r), I.is_lnt(st), I.is_nlx(st),
-                        I.is_wm(st), I.is_ht(st), I.is_natn(st),
-                        I.is_strn(st), I.is_qt_t(st)}
-      wh_lite(pf, delta, s2, mt, lp, vt, U.ex_at(I.is_ex(s2), U.sr_i(r)),
-              U.sr_i(r), args)
-    case 1n+p T.EConst{n, us} _:
-      +pf : Nat = p
-      +a2 : List<&2, U32> = args
-      +vi : U32 = R.get(U32, 32n, vt, n, 4294967295)
-      +can : Bool = delta && U32.is_ne(vi, 4294967295)
-      +mi : I.Meta = R.get(I.Meta, 32n, mt, n, I.MNone{})
-      +pp : U32 = I.meta_p(mi)
-      +mn : U32 = I.meta_n(mi)
-      +mk : U32 = I.meta_k(mi)
-      +la : U32 = I.len_u(a2, 0)
-      +kneed : U32 = (pp + 1 + mn : U32)
-      +iskr : Bool = U32.is_eq(I.meta_kf(mi), 1)
-                     && U32.is_gt(la, (kneed + mk : U32))
-      +kexp : I.IR = I.k_expected(st, S.pick(iskr, I.meta_rcty(mi),
-                                             4294967295), pp, a2)
-      +kok : Bool = iskr && I.ir_ok(kexp)
-                    && L.tri_is_yes(I.eq_u32_lists_ex(256n,
-                         I.is_ex(I.ir_st(kexp)), I.is_lnt(I.ir_st(kexp)),
-                         I.skip_u(I.spine_ar(256n, I.is_ex(I.ir_st(kexp)),
-                                             U.ex_at(I.is_ex(I.ir_st(kexp)),
-                                                     I.ir_ty(kexp)),
-                                             Nil{}), pp),
-                         I.take_u(I.skip_u(a2, kneed), mk, Nil{})))
-      +kr : I.IR = I.k_tgt(kok, I.ir_st(kexp),
-                           I.nth_u(a2, (pp + 1 : U32), 4294967295))
-      +uind : I.Meta = R.get(I.Meta, 32n, mt, I.meta_ind(mi), I.MNone{})
-      +isue : Bool = I.meta_is_rec(mi) && I.meta_is_ind(uind)
-                     && U32.is_eq(I.meta_nf(uind), 0)
-                     && U32.is_eq(mk, 0) && U32.is_gt(la, (kneed : U32))
-      +ur : I.IR = I.k_tgt(isue, st, I.nth_u(a2, (pp + 1 : U32),
-                                             4294967295))
-      +nn : U32 = n
-      +aw : U32 = S.pick(U32.is_eq(nn, I.is_qt(st, 5)), 0,
-                    S.pick(U32.is_eq(nn, I.is_qt(st, 6)), 1,
-                      S.pick(U32.is_eq(nn, I.is_qt(st, 7)), 2, 3)))
-      +isar : Bool = U32.is_lt(aw, 3) && U32.is_gt(la, 1)
-      +a0 : U32 = S.pick(isar, I.nth_u(a2, 0, 4294967295), 4294967295)
-      +a1 : U32 = S.pick(isar, I.nth_u(a2, 1, 4294967295), 4294967295)
-      +wa : I.IR = wh_lite(pf, delta, st, mt, lp, vt,
-                           U.ex_at(I.is_ex(st), a0), a0, Nil{})
-      +wb : I.IR = wh_lite(pf, delta, I.ir_st(wa), mt, lp, vt,
-                           U.ex_at(I.is_ex(I.ir_st(wa)), a1), a1, Nil{})
-      +na : T.Ex = U.ex_at(I.is_ex(I.ir_st(wb)), I.ir_ty(wa))
-      +nb : T.Ex = U.ex_at(I.is_ex(I.ir_st(wb)), I.ir_ty(wb))
-      +arok : Bool = isar && I.is_nat_lit(na) && I.is_nat_lit(nb)
-      +ar : I.IR = I.lit_arith(arok, aw, I.ir_st(wb), I.nat_digits(na),
-                               I.nat_digits(nb), I.is_qt(st, 8),
-                               I.is_qt(st, 9))
-      +isql : Bool = U32.is_eq(nn, I.is_qt(st, 0)) && U32.is_gt(la, 5)
-      +isqi : Bool = U32.is_eq(nn, I.is_qt(st, 1)) && U32.is_gt(la, 4)
-      +qneed : U32 = S.pick(isql, 5, 4)
-      +qmaj : U32 = S.pick(isql || isqi, I.nth_u(a2, qneed, 4294967295),
-                           4294967295)
-      +qw : I.IR = wh_lite(pf, delta, st, mt, lp, vt,
-                           U.ex_at(I.is_ex(st), qmaj), qmaj, Nil{})
-      +qex : R.Tr<T.Ex> = I.is_ex(I.ir_st(qw))
-      +qargs : List<&2, U32> = I.spine_ar(256n, qex,
-                                          U.ex_at(qex, I.ir_ty(qw)), Nil{})
-      +qok : Bool = (isql || isqi)
-                    && U32.is_eq(I.const_nm2(I.spine_hd(256n, qex,
-                                   U.ex_at(qex, I.ir_ty(qw)))),
-                                 I.is_qt(st, 2))
-                    && U32.is_gt(I.len_u(qargs, 0), 2)
-      +qt2 : I.IR = I.quot_tgt(qok, I.ir_st(qw),
-                               I.nth_u(a2, 3, 4294967295),
-                               I.nth_u(qargs, 2, 4294967295))
-      +tgt : I.IR = I.pick_ir(kok, kr,
-                      I.pick_ir(isue, ur,
-                        I.pick_ir(arok, ar,
-                          I.pick_ir(qok, qt2,
-                            I.pick_ir(can,
-                              I.unfold_const(I.ir_st(qt2), lp, nn, vi, us),
-                              I.IR{I.ir_st(qt2), 4294967295, True{}})))))
-      +s4 : I.IS = I.ir_st(tgt)
-      wh_lite(pf, delta, s4, mt, lp, vt,
-              U.ex_at(I.is_ex(s4), I.ir_ty(tgt)),
-              S.pick(kok || isue || arok || qok, I.ir_ty(tgt),
-                     S.pick(can, I.ir_ty(tgt), e)),
-              S.pick_l(kok, I.skip_u(a2, (kneed + mk + 1 : U32)),
-                S.pick_l(isue, I.skip_u(a2, (kneed + 1 : U32)),
-                  S.pick_l(arok, I.skip_u(a2, 2),
-                    S.pick_l(qok, I.skip_u(a2, (qneed + 1 : U32)),
-                             a2)))))
-    case 1n+p T.EProj{tn, idx, sx} _:
-      +pf : Nat = p
-      +ws : I.IR = wh_lite(pf, delta, st, mt, lp, vt,
-                           U.ex_at(I.is_ex(st), sx), sx, Nil{})
-      +exz : R.Tr<T.Ex> = I.is_ex(I.ir_st(ws))
-      +snode : T.Ex = U.ex_at(exz, I.ir_ty(ws))
-      +cmi : I.Meta = R.get(I.Meta, 32n, mt,
-                            I.const_nm2(I.spine_hd(256n, exz, snode)),
-                            I.MNone{})
-      +okp : Bool = I.meta_is_ctor(cmi)
-      +fld : U32 = I.nth_u(I.spine_ar(256n, exz, snode, Nil{}),
-                           (I.meta_p(cmi) + idx : U32), 4294967295)
-      wh_lite(pf, delta, I.ir_st(ws), mt, lp, vt,
-              U.ex_at(exz, S.pick(okp, fld, 4294967295)),
-              S.pick(okp, fld, e), args)
-    case 1n+p _ _:
-      I.rebuild(args, st, e)
-
 def loop_wh(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
             +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-            +qt: R.Tr<U32>,
+            +qt: R.Tr<U32>, +natn: U32,
             +nex: U32, +nlv: U32, +acc: U32, +fb: U32,
             kfs: ((Array<T.Ex> & U32) & U32) & (R.Tr<L.LN> & U32)) -> String:
   match n kfs:
@@ -380,14 +249,14 @@ def loop_wh(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                          (e - 1 : U32), fb))
     case 1n+p Tuple{Tuple{fs, bad}, Tuple{flnt, fnlx}}:
       +b2 : U32 = bad
-      +r : I.IR = wh_lite(256n, True{}, mk_is(ext, tln, qt, nex, nlv), mt,
-                          lp, vt, U.ex_at(ext, e), e, Nil{})
-      loop_wh(p, (e + 1 : U32), ext, tln, mt, lp, vt, qt, nex, nlv,
+      +r : I.IR = I.whnf(256n, True{}, mk_is(ext, tln, qt, natn, nex, nlv),
+                         mt, lp, vt, U.ex_at(ext, e), e, Nil{})
+      loop_wh(p, (e + 1 : U32), ext, tln, mt, lp, vt, qt, natn, nex, nlv,
               (acc + b2 : U32),
               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                      (e - 1 : U32), fb),
-              drive1(M.kwhnf(100000000n, fs, flnt, fnlx, mt, lp, vt, qt, e,
-                             True{}, 256),
+              drive1(M.kwhnf(100000000n, fs, flnt, fnlx, mt, lp, vt, qt,
+                             natn, e, True{}, 256),
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
@@ -409,6 +278,7 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
   +lp = B.build_lp(ds, R.TNil{})
   +mt = C.build_meta(ds, ext, tln, R.TNil{})
   +qt = K.build_wk2(recs, R.TNil{})
+  +natn = K.find_name(recs, [78, 97, 116], 4294967295)
   "lift bad "
   ++ U32.show(loop_lift(U32.to_nat(nex), 0, ext, tln, nex, 0,
                         fresh_flat(recs, nex, tln, nlv)))
@@ -420,7 +290,8 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
              fresh_flat(recs, nex, tln, nlv))
   ++ " wh bad "
   ++ loop_wh(U32.to_nat(U32.min(nex, 1500)), 0, ext, tln, mt, lp, vt, qt,
-             nex, nlv, 0, 4294967295, fresh_flat(recs, nex, tln, nlv))
+             natn, nex, nlv, 0, 4294967295,
+             fresh_flat(recs, nex, tln, nlv))
   ++ " of " ++ U32.show(nex)
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
