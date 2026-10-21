@@ -1224,12 +1224,19 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                    || L.tri_is_yes(L.ln_is_zero(R.get(L.LN, 64n,
                         I.is_lnt(tl_st(rt)), I.sort_lvl_of(rs), L.LNun{})))
   # the recursors' level parameters: the motive's first, then the block's
+  # -- except a Prop block of several types after nested elimination
+  # (mutual, or nested), which eliminates only into Prop (Lean's
+  # elim_only_at_universe_zero): the motive is `Sort 0`, no extra level
   +rlps : List<&2, U32> = rec_lps(items)
-  +lvok : Bool = I.eq_u32s(I.skip_u(rlps, 1), lps)
-                 && U32.is_eq(I.len_u(rlps, 0), (I.len_u(lps, 0) + 1 : U32))
+  +lvok : Bool = S.pick_b(isprop, I.eq_u32s(rlps, lps),
+                          I.eq_u32s(I.skip_u(rlps, 1), lps)
+                          && U32.is_eq(I.len_u(rlps, 0),
+                                       (I.len_u(lps, 0) + 1 : U32)))
   +rl = W.param_lvls(rlps, tl_st(rt), Nil{})
   +rus : List<&2, U32> = I.rev_u(I.ls_xs(rl), Nil{})
-  +sv = I.alloc_ex(I.ls_st(rl), T.ESort{I.nth_u(rus, 0, 0)})
+  +z = I.alloc_lvl(I.ls_st(rl), L.ln_zero())
+  +sv = I.alloc_ex(I.ir_st(z), T.ESort{S.pick(isprop, I.ir_ty(z),
+                                              I.nth_u(rus, 0, 0))})
   # specs
   +d = disc(64n, True{}, 0, I.ir_st(sv), tl_kc(rt),
             specs0(tn, us0, pv), False{}, tn, items, itab, ctab, mt, lp, vt)
@@ -1255,8 +1262,10 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
   +rw = mk_rules(info, rt_st(rty), rnames, rus,
                  fv_nodes(prefv, Nil{}), prefv, items, True{}, Nil{})
   +ruleok : Bool = rw_ok(rw) && U32.is_eq(count_rules(items, 0), nmin)
-  +good : Bool = Bool.not(isprop) && lvok && Bool.not(ds_bad(d)) && recok
-                 && ruleok
+  # a single-type Prop block (large elimination for subsingletons) is the
+  # older derivation's
+  +good : Bool = (Bool.not(isprop) || U32.is_gt(nmot, 1)) && lvok
+                 && Bool.not(ds_bad(d)) && recok && ruleok
   VR{S.pick(good, 0, 2),
      rr_metas(specs, 0, rnames, rw_per(rw), np, nmot, nmin, items, itab, mt)}
 
