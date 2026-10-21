@@ -15,6 +15,7 @@ import ./infer.bend as I
 import ./check.bend as C
 import ./fstore.bend as F
 import ./km.bend as M
+import ./fcheck.bend as FC
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
   match m:
@@ -227,16 +228,8 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +its = items
       +ntb = B.add_items_nt(its, nt)
       done((ex, nx),
-       (vcode(C.comb(C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt,
-                                        C.VAccept{}),
-                            C.ctor_all(its, I.is_ex(st),
-                                       C.ind_names_of(its, Nil{}),
-                                       C.VAccept{})),
-                     C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb,
-                                   lp)),
-              C.comb(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), ntb,
-                                      lp),
-                     C.block_names_v(its, nmt)))) * 64 : U32))
+       (vcode(FC.block_v(C.is_nm_block(its), its, st, mt, nt, lp, vt, ntb,
+                         nmt)) * 64 : U32))
     case K.DNone{} Tuple{ex, nx}:
       done((ex, nx), 128)
     case _ Tuple{ex, nx}:
@@ -280,7 +273,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.add_hts(recs, K.build_wk3(recs, R.TNil{}))
+  +qtt = K.add_hts(recs, K.build_wk4(recs, R.TNil{}))
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     natn,
                     K.find_name(recs,
@@ -291,7 +284,11 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   Con{(4294966272 + vcode(C.pre_check(ds)) * 16
        + vcode(C.bad_v(C.scan_consts(nex, 0, ex, dn, False{}))) * 4
        + vcode(C.scan_projs(nex, 0, ex, strt, C.VAccept{})) : U32),
-      fck_all_d(ds, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+      fck_all_d(ds, st, C.build_meta2(ds, st, R.TNil{}, R.TNil{}, R.TNil{},
+                                      R.TNil{},
+                                      [I.is_qt(st, 16), I.is_qt(st, 17),
+                                       I.is_qt(st, 18)], R.TNil{}),
+                R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
                  natn, qtt, 0, 0, Nil{},
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),

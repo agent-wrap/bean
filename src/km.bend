@@ -1677,11 +1677,14 @@ def kflag1(+cur: R.Tr<U32>, +k: U32, +snap: R.Tr<U32>) -> R.Tr<U32>:
 
 def kflags_into(+cur: R.Tr<U32>, +snap: R.Tr<U32>, +ovf: Bool) -> R.Tr<U32>:
   +c2 : R.Tr<U32> = cur
-  +s1 : R.Tr<U32> = kflag1(c2, 4294967292, kflag1(c2, 4294967291,
+  +s1 : R.Tr<U32> = kflag1(c2, 4294967280,
+                     kflag1(c2, 4294967292, kflag1(c2, 4294967291,
                      kflag1(c2, 4294967290, kflag1(c2, 4294967289,
                      kflag1(c2, 4294967288, kflag1(c2, 4294967287,
-                     kflag1(c2, 4294967286, snap)))))))
-  kpick_tr(ovf, R.set(U32, 64n, s1, 4294967291, 1, 4294967295), s1)
+                     kflag1(c2, 4294967286, snap))))))))
+  kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, s1, 4294967291, 1,
+                                      4294967295), 4294967280, 1, 4294967295),
+           s1)
 
 # a definition's height (the export's ReducibilityHints), or none
 def khgt(+qtt: R.Tr<U32>, +n: U32) -> U32:
@@ -5452,8 +5455,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +ovf : Bool = U32.is_ge(n2, khalf(hcb))
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
          kpick_tr(roll, kflags_into(wm, snap, ovf),
-                  kpick_tr(ovf, R.set(U32, 64n, wm, 4294967291, 1,
-                                      4294967295), wm)),
+                  kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, wm,
+                                                      4294967291, 1,
+                                                      4294967295),
+                                      4294967280, 1, 4294967295), wm)),
          nt, hcb, (((ex, S.pick(roll, m2, n2)), msg), r2))
     case 1n+p KCon{DWhdSt{i}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri

@@ -37,6 +37,11 @@ def fv_of(+r: U32) -> C.V:
       C.VDecline{}
 
 # run one declaration's typed check on the machine and fold the verdict
+def fs_ovf(+o: Bool, fs: Array<T.Ex> & U32) -> Array<T.Ex> & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      (ex, S.pick(o, 4294967295, nx))
+
 def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
              +sv: C.V) -> (Array<T.Ex> & U32) & C.V:
   match kr:
@@ -50,7 +55,12 @@ def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       +inc : Bool = Bool.not(U32.is_eq(R.get(U32, 64n, w2, 4294967292,
                                              4294967295), 4294967295))
       +v2 : U32 = v
-      (fs, C.comb(sv, fv_of(S.pick(cor || (inc && U32.is_eq(v2, 1)), 2,
+      # OVF: the store overflowed somewhere inside (a rollback may have
+      # hidden the peak) -- reported as an allocation pointer past
+      # capacity, so fck_all declines this and every later declaration
+      +ovf : Bool = Bool.not(U32.is_eq(R.get(U32, 64n, w2, 4294967280,
+                                             4294967295), 4294967295))
+      (fs_ovf(ovf, fs), C.comb(sv, fv_of(S.pick(cor || (inc && U32.is_eq(v2, 1)), 2,
                                    v2))))
 
 # one declaration: structural checks on the trie, the typed check on the
@@ -124,17 +134,20 @@ def ovf_v(+nx: U32, +cap: U32, +v: C.V) -> C.V:
 def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            +cap: U32, +acc: C.V,
+            +cap: U32, +poison: Bool, +acc: C.V,
             fr: (Array<T.Ex> & U32) & C.V) -> C.V:
   match ds fr:
     case Nil{} Tuple{Tuple{ex, nx}, v}:
-      C.comb(acc, ovf_v(nx, cap, v))
+      C.comb(acc, ovf_v(S.pick(poison, 4294967295, nx), cap, v))
     case Con{head, tail} Tuple{Tuple{ex, nx}, v}:
       +h = head
       +nx2 : U32 = nx
+      # an overflow aliases slots below it: every LATER declaration runs on
+      # a corrupted store, so the poison is sticky
+      +p2 : Bool = poison || U32.is_ge(nx2, cap)
       fck_all(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
-              B.add_vt(h, vt), nmt, basenx, natn, qtt, cap,
-              C.comb(acc, ovf_v(nx2, cap, v)),
+              B.add_vt(h, vt), nmt, basenx, natn, qtt, cap, p2,
+              C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cap, v)),
               # every declaration allocates from the region base again:
               # nothing a finished declaration allocated is referenced
               # later (its memo dies with it, the hash table's pointers
@@ -168,7 +181,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  natn, qtt,
                  # usable capacity; the array is twice that, its upper half
                  # holds the loose-bvar ranges (km's kput / khalf)
-                 kpow2(M.sdepth(nx)),
+                 kpow2(M.sdepth(nx)), False{},
                  C.VAccept{},
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
