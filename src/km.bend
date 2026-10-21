@@ -359,6 +359,11 @@ type KF is Data:
   # after unfolding LT.lt and +. The trie engine cannot do this (infer and
   # defeq may not recurse into each other); frames can.
   DIr5x{ok: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  # Lean's order: x's type must be a Prop BEFORE the types are compared;
+  # comparing first lets that defeq fall back to proof irrelevance on the
+  # types themselves, which climbs Sort u, Sort u+1, .. without end
+  DIr5p{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  DIr5q{zero: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5y{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5z{t: L.Tri, rx: U32, ry: U32, wx: U32, ctx: List<&2, U32>}
   DIr7{t: L.Tri, both: Bool, sameq: Bool}
@@ -4268,6 +4273,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DIr5x{True{}, t, rx, ry, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{kslev(rx2, c2, 2000000), KCon{DIr5p{t, rx2, ry, c2}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, rx2, ri))
+    case 1n+p KCon{DIr5p{t, rx, ry, ctx}, k} Tuple{Tuple{fs, MLn{u}}, ri}:
+      km(p, KCon{DIr5q{L.tri_is_yes(L.ln_is_zero(u)), t, rx, ry, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIr5q{False{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    case 1n+p KCon{DIr5q{True{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
       km(p, KCon{DWhd{rx2}, KCon{DIr5y{t, rx2, ry, ctx}, k}}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DIr5y{t, rx, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -5056,6 +5073,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          natn, wm, nt, hcb,
          keq_lists_tin(fs, Con{rx2, Nil{}}, Con{r2, Nil{}}, lnt))
     case 1n+p KCon{DIr5x{True{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{kslev(rx2, c2, 2000000), KCon{DIr5p{t, rx2, ry, c2}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, rx2, ri))
+    case 1n+p KCon{DIr5p{t, rx, ry, ctx}, k} Tuple{Tuple{fs, MLn{u}}, ri}:
+      km(p, KCon{DIr5q{L.tri_is_yes(L.ln_is_zero(u)), t, rx, ry, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIr5q{False{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    case 1n+p KCon{DIr5q{True{}, t, rx, ry, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
       km(p, KCon{DWhd{rx2}, KCon{DIr5y{t, rx2, ry, ctx}, k}}, lnt, nlx, mt,

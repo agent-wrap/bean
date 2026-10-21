@@ -1129,6 +1129,13 @@ def first_ind(xs: List<&2, K.IItem>) -> K.IItem:
     case Con{h, t}:
       h
 
+def ii_nn(+x: K.IItem) -> U32:
+  match x:
+    case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+      nn
+    case _:
+      0
+
 def ii_ni(+x: K.IItem) -> U32:
   match x:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
@@ -1224,19 +1231,24 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                    || L.tri_is_yes(L.ln_is_zero(R.get(L.LN, 64n,
                         I.is_lnt(tl_st(rt)), I.sort_lvl_of(rs), L.LNun{})))
   # the recursors' level parameters: the motive's first, then the block's
-  # -- except a Prop block of several types after nested elimination
-  # (mutual, or nested), which eliminates only into Prop (Lean's
-  # elim_only_at_universe_zero): the motive is `Sort 0`, no extra level
+  # -- unless the block eliminates only into Prop (Lean's
+  # elim_only_at_universe_zero): the motive is `Sort 0`, no extra level.
+  # A Prop block of several types after nested elimination (mutual, or
+  # nested) always does. A single inductive follows its export's claim,
+  # which check.bend's block_rec_v holds to Lean's rule (large_elim: the
+  # subsingleton test, with the index exception) in the same block_v
   +rlps : List<&2, U32> = rec_lps(items)
-  +lvok : Bool = S.pick_b(isprop, I.eq_u32s(rlps, lps),
-                          I.eq_u32s(I.skip_u(rlps, 1), lps)
-                          && U32.is_eq(I.len_u(rlps, 0),
-                                       (I.len_u(lps, 0) + 1 : U32)))
+  +single : Bool = U32.is_eq(I.len_u(tn, 0), 1) && U32.is_eq(ii_nn(i0), 0)
+  +claim : Bool = U32.is_eq(I.len_u(rlps, 0), (I.len_u(lps, 0) + 1 : U32))
+  +large : Bool = S.pick_b(single, claim, Bool.not(isprop))
+  +lvok : Bool = S.pick_b(large,
+                          I.eq_u32s(I.skip_u(rlps, 1), lps) && claim,
+                          I.eq_u32s(rlps, lps))
   +rl = W.param_lvls(rlps, tl_st(rt), Nil{})
   +rus : List<&2, U32> = I.rev_u(I.ls_xs(rl), Nil{})
   +z = I.alloc_lvl(I.ls_st(rl), L.ln_zero())
-  +sv = I.alloc_ex(I.ir_st(z), T.ESort{S.pick(isprop, I.ir_ty(z),
-                                              I.nth_u(rus, 0, 0))})
+  +sv = I.alloc_ex(I.ir_st(z), T.ESort{S.pick(large, I.nth_u(rus, 0, 0),
+                                              I.ir_ty(z))})
   # specs
   +d = disc(64n, True{}, 0, I.ir_st(sv), tl_kc(rt),
             specs0(tn, us0, pv), False{}, tn, items, itab, ctab, mt, lp, vt)
@@ -1262,10 +1274,7 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
   +rw = mk_rules(info, rt_st(rty), rnames, rus,
                  fv_nodes(prefv, Nil{}), prefv, items, True{}, Nil{})
   +ruleok : Bool = rw_ok(rw) && U32.is_eq(count_rules(items, 0), nmin)
-  # a single-type Prop block (large elimination for subsingletons) is the
-  # older derivation's
-  +good : Bool = (Bool.not(isprop) || U32.is_gt(nmot, 1)) && lvok
-                 && Bool.not(ds_bad(d)) && recok && ruleok
+  +good : Bool = lvok && Bool.not(ds_bad(d)) && recok && ruleok
   VR{S.pick(good, 0, 2),
      rr_metas(specs, 0, rnames, rw_per(rw), np, nmot, nmin, items, itab, mt)}
 
