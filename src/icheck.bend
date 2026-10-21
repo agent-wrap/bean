@@ -140,6 +140,8 @@ def show_ln(+a: L.LN) -> String:
       "max{" ++ show_atoms(xs, "") ++ " }"
     case L.LNimax{a2, b2, o}:
       "imax+" ++ U32.show(o) ++ "(?,?)"
+    case L.LNmx{xs, y, r}:
+      "max{" ++ show_atoms(xs, "") ++ " imax(?,?) }"
 
 def show_tri(+t: L.Tri) -> String:
   match t:

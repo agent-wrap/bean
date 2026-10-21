@@ -151,43 +151,6 @@ def digits(ds: List<&2, U32>) -> String:
     case Con{head, tail}:
       U32.show(head) ++ digits(tail)
 
-def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> String:
-  match fuel x:
-    case 0n _:
-      "~"
-    case 1n+p T.EBVar{i}:
-      "#" ++ U32.show(i)
-    case 1n+p T.ESort{l}:
-      "Sort"
-    case 1n+p T.EConst{n, us}:
-      "@" ++ U32.show(n)
-    case 1n+p T.EApp{f, a}:
-      +pf = p
-      "(" ++ ppn(pf, ex, U.ex_at(ex, f)) ++ " " ++ ppn(pf, ex, U.ex_at(ex, a)) ++ ")"
-    case 1n+p T.ELam{n, t, b, bi}:
-      +pf = p
-      "(fun:" ++ ppn(pf, ex, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
-    case 1n+p T.EAll{n, t, b, bi}:
-      +pf = p
-      "(Pi:" ++ ppn(pf, ex, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
-    case 1n+p T.ELet{n, t, v, b}:
-      +pf = p
-      "(let " ++ ppn(pf, ex, U.ex_at(ex, v)) ++ "; " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
-    case 1n+p T.EProj{tn, i, s}:
-      ppn(p, ex, U.ex_at(ex, s)) ++ ".pi" ++ U32.show(i)
-    case 1n+p T.ENat{d}:
-      digits(d)
-    case 1n+p _:
-      "?"
-
-# term printer over the trie store; names as @index (decoded by python)
-def ppx(fuel: Nat, +ex: R.Tr<T.Ex>, +i: U32) -> String:
-  match fuel:
-    case 0n:
-      "~"
-    case 1n+p:
-      ppn(p, ex, U.ex_at(ex, i))
-
 def pat(xs: List<&2, L.Atom>) -> String:
   match xs:
     case Nil{}:
@@ -210,6 +173,9 @@ def pln(fuel: Nat, +a: L.LN) -> String:
     case 1n+p L.LNimax{x, y, o}:
       +pf = p
       "imax(" ++ pln(pf, x) ++ ", " ++ pln(pf, y) ++ ")+" ++ U32.show(o)
+    case 1n+p L.LNmx{xs, y, r}:
+      +pf = p
+      "max[" ++ pat(xs) ++ " " ++ pln(pf, y) ++ " | " ++ pln(pf, r) ++ " ]"
 
 def sortlv(+st: I.IS, +x: T.Ex) -> String:
   match x:
@@ -218,15 +184,59 @@ def sortlv(+st: I.IS, +x: T.Ex) -> String:
     case _:
       ""
 
+def lvls(+ln: R.Tr<L.LN>, us: List<&2, U32>) -> String:
+  match us:
+    case Nil{}:
+      ""
+    case Con{head, tail}:
+      ".{" ++ pln(8n, R.get(L.LN, 32n, ln, head, L.LNun{})) ++ "}" ++ lvls(ln, tail)
+
+def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +x: T.Ex) -> String:
+  match fuel x:
+    case 0n _:
+      "~"
+    case 1n+p T.EBVar{i}:
+      "#" ++ U32.show(i)
+    case 1n+p T.ESort{l}:
+      "Sort"
+    case 1n+p T.EConst{n, us}:
+      "@" ++ U32.show(n) ++ lvls(ln, us)
+    case 1n+p T.EApp{f, a}:
+      +pf = p
+      "(" ++ ppn(pf, ex, ln, U.ex_at(ex, f)) ++ " " ++ ppn(pf, ex, ln, U.ex_at(ex, a)) ++ ")"
+    case 1n+p T.ELam{n, t, b, bi}:
+      +pf = p
+      "(fun:" ++ ppn(pf, ex, ln, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, ln, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.EAll{n, t, b, bi}:
+      +pf = p
+      "(Pi:" ++ ppn(pf, ex, ln, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, ln, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.ELet{n, t, v, b}:
+      +pf = p
+      "(let " ++ ppn(pf, ex, ln, U.ex_at(ex, v)) ++ "; " ++ ppn(pf, ex, ln, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.EProj{tn, i, s}:
+      ppn(p, ex, ln, U.ex_at(ex, s)) ++ ".pi" ++ U32.show(i)
+    case 1n+p T.ENat{d}:
+      digits(d)
+    case 1n+p _:
+      "?"
+
+# term printer over the trie store; names as @index (decoded by python)
+def ppx(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +i: U32) -> String:
+  match fuel:
+    case 0n:
+      "~"
+    case 1n+p:
+      ppn(p, ex, ln, U.ex_at(ex, i))
+
 # one line for a comparison of two (already whnf-able) indices
 def dline(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +a: U32, +b: U32,
           +ctx: List<&2, U32>, +ind: String) -> String:
   +d = I.defeq(64n, U32.is_eq(a, b), st, mt, nt, lp, vt, ctx,
                U.ex_at(I.is_ex(st), a), U.ex_at(I.is_ex(st), b))
-  ind ++ tristr(I.dr_r(d)) ++ "  " ++ ppx(30n, I.is_ex(st), a)
+  ind ++ tristr(I.dr_r(d)) ++ "  " ++ ppx(30n, I.is_ex(st), I.is_lnt(st), a)
     ++ sortlv(st, U.ex_at(I.is_ex(st), a))
-    ++ "\n" ++ ind ++ "  =?= " ++ ppx(30n, I.is_ex(st), b)
+    ++ "\n" ++ ind ++ "  =?= " ++ ppx(30n, I.is_ex(st), I.is_lnt(st), b)
     ++ sortlv(st, U.ex_at(I.is_ex(st), b)) ++ "\n"
 
 # descend: a pair of whnf'd NODES (with their indices) under ctx

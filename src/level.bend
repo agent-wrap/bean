@@ -40,6 +40,14 @@ type LN is Data:
   LNsym{}
   LNmax{xs: List<&2, Atom>}
   LNimax{a: LN, b: LN, off: U32}
+  # `max (atoms xs) y r`: y an imax that max-of-atoms cannot express, r the
+  # REST of the maximum (LNmax{[]} for none, another imax, or another
+  # LNmx) -- a chain, so every operation is plain structural recursion on
+  # LN itself (a separate list type would need helpers recursing back into
+  # ln_eq/ln_cmp: mutual recursion). What `PULift.{r,s} : Sort (max s r 1)`
+  # and `cond` over two PULifts become once s is an imax. Equality is
+  # structural (order-sensitive): sound for YES, compared YES-or-unknown.
+  LNmx{xs: List<&2, Atom>, y: LN, r: LN}
 
 def ln_zero() -> LN:
   LNmax{[At{0, 0}]}
@@ -147,23 +155,35 @@ def pick_ln(+z: Bool, +x: LN, +y: LN) -> LN:
     case False{}:
       y
 
-def ln_succ(+a: LN) -> LN:
-  match a:
-    case LNmax{xs}:
-      LNmax{off_add(1, xs)}
-    case LNimax{x, y, o}:
-      LNimax{x, y, (o + 1 : U32)}
-    case LNun{}:
-      LNun{}
-    case LNsym{}:
+# bump the outer successor count of an imax term (an LNmx's y)
+def imax_off(+k: U32, +y: LN) -> LN:
+  match y:
+    case LNimax{a, b, o}:
+      LNimax{a, b, (o + k : U32)}
+    case _:
       LNsym{}
 
 def ln_add_off(+k: U32, +a: LN) -> LN:
   match a:
     case LNmax{xs}:
       LNmax{off_add(k, xs)}
+    case LNmx{xs, y, r}:
+      LNmx{off_add(k, xs), imax_off(k, y), ln_add_off(k, r)}
     case LNimax{x, y, o}:
       LNimax{x, y, (o + k : U32)}
+    case LNun{}:
+      LNun{}
+    case LNsym{}:
+      LNsym{}
+
+def ln_succ(+a: LN) -> LN:
+  match a:
+    case LNmax{xs}:
+      LNmax{off_add(1, xs)}
+    case LNmx{xs, y, r}:
+      LNmx{off_add(1, xs), imax_off(1, y), ln_add_off(1, r)}
+    case LNimax{x, y, o}:
+      LNimax{x, y, (o + 1 : U32)}
     case LNun{}:
       LNun{}
     case LNsym{}:
@@ -214,6 +234,28 @@ def imax_case(+isz: Bool, +pos: Bool, xs: List<&2, Atom>,
 # Structural equality, used by the `imax` smart constructor below. Separate
 # from `ln_cmp` because that one is semantic for the max-of-atoms case (set
 # equality over atoms) and three-valued, and must be defined after this.
+def pick_atoms(+z: Bool, +x: List<&2, Atom>, +y: List<&2, Atom>) -> List<&2, Atom>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+# drop `0` atoms (base 0, offset 0): max 0 x = x, so they never matter;
+# mixed forms built along different paths may or may not carry one
+def strip_zero(xs: List<&2, Atom>) -> List<&2, Atom>:
+  match xs:
+    case Nil{}:
+      Nil{}
+    case Con{head, tail}:
+      match head:
+        case At{b, o}:
+          +pb = b
+          +po = o
+          +rest = strip_zero(tail)
+          pick_atoms(U32.is_eq(pb, 0) && U32.is_eq(po, 0), rest,
+                     Con{At{pb, po}, rest})
+
 def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
   match fuel a b:
     case 0n _ _:
@@ -225,6 +267,12 @@ def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
     case 1n+p LNimax{x1, y1, o1} LNimax{x2, y2, o2}:
       +pf = p
       U32.is_eq(o1, o2) && ln_eq(pf, x1, x2) && ln_eq(pf, y1, y2)
+    case 1n+p LNmx{xs, y1, r1} LNmx{ys, y2, r2}:
+      +pf = p
+      +px = strip_zero(xs)
+      +py = strip_zero(ys)
+      atoms_sub(px, py) && atoms_sub(py, px) && ln_eq(pf, y1, y2)
+        && ln_eq(pf, r1, r2)
     case 1n+p _ _:
       False{}
 
@@ -243,6 +291,27 @@ def ln_max(+a: LN, +b: LN) -> LN:
       LNun{}
     case LNmax{xs} LNmax{ys}:
       LNmax{List.append(&2, Atom, xs, ys)}
+    case LNmax{xs} LNmx{ys, y, r}:
+      LNmx{List.append(&2, Atom, xs, ys), y, r}
+    case LNmx{xs, y, r} LNmax{ys}:
+      LNmx{List.append(&2, Atom, xs, ys), y, r}
+    case LNmx{xs, y1, r1} LNmx{ys, y2, r2}:
+      LNmx{List.append(&2, Atom, xs, ys), y1,
+           ln_max(r1, LNmx{Nil{}, y2, r2})}
+    case LNmx{xs, y1, r1} LNimax{p, q, o}:
+      +py1 : LN = y1
+      pick_ln(ln_eq(32n, py1, b), a, LNmx{xs, py1, ln_max(r1, b)})
+    case LNimax{p, q, o} LNmx{ys, y2, r2}:
+      +py2 : LN = y2
+      pick_ln(ln_eq(32n, py2, a), b, LNmx{ys, py2, ln_max(a, r2)})
+    case LNmax{xs} LNimax{p, q, o}:
+      +px = xs
+      pick_ln(all_zero(px), b, LNmx{px, b, LNmax{Nil{}}})
+    case LNimax{p, q, o} LNmax{ys}:
+      +py = ys
+      pick_ln(all_zero(py), a, LNmx{py, a, LNmax{Nil{}}})
+    case LNimax{p1, q1, o1} LNimax{p2, q2, o2}:
+      pick_ln(ln_eq(32n, a, b), a, LNmx{Nil{}, a, b})
     case LNmax{xs} _:
       pick_ln(all_zero(xs), b, LNsym{})
     case _ LNmax{ys}:
@@ -330,6 +399,15 @@ def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
       TUnk{}
     case 1n+p LNmax{xs} LNimax{x2, y2, o2}:
       TUnk{}
+    # mixed max: equal atom sets and an equal imax part is YES; anything
+    # else unknown (never NO -- the forms are not canonical)
+    case 1n+p LNmx{xs, y1, r1} LNmx{ys, y2, r2}:
+      +pf = p
+      +px = strip_zero(xs)
+      +py = strip_zero(ys)
+      pick_tri(atoms_sub(px, py) && atoms_sub(py, px)
+               && tri_is_yes(ln_cmp_f(pf, y1, y2))
+               && tri_is_yes(ln_cmp_f(pf, r1, r2)), TYes{}, TUnk{})
     case 1n+p _ _:
       TUnk{}
 
@@ -356,6 +434,9 @@ def ln_is_zero(+a: LN) -> Tri:
     # construction neither -- so: cannot decide.
     case LNimax{x, y, o}:
       pick_tri(U32.is_gt(o, 0), TNo{}, TUnk{})
+    # max with a positive atom is positive; otherwise the imax part decides
+    case LNmx{xs, y, r}:
+      pick_tri(some_positive(xs), TNo{}, TUnk{})
     case _:
       TUnk{}
 
@@ -416,6 +497,11 @@ def ln_subst_f(fuel: Nat, +a: LN, +ps: List<&2, U32>,
       +pf = p
       ln_add_off(o, ln_imax(ln_subst_f(pf, x, ps, qs),
                             ln_subst_f(pf, y, ps, qs)))
+    case 1n+p LNmx{xs, y, r}:
+      +pf = p
+      ln_max(ln_max(ln_subst_go(xs, ps, qs, ln_zero()),
+                    ln_subst_f(pf, y, ps, qs)),
+             ln_subst_f(pf, r, ps, qs))
     case 1n+p LNun{}:
       LNun{}
     case 1n+p LNsym{}:
