@@ -1215,25 +1215,36 @@ def kput_pj(pr: Array<T.Ex> & U32, +hb: U32, +i: U32,
       kput_fin(Array.set(T.Ex, a, i, node), (i + hb : U32), ls)
 
 # write node at i and its lbr at i + hb
-def kput(+hb: U32, a: Array<T.Ex>, +i: U32, +node: T.Ex) -> Array<T.Ex>:
-  match node:
-    case T.EBVar{j}:
+# A write past the usable capacity is DROPPED: index i + hb (its lbr slot)
+# would wrap around the 2*hb array onto the export's own nodes, corrupting
+# every later declaration. Allocation past capacity is still caught (nx >= cap
+# at the declaration's end, or at a KRb rollback), and declines that one
+# declaration; its reads of dropped slots only feed its own declined verdict.
+def kput_g(+ok: Bool, +hb: U32, a: Array<T.Ex>, +i: U32,
+           +node: T.Ex) -> Array<T.Ex>:
+  match ok node:
+    case False{} _:
+      a
+    case True{} T.EBVar{j}:
       kput_fin(Array.set(T.Ex, a, i, T.EBVar{j}), (i + hb : U32),
                (j + 1 : U32))
-    case T.EApp{f, g}:
+    case True{} T.EApp{f, g}:
       kput_ap(klb_get(a, f, hb), g, hb, i, T.EApp{f, g})
-    case T.ELam{n, t, b, bi}:
+    case True{} T.ELam{n, t, b, bi}:
       kput_bd(klb_get(a, t, hb), b, hb, i, T.ELam{n, t, b, bi})
-    case T.EAll{n, t, b, bi}:
+    case True{} T.EAll{n, t, b, bi}:
       kput_bd(klb_get(a, t, hb), b, hb, i, T.EAll{n, t, b, bi})
-    case T.ELet{n, t, v, b}:
+    case True{} T.ELet{n, t, v, b}:
       kput_lt(klb_get(a, t, hb), v, b, hb, i, T.ELet{n, t, v, b})
-    case T.EProj{tn, j, sx}:
+    case True{} T.EProj{tn, j, sx}:
       kput_pj(klb_get(a, sx, hb), hb, i, T.EProj{tn, j, sx})
-    case T.EBad{}:
+    case True{} T.EBad{}:
       kput_fin(Array.set(T.Ex, a, i, T.EBad{}), (i + hb : U32), 4294967295)
-    case x:
+    case True{} x:
       kput_fin(Array.set(T.Ex, a, i, x), (i + hb : U32), 0)
+
+def kput(+hb: U32, a: Array<T.Ex>, +i: U32, +node: T.Ex) -> Array<T.Ex>:
+  kput_g(U32.is_lt(i, hb), hb, a, i, node)
 
 # fetch a subterm a lift/instantiate walk is about to enter -- or, when its
 # recorded lbr is at most the walk's cutoff, answer MKeep (keep it as is).
@@ -1970,7 +1981,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +hyh : U32 = khgt(q2, nb)
       +samehd : Bool = Bool.not(U32.is_eq(na, 4294967295))
                        && U32.is_eq(na, nb)
-                       && L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt))
+                       && I.eq_u32s(kcus(ha), kcus(hb))
                        && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       km(p, KCon{LZ6{samehd, sa, sb,
                      cx && (Bool.not(cy) || U32.is_ge(hxh, hyh)),
@@ -2667,10 +2678,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WDelGo{can, delta, vi, ps, qs, e, args, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # ---- definitional equality ----
+    # depth exhausted: the same node is still trivially equal
     case 1n+p KCon{DSub{True{}, same, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmtri(fs, L.TUnk{}))
+         kmtri(fs, L.pick_tri(same, L.TYes{}, L.TUnk{})))
     case 1n+p KCon{DSub{False{}, True{}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -2954,7 +2966,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # level lists is a conservative sufficient test
       +samehd : Bool = Bool.not(U32.is_eq(nmx, 4294967295))
                        && U32.is_eq(nmx, nmy)
-                       && L.tri_is_yes(I.eq_lvls(kcus(hx2), kcus(hy2), lnt))
+                       && I.eq_u32s(kcus(hx2), kcus(hy2))
                        && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
       +f12 : U32 = f1
       +f22 : U32 = f2
@@ -4085,7 +4097,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                           ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +w12 : U32 = w1
       +w22 : U32 = w2
-      km(p, KCon{DSub{False{}, U32.is_eq(w12, w22), w12, w22, ctx, 24},
+      km(p, KCon{DSub{False{}, U32.is_eq(w12, w22), w12, w22, ctx, 4096},
                  KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}

@@ -142,9 +142,10 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
     case Con{head, tail} Tuple{Tuple{ex, nx}, v}:
       +h = head
       +nx2 : U32 = nx
-      # an overflow aliases slots below it: every LATER declaration runs on
-      # a corrupted store, so the poison is sticky
-      +p2 : Bool = poison || U32.is_ge(nx2, cap)
+      # an overflow declines its own declaration; km's kput drops writes
+      # past capacity, so nothing it allocated aliases the export's slots
+      # and later declarations run on an intact store
+      +p2 : Bool = U32.is_ge(nx2, cap)
       fck_all(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, cap, p2,
               C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cap, v)),
