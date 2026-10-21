@@ -188,6 +188,36 @@ def ppx(fuel: Nat, +ex: R.Tr<T.Ex>, +i: U32) -> String:
     case 1n+p:
       ppn(p, ex, U.ex_at(ex, i))
 
+def pat(xs: List<&2, L.Atom>) -> String:
+  match xs:
+    case Nil{}:
+      ""
+    case Con{head, tail}:
+      match head:
+        case L.At{b, o}:
+          " b" ++ U32.show(b) ++ "+" ++ U32.show(o) ++ pat(tail)
+
+def pln(fuel: Nat, +a: L.LN) -> String:
+  match fuel a:
+    case 0n _:
+      "~"
+    case 1n+p L.LNun{}:
+      "UN"
+    case 1n+p L.LNsym{}:
+      "SYM"
+    case 1n+p L.LNmax{xs}:
+      "max[" ++ pat(xs) ++ " ]"
+    case 1n+p L.LNimax{x, y, o}:
+      +pf = p
+      "imax(" ++ pln(pf, x) ++ ", " ++ pln(pf, y) ++ ")+" ++ U32.show(o)
+
+def sortlv(+st: I.IS, +x: T.Ex) -> String:
+  match x:
+    case T.ESort{l}:
+      " {" ++ pln(8n, R.get(L.LN, 32n, I.is_lnt(st), l, L.LNun{})) ++ "}"
+    case _:
+      ""
+
 # one line for a comparison of two (already whnf-able) indices
 def dline(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +a: U32, +b: U32,
@@ -195,7 +225,9 @@ def dline(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +d = I.defeq(64n, U32.is_eq(a, b), st, mt, nt, lp, vt, ctx,
                U.ex_at(I.is_ex(st), a), U.ex_at(I.is_ex(st), b))
   ind ++ tristr(I.dr_r(d)) ++ "  " ++ ppx(30n, I.is_ex(st), a)
-    ++ "\n" ++ ind ++ "  =?= " ++ ppx(30n, I.is_ex(st), b) ++ "\n"
+    ++ sortlv(st, U.ex_at(I.is_ex(st), a))
+    ++ "\n" ++ ind ++ "  =?= " ++ ppx(30n, I.is_ex(st), b)
+    ++ sortlv(st, U.ex_at(I.is_ex(st), b)) ++ "\n"
 
 # descend: a pair of whnf'd NODES (with their indices) under ctx
 def dtr(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,

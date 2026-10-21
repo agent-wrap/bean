@@ -169,6 +169,24 @@ def ln_add_off(+k: U32, +a: LN) -> LN:
     case LNsym{}:
       LNsym{}
 
+def atom_small(+x: Atom) -> Bool:
+  match x:
+    case At{b, o}:
+      U32.is_eq(b, 0) && U32.is_le(o, 1)
+
+# every atom of xs is bounded by ys whenever ys >= 1: a constant atom of
+# offset <= 1, or one some atom of ys covers. Then `imax xs ys = ys`:
+# ys = 0 gives 0 on both sides; ys >= 1 gives max xs ys = ys.
+# Subsumes `imax 0 b = b` and `imax b b = b`; also `imax 1 u = u`, which a
+# casesOn motive `List a -> Sort u` needs (inferred imax(1,u) vs declared u).
+def imax_absorbed(xs: List<&2, Atom>, +ys: List<&2, Atom>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      +h = head
+      (atom_small(h) || any_covers(h, ys)) && imax_absorbed(tail, ys)
+
 # `imax a b` is zero when b is, and `max a b` when b is at least one. When b
 # is a bare parameter it could be either, and no max-of-atoms form expresses
 # that -- so it is kept as a structural `LNimax`, which is still comparable
@@ -188,7 +206,10 @@ def imax_case(+isz: Bool, +pos: Bool, xs: List<&2, Atom>,
       +same = atoms_sub(px, py) && atoms_sub(py, px)
       +l : LN = LNmax{px}
       +r : LN = LNmax{py}
-      pick_ln(same, l, LNimax{l, r, 0})
+      # imax a b = b when a is absorbed by b (see imax_absorbed). Without it
+      # `imax (imax 0 u) u` -- the universe of `(h : a = b) -> P -> P`, every
+      # noConfusionType -- stayed structural and never matched `u`.
+      pick_ln(same || imax_absorbed(px, py), r, LNimax{l, r, 0})
 
 # Structural equality, used by the `imax` smart constructor below. Separate
 # from `ln_cmp` because that one is semantic for the max-of-atoms case (set
