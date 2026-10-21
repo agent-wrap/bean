@@ -310,6 +310,16 @@ type KF is Data:
   DPjK{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DPjK2{yes: Bool, xn: T.Ex, yn: T.Ex, xi: U32, yi: U32,
         ctx: List<&2, U32>, fu: U32}
+  # second attempt: compare the two structures WHNF'd (defeq's precondition)
+  # -- a stuck projection keeps its ORIGINAL structure, so one side can be
+  # `(Nat.brecOn.go m n F).1` and the other `(Nat.rec .. n).1`; they agree
+  # only after unfolding. Still YES-only; otherwise the catch-all.
+  DPjW1{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DPjW2{w1: U32, xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>,
+        fu: U32}
+  DPjW3{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DPjW4{yes: Bool, xn: T.Ex, yn: T.Ex, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
   # Const/Const: shared type then its universe
   DCn2{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
        tb: U32, ctx: List<&2, U32>}
@@ -2650,6 +2660,36 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DPjK2{False{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +xn2 : T.Ex = xn
+      km(p, KCon{DWhd{kproj_s(xn2)}, KCon{DPjW1{xn2, yn, xi, yi, ctx, fu},
+                                          k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DPjW1{xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +yn2 : T.Ex = yn
+      +w1 : U32 = ri
+      km(p, KCon{DWhd{kproj_s(yn2)}, KCon{DPjW2{w1, xn, yn2, xi, yi, ctx,
+                                                fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DPjW2{w1, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +w2 : U32 = ri
+      +w1b : U32 = w1
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{U32.is_eq((fu - 1 : U32), 4294967295),
+                      U32.is_eq(w1b, w2), w1b, w2, c2, (fu - 1 : U32)},
+                 KCon{DPjW3{xn, yn, xi, yi, c2, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DPjW3{xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{DPjW4{L.tri_is_yes(t), xn, yn, xi, yi, ctx, fu}, k}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DPjW4{True{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DPjW4{False{}, xn, yn, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       km(p, KCon{DC1{xn, yn, x2, yi, ctx, fu}, k}, lnt, nlx, mt, lp,

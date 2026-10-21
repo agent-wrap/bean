@@ -135,6 +135,221 @@ def whole(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   "whole type infer=" ++ okstr(I.ir_ok(r)) ++ " ty="
     ++ tagof(U.ex_at(I.is_ex(I.ir_st(r)), I.ir_ty(r))) ++ "\n"
 
+def tristr(+t: L.Tri) -> String:
+  match t:
+    case L.TYes{}:
+      "YES"
+    case L.TNo{}:
+      "NO"
+    case L.TUnk{}:
+      "UNK"
+
+def digits(ds: List<&2, U32>) -> String:
+  match ds:
+    case Nil{}:
+      ""
+    case Con{head, tail}:
+      U32.show(head) ++ digits(tail)
+
+def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> String:
+  match fuel x:
+    case 0n _:
+      "~"
+    case 1n+p T.EBVar{i}:
+      "#" ++ U32.show(i)
+    case 1n+p T.ESort{l}:
+      "Sort"
+    case 1n+p T.EConst{n, us}:
+      "@" ++ U32.show(n)
+    case 1n+p T.EApp{f, a}:
+      +pf = p
+      "(" ++ ppn(pf, ex, U.ex_at(ex, f)) ++ " " ++ ppn(pf, ex, U.ex_at(ex, a)) ++ ")"
+    case 1n+p T.ELam{n, t, b, bi}:
+      +pf = p
+      "(fun:" ++ ppn(pf, ex, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.EAll{n, t, b, bi}:
+      +pf = p
+      "(Pi:" ++ ppn(pf, ex, U.ex_at(ex, t)) ++ ". " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.ELet{n, t, v, b}:
+      +pf = p
+      "(let " ++ ppn(pf, ex, U.ex_at(ex, v)) ++ "; " ++ ppn(pf, ex, U.ex_at(ex, b)) ++ ")"
+    case 1n+p T.EProj{tn, i, s}:
+      ppn(p, ex, U.ex_at(ex, s)) ++ ".pi" ++ U32.show(i)
+    case 1n+p T.ENat{d}:
+      digits(d)
+    case 1n+p _:
+      "?"
+
+# term printer over the trie store; names as @index (decoded by python)
+def ppx(fuel: Nat, +ex: R.Tr<T.Ex>, +i: U32) -> String:
+  match fuel:
+    case 0n:
+      "~"
+    case 1n+p:
+      ppn(p, ex, U.ex_at(ex, i))
+
+# one line for a comparison of two (already whnf-able) indices
+def dline(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +a: U32, +b: U32,
+          +ctx: List<&2, U32>, +ind: String) -> String:
+  +d = I.defeq(64n, U32.is_eq(a, b), st, mt, nt, lp, vt, ctx,
+               U.ex_at(I.is_ex(st), a), U.ex_at(I.is_ex(st), b))
+  ind ++ tristr(I.dr_r(d)) ++ "  " ++ ppx(30n, I.is_ex(st), a)
+    ++ "\n" ++ ind ++ "  =?= " ++ ppx(30n, I.is_ex(st), b) ++ "\n"
+
+# descend: a pair of whnf'd NODES (with their indices) under ctx
+def dtr(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+        +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +y: T.Ex,
+        +xi: U32, +yi: U32, +ctx: List<&2, U32>, +ind: String) -> String:
+  match fuel x y:
+    case 0n _ _:
+      ""
+    case 1n+p T.EAll{n1, t1, b1, i1} T.EAll{n2, t2, b2, i2}:
+      +pf = p
+      +ta : U32 = t1
+      +bb1 : U32 = b1
+      +bb2 : U32 = b2
+      +tt2 : U32 = t2
+      +wa = I.whd(st, mt, lp, vt, bb1)
+      +wb = I.whd(I.ir_st(wa), mt, lp, vt, bb2)
+      +s3 = I.ir_st(wb)
+      dline(st, mt, nt, lp, vt, ta, tt2, ctx, ind ++ "dom ")
+        ++ dline(s3, mt, nt, lp, vt, I.ir_ty(wa), I.ir_ty(wb), Con{ta, ctx},
+                 ind ++ "body ")
+        ++ dtr(pf, s3, mt, nt, lp, vt, U.ex_at(I.is_ex(s3), I.ir_ty(wa)),
+               U.ex_at(I.is_ex(s3), I.ir_ty(wb)), I.ir_ty(wa), I.ir_ty(wb),
+               Con{ta, ctx}, ind ++ "  ")
+    case 1n+p T.EApp{f1, a1} T.EApp{f2, a2}:
+      +pf = p
+      +ff1 : U32 = f1
+      +ff2 : U32 = f2
+      +aa1 : U32 = a1
+      +aa2 : U32 = a2
+      +wa = I.whd(st, mt, lp, vt, aa1)
+      +wb = I.whd(I.ir_st(wa), mt, lp, vt, aa2)
+      +s3 = I.ir_st(wb)
+      dline(s3, mt, nt, lp, vt, I.ir_ty(wa), I.ir_ty(wb), ctx, ind ++ "arg ")
+        ++ dtr(pf, s3, mt, nt, lp, vt, U.ex_at(I.is_ex(s3), I.ir_ty(wa)),
+               U.ex_at(I.is_ex(s3), I.ir_ty(wb)), I.ir_ty(wa), I.ir_ty(wb),
+               ctx, ind ++ "  a ")
+        ++ dtr(pf, s3, mt, nt, lp, vt, U.ex_at(I.is_ex(s3), ff1),
+               U.ex_at(I.is_ex(s3), ff2), ff1, ff2, ctx, ind ++ "  f ")
+    case 1n+p _ _:
+      ""
+
+# for an application node f a: infer f, whnf to a Pi, infer a, compare a's
+# type with the domain the way infer's App rule does
+def argchk(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +f: U32, +a: U32,
+           +ctx: List<&2, U32>) -> String:
+  +rf = I.infer(8192n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), f), f, ctx)
+  +wf = I.whd(I.ir_st(rf), mt, lp, vt, I.ir_ty(rf))
+  +s1 = I.ir_st(wf)
+  +fty : T.Ex = U.ex_at(I.is_ex(s1), I.ir_ty(wf))
+  +dom : U32 = I.all_dom(fty)
+  +ra = I.infer(8192n, s1, mt, nt, lp, vt, U.ex_at(I.is_ex(s1), a), a, ctx)
+  +w1 = I.whd(I.ir_st(ra), mt, lp, vt, I.ir_ty(ra))
+  +w2 = I.whd(I.ir_st(w1), mt, lp, vt, dom)
+  +s3 = I.ir_st(w2)
+  +d = I.defeq(64n, U32.is_eq(I.ir_ty(w1), I.ir_ty(w2)), s3, mt, nt, lp, vt,
+               ctx, U.ex_at(I.is_ex(s3), I.ir_ty(w1)),
+               U.ex_at(I.is_ex(s3), I.ir_ty(w2)))
+  +s4 = I.dr_st(d)
+  "    ARGCHECK defeq=" ++ tristr(I.dr_r(d)) ++ "\n"
+    ++ dline(s4, mt, nt, lp, vt, I.ir_ty(w1), I.ir_ty(w2), ctx, "      top ")
+    ++ dtr(6n, s4, mt, nt, lp, vt, U.ex_at(I.is_ex(s4), I.ir_ty(w1)),
+           U.ex_at(I.is_ex(s4), I.ir_ty(w2)), I.ir_ty(w1), I.ir_ty(w2), ctx,
+           "      ")
+
+# descend to the innermost node whose inference fails
+def wfail(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+          +ctx: List<&2, U32>, +ind: String) -> String:
+  match fuel x:
+    case 0n _:
+      ""
+    case 1n+p T.ELam{n, t, b, bi}:
+      +t2 : U32 = t
+      +b2 : U32 = b
+      pline(st, mt, nt, lp, vt, e, ctx, ind)
+        ++ pline(st, mt, nt, lp, vt, t2, ctx, ind ++ "dom ")
+        ++ wfail(p, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), b2), b2,
+                 Con{t2, ctx}, ind ++ "  ")
+    case 1n+p T.EAll{n, t, b, bi}:
+      +pf = p
+      +t2 : U32 = t
+      +b2 : U32 = b
+      pline(st, mt, nt, lp, vt, e, ctx, ind)
+        ++ wfail(pf, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), t2), t2, ctx,
+                 ind ++ "dom ")
+        ++ wfail(pf, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), b2), b2,
+                 Con{t2, ctx}, ind ++ "  ")
+    case 1n+p T.EApp{f, a}:
+      +pf = p
+      +f2 : U32 = f
+      +a2 : U32 = a
+      pline(st, mt, nt, lp, vt, e, ctx, ind)
+        ++ argchk(st, mt, nt, lp, vt, f2, a2, ctx)
+        ++ wfail(pf, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), a2), a2, ctx,
+                 ind ++ "arg ")
+        ++ wfail(pf, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), f2), f2, ctx,
+                 ind ++ "fn ")
+    case 1n+p _:
+      pline(st, mt, nt, lp, vt, e, ctx, ind)
+
+# down the application spine: line per node and its argument check
+def achain(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+           +ctx: List<&2, U32>) -> String:
+  match fuel x:
+    case 0n _:
+      ""
+    case 1n+p T.EApp{f, a}:
+      +f2 : U32 = f
+      +a2 : U32 = a
+      pline(st, mt, nt, lp, vt, e, ctx, "  ")
+        ++ argchk(st, mt, nt, lp, vt, f2, a2, ctx)
+        ++ achain(p, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), f2), f2, ctx)
+    case 1n+p _:
+      pline(st, mt, nt, lp, vt, e, ctx, "  ")
+
+def vbody(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +e: U32, +tye: U32,
+          +ctx: List<&2, U32>) -> String:
+  +r = I.infer(8192n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), e), e, ctx)
+  +w1 = I.whd(I.ir_st(r), mt, lp, vt, I.ir_ty(r))
+  +w2 = I.whd(I.ir_st(w1), mt, lp, vt, tye)
+  +s3 = I.ir_st(w2)
+  +d = I.defeq(64n, U32.is_eq(I.ir_ty(w1), I.ir_ty(w2)), s3, mt, nt, lp, vt,
+               ctx, U.ex_at(I.is_ex(s3), I.ir_ty(w1)),
+               U.ex_at(I.is_ex(s3), I.ir_ty(w2)))
+  "body #" ++ U32.show(e) ++ " infer=" ++ okstr(I.ir_ok(r)) ++ " inferred="
+    ++ tagof(U.ex_at(I.is_ex(s3), I.ir_ty(w1))) ++ " expected="
+    ++ tagof(U.ex_at(I.is_ex(s3), I.ir_ty(w2))) ++ " defeq="
+    ++ tristr(I.dr_r(d)) ++ "\n" ++ achain(10n, st, mt, nt, lp, vt,
+                                        U.ex_at(I.is_ex(st), e), e, ctx)
+
+# peel value lambdas against the declared Pi (tn = the whnf'd type node, ti
+# its index); the type's body is whnf'd before the next step
+def vpeel(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex, +e: U32,
+          +tn: T.Ex, +ti: U32, +ctx: List<&2, U32>) -> String:
+  match fuel x tn:
+    case 0n _ _:
+      "fuel\n"
+    case 1n+p T.ELam{n, t, b, bi} T.EAll{n2, t2, b2, bi2}:
+      +ta : U32 = t
+      +bb : U32 = b
+      +tb : U32 = b2
+      +w = I.whd(st, mt, lp, vt, tb)
+      +s2 = I.ir_st(w)
+      vpeel(p, s2, mt, nt, lp, vt, U.ex_at(I.is_ex(s2), bb), bb,
+            U.ex_at(I.is_ex(s2), I.ir_ty(w)), I.ir_ty(w), Con{ta, ctx})
+    case 1n+p _ _:
+      vbody(st, mt, nt, lp, vt, e, ti, ctx)
+        ++ "-- failure walk:\n"
+        ++ wfail(8n, st, mt, nt, lp, vt, x, e, ctx, "  ")
+
 def report(+ok: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
   match ok:
@@ -161,6 +376,39 @@ def scan(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
         ++ scan(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
                 B.add_vt(h, vt))
 
+def vsel(+hit: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+         +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +d: K.Dcl) -> String:
+  match hit:
+    case False{}:
+      ""
+    case True{}:
+      +w = I.whd(st, mt, lp, vt, K.dcl_type(d))
+      +s2 = I.ir_st(w)
+      "== value probe, decl " ++ U32.show(K.dcl_name(d)) ++ "\n"
+        ++ vpeel(64n, s2, mt, nt, lp, vt,
+                 U.ex_at(I.is_ex(s2), K.dcl_value(d)), K.dcl_value(d),
+                 U.ex_at(I.is_ex(s2), I.ir_ty(w)), I.ir_ty(w), Nil{})
+
+def lastd(ds: List<&2, K.Dcl>, +acc: K.Dcl) -> K.Dcl:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      lastd(tail, head)
+
+def vreport(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
+            +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+            +want: U32) -> String:
+  match ds:
+    case Nil{}:
+      ""
+    case Con{head, tail}:
+      +h = head
+      +hit : Bool = U32.is_eq(K.dcl_name(h), want)
+      vsel(hit, st, mt, nt, lp, vt, h)
+        ++ vreport(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
+                   B.add_vt(h, vt), want)
+
 def go(+recs: List<&2, D.Rec>) -> String:
   +ds = K.decls_of(recs, Nil{})
   +nex = U32.to_nat((K.max_ex_ix(recs, 0) + 1 : U32))
@@ -173,8 +421,10 @@ def go(+recs: List<&2, D.Rec>) -> String:
                     K.find_name(recs,
                                 [83, 116, 114, 105, 110, 103], 4294967295),
                     K.build_wk2(recs, R.TNil{})}
-  scan(ds, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{}, R.TNil{},
-       R.TNil{})
+  +mt = C.build_meta(ds, ex, ln, R.TNil{})
+  scan(ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{}) ++ "\n"
+    ++ vreport(ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{},
+               K.dcl_name(lastd(ds, K.DNone{})))
 
 def main() -> IO(Unit):
   do IO<Unit>:
