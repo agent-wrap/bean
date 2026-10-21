@@ -406,6 +406,7 @@ def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +n = find_name(rs, [78, 97, 116], 4294967295)
   +b = find_name(rs, [66, 111, 111, 108], 4294967295)
   R2.set(U32, 32n,
+  R2.set(U32, 32n,
     R2.set(U32, 32n,
       R2.set(U32, 32n,
         R2.set(U32, 32n,
@@ -415,7 +416,11 @@ def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
         7, find_under(rs, n, [98, 108, 101], 4294967295), 4294967295),
       8, find_under(rs, b, [116, 114, 117, 101], 4294967295), 4294967295),
     9, find_under(rs, b, [102, 97, 108, 115, 101], 4294967295),
-    4294967295)
+    4294967295),
+  # key 10: `String`, so the flat machine can type a string literal
+  # (it threads qtt but, unlike the trie engine's IS, has no strn field)
+  10, find_name(rs, [83, 116, 114, 105, 110, 103], 4294967295), 4294967295)
+
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:

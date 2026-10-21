@@ -336,6 +336,13 @@ type KF is Data:
   DIr4{t: L.Tri, yi: U32, ctx: List<&2, U32>}
   DIr5{t: L.Tri, rx: U32, ctx: List<&2, U32>}
   DIr6{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  # compare the two TYPES with full defeq (whnf'd), not structurally:
+  # `Nat.le (succ n) (succ n)` and `n < n + 1` are the same proposition only
+  # after unfolding LT.lt and +. The trie engine cannot do this (infer and
+  # defeq may not recurse into each other); frames can.
+  DIr5x{ok: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  DIr5y{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  DIr5z{t: L.Tri, rx: U32, ry: U32, wx: U32, ctx: List<&2, U32>}
   DIr7{t: L.Tri, both: Bool, sameq: Bool}
   # BVar/BVar with type analysis (proof irrelevance, unit eta, denial)
   DBv1{a: U32, b: U32, tb: U32, taok: Bool, tbok: Bool,
@@ -452,6 +459,7 @@ type KF is Data:
         fu: U32}
   IAl5b{ka: T.Ex, ra: U32, raok: Bool, rb: U32, rbok: Bool,
         ctx: List<&2, U32>, fu: U32}
+  IStrGo{bad: Bool, sn: U32}
   INatGo{bad: Bool}
   ICnGo{bad: Bool, ti: U32, ps: List<&2, U32>, qs: List<&2, L.LN>}
   # wrap the incoming result register as an inference result
@@ -3159,9 +3167,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmir(fs, 4294967295, False{}))
     case 1n+p KCon{INatGo{False{}}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kalloc(fs, T.EConst{natn, Nil{}}, hcb))
+    # a string literal has type `String` (qtt key 10), exactly as infer.bend;
+    # this was a stub that always failed, declining every declaration with a
+    # string literal (String.instInhabited, panic messages, ...)
     case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.EStr{d}}}, ri}:
+      +sn : U32 = R.get(U32, 32n, qtt, 10, 4294967295)
+      km(p, KCon{IStrGo{U32.is_eq(sn, 4294967295), sn}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{IStrGo{True{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, 4294967295, False{}))
+    case 1n+p KCon{IStrGo{False{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kalloc(fs, T.EConst{sn, Nil{}}, hcb))
     # -- Const --
     case 1n+p KCon{IEv{xi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EConst{n, us}}}, ri}:
@@ -3418,6 +3436,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      || (L.tri_is_no(t2)
                          && (I.no_value_hd(hx2) || I.is_bvarx(hx2))
                          && (I.no_value_hd(hy2) || I.is_bvarx(hy2)))
+                     # undecided: proof irrelevance may still settle it
+                     # (a proof term vs a hypothesis of the same Prop)
+                     || (Bool.not(L.tri_is_yes(t2)) && Bool.not(L.tri_is_no(t2)))
       km(p, KCon{DIrGo{gate, t2, xi, yi, ctx}, k}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DIrGo{False{}, t, xi, yi, ctx}, k}
@@ -3437,9 +3458,34 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DIr5{t, rx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
       +r2 : U32 = ri
+      km(p, KCon{DIr5x{Bool.not(U32.is_eq(rx2, 4294967295))
+                       && Bool.not(U32.is_eq(r2, 4294967295)),
+                       t, rx2, r2, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DIr5x{False{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
+      +r2 : U32 = ry
       km(p, KCon{DIr6{t, rx2, r2, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb,
          keq_lists_tin(fs, Con{rx2, Nil{}}, Con{r2, Nil{}}, lnt))
+    case 1n+p KCon{DIr5x{True{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
+      km(p, KCon{DWhd{rx2}, KCon{DIr5y{t, rx2, ry, ctx}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIr5y{t, rx, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      +ry2 : U32 = ry
+      km(p, KCon{DWhd{ry2}, KCon{DIr5z{t, rx, ry2, wx, ctx}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DIr5z{t, rx, ry, wx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{False{}, U32.is_eq(wx2, wy), wx2, wy, c2, 4096},
+                 KCon{DIr6{t, rx, ry, c2}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DIr6{t, rx, ry, ctx}, k} Tuple{Tuple{fs, MTri{sq}}, ri}:
       +rx2 : U32 = rx
       km(p, KCon{kslev(rx2, ctx, 2000000),
@@ -3879,9 +3925,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmir(fs, 4294967295, False{}))
     case 1n+p KCon{INatGo{False{}}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kalloc(fs, T.EConst{natn, Nil{}}, hcb))
+    # a string literal has type `String` (qtt key 10), exactly as infer.bend;
+    # this was a stub that always failed, declining every declaration with a
+    # string literal (String.instInhabited, panic messages, ...)
     case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.EStr{d}}}, ri}:
+      +sn : U32 = R.get(U32, 32n, qtt, 10, 4294967295)
+      km(p, KCon{IStrGo{U32.is_eq(sn, 4294967295), sn}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{IStrGo{True{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, 4294967295, False{}))
+    case 1n+p KCon{IStrGo{False{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kalloc(fs, T.EConst{sn, Nil{}}, hcb))
     # -- Const --
     case 1n+p KCon{IEv{xi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EConst{n, us}}}, ri}:
@@ -4138,6 +4194,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      || (L.tri_is_no(t2)
                          && (I.no_value_hd(hx2) || I.is_bvarx(hx2))
                          && (I.no_value_hd(hy2) || I.is_bvarx(hy2)))
+                     # undecided: proof irrelevance may still settle it
+                     # (a proof term vs a hypothesis of the same Prop)
+                     || (Bool.not(L.tri_is_yes(t2)) && Bool.not(L.tri_is_no(t2)))
       km(p, KCon{DIrGo{gate, t2, xi, yi, ctx}, k}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DIrGo{False{}, t, xi, yi, ctx}, k}
@@ -4157,9 +4216,34 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DIr5{t, rx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
       +r2 : U32 = ri
+      km(p, KCon{DIr5x{Bool.not(U32.is_eq(rx2, 4294967295))
+                       && Bool.not(U32.is_eq(r2, 4294967295)),
+                       t, rx2, r2, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DIr5x{False{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
+      +r2 : U32 = ry
       km(p, KCon{DIr6{t, rx2, r2, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb,
          keq_lists_tin(fs, Con{rx2, Nil{}}, Con{r2, Nil{}}, lnt))
+    case 1n+p KCon{DIr5x{True{}, t, rx, ry, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rx2 : U32 = rx
+      km(p, KCon{DWhd{rx2}, KCon{DIr5y{t, rx2, ry, ctx}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIr5y{t, rx, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      +ry2 : U32 = ry
+      km(p, KCon{DWhd{ry2}, KCon{DIr5z{t, rx, ry2, wx, ctx}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DIr5z{t, rx, ry, wx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{False{}, U32.is_eq(wx2, wy), wx2, wy, c2, 4096},
+                 KCon{DIr6{t, rx, ry, c2}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DIr6{t, rx, ry, ctx}, k} Tuple{Tuple{fs, MTri{sq}}, ri}:
       +rx2 : U32 = rx
       km(p, KCon{kslev(rx2, ctx, 2000000),
