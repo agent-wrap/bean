@@ -349,6 +349,10 @@ type KF is Data:
        tb: U32, samety: Bool}
   # dq_or_irrel: proof-irrelevance fallback on a non-yes verdict
   DIr1{t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
+  # an eta comparison (lambda against a non-lambda) that did not answer YES:
+  # proof irrelevance may still settle it -- Lean tries it on every pair
+  DEtX{xi: U32, yi: U32, ctx: List<&2, U32>}
+  DEtX2{yes: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
   DIr2{t: L.Tri, hx: T.Ex, yi: U32, xi: U32, ctx: List<&2, U32>}
   DIrGo{gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
   DIr4{t: L.Tri, yi: U32, ctx: List<&2, U32>}
@@ -3233,8 +3237,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DEy{T.ELam{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = yi
+      +c2 : List<&2, U32> = ctx
       km(p, KCon{kev(WP{0, 0, 1, 0, Nil{}, Nil{}, 2000000}, y2),
-                 KCon{DEtL1{t1, b1, ctx, fu}, k}},
+                 KCon{DEtL1{t1, b1, c2, fu}, KCon{DEtX{xi, y2, c2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, y2, ri))
     case 1n+p KCon{DEtL1{t1, b1, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DEtL2{ri, t1, b1, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
@@ -3265,8 +3270,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DEy{xn, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.ELam{n2, t2, b2, i2}}}, ri}:
       +x2 : U32 = xi
+      +c2 : List<&2, U32> = ctx
       km(p, KCon{kev(WP{0, 0, 1, 0, Nil{}, Nil{}, 2000000}, x2),
-                 KCon{DEtR1{t2, b2, ctx, fu}, k}},
+                 KCon{DEtR1{t2, b2, c2, fu}, KCon{DEtX{x2, yi, c2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, ri))
     case 1n+p KCon{DEtR1{t2, b2, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DEtR2{ri, t2, b2, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
@@ -4233,6 +4239,21 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, 4294967295, False{}))
     # ---- dq_or_irrel: the proof-irrelevance fallback ----
+    case 1n+p KCon{DEtX{xi, yi, ctx}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      km(p, KCon{DEtX2{L.tri_is_yes(t2), t2, xi, yi, ctx}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DEtX2{True{}, t, xi, yi, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    # inside a rollback region: the attempt answers a Tri, so everything it
+    # allocates (inferred types, whnfs) and memoises is released after
+    case 1n+p KCon{DEtX2{False{}, t, xi, yi, ctx}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +x2 : U32 = xi
+      +n2 : U32 = nx
+      km(p, KCon{DIr1{t, x2, yi, ctx}, KCon{KRb{n2, wm}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin((ex, n2), x2, 0))
     case 1n+p KCon{DIr1{t, xi, yi, ctx}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +y2 : U32 = yi
