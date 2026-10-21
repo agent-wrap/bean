@@ -188,7 +188,7 @@ def loop_lift(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
     case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +r : U.SR = U.lift(256n, ext, nex, U.ex_at(ext, e), e, 0, 1)
       loop_lift(p, (e + 1 : U32), ext, tln, nex, (acc + bad : U32),
-                drive1(M.klift(100000000n, fs, flnt, fnlx, e, 0, 1, 256),
+                drive1(M.klift(100000000n, fs, flnt, fnlx, e, 0, 1, 256, nex),
                        U.sr_t(r), tln, U.sr_i(r)))
 
 def loop_inst(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
@@ -200,7 +200,7 @@ def loop_inst(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
     case 1n+p Tuple{Tuple{fs, bad}, Tuple{Tuple{flnt, fnlx}, fwm}}:
       +r : U.SR = U.inst(256n, ext, nex, U.ex_at(ext, e), e, 0, 0)
       loop_inst(p, (e + 1 : U32), ext, tln, nex, (acc + bad : U32),
-                drive1(M.kinst(100000000n, fs, flnt, fnlx, e, 0, 0, 256),
+                drive1(M.kinst(100000000n, fs, flnt, fnlx, e, 0, 0, 256, nex),
                        U.sr_t(r), tln, U.sr_i(r)))
 
 # the trie-side lsubst needs a full IS; only ex/nx/lnt/nlx matter to it
@@ -232,7 +232,7 @@ def loop_ls(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                      (e - 1 : U32), fb),
               drive1(M.klsubst(100000000n, fs, flnt, fnlx, e, ls_ps(),
-                               ls_qs(), 256),
+                               ls_qs(), 256, nex),
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
@@ -257,7 +257,7 @@ def loop_wh(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
               S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                      (e - 1 : U32), fb),
               drive1(M.kwhnf(100000000n, fs, flnt, fnlx, mt, lp, vt, qt,
-                             natn, fwm, ntt, e, True{}, 256),
+                             natn, fwm, ntt, e, True{}, 256, nex),
                      I.is_ex(I.ir_st(r)), I.is_lnt(I.ir_st(r)),
                      I.ir_ty(r)))
 
@@ -270,15 +270,16 @@ def fsl2(kfs: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
 
 def loop_sl2(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
              +ntt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +acc: U32,
-             pr: (Array<T.Ex> & U32) & U32) -> U32:
+             +nex: U32, pr: (Array<T.Ex> & U32) & U32) -> U32:
   match n pr:
     case 0n Tuple{fs, bad}:
       (acc + bad : U32)
     case 1n+p Tuple{fs, bad}:
       loop_sl2(p, (e + 1 : U32), ext, tln, ntt, lp, (acc + bad : U32),
+               nex,
                fsl2(M.ksl_test(100000000n, fs, tln, 0, lp, ntt, e, Nil{},
                                I.sl(256n, ext, tln, ntt, lp,
-                                    U.ex_at(ext, e), Nil{})),
+                                    U.ex_at(ext, e), Nil{}), nex),
                     0))
 
 # --- defeq: the machine against the REAL I.defeq ----------------------------
@@ -315,7 +316,7 @@ def loop_dq(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                      (e - 1 : U32), fb),
               dq_fold(M.kdefeq(100000000n, fs, tln, nlv, mt, lp, vt, qt,
                                natn, R.TNil{}, ntt, e, y, Nil{}, False{},
-                               256),
+                               256, nex),
                       tri_u32(I.dr_r(ld))))
 
 # --- infer: the machine against the REAL I.infer ------------------------------
@@ -383,15 +384,17 @@ def loop_inf(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
                S.pick(U32.is_eq(fb, 4294967295) && U32.is_gt(b2, 0),
                       (e - 1 : U32), fb),
                inf_fold(M.kinfer(100000000n, fs, tln, nlv, mt, lp, vt, qt,
-                                 natn, R.TNil{}, ntt, e, Nil{}, 256),
+                                 natn, R.TNil{}, ntt, e, Nil{}, 256, nex),
                         I.ir_ty(r), I.ir_ok(r), I.is_ex(I.ir_st(r)),
                         I.is_lnt(I.ir_st(r))))
 
 # --- drivers -----------------------------------------------------------------
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
                +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
-  (((F.fb_ex(recs, Array.new(T.Ex, Nat.add(F.fdepth(nex), 12n), T.EBad{})),
-     nex), 0),
+  (((F.fb_ex(recs, Array.new(T.Ex,
+                             Nat.add(F.fdepth((nex + 131072 : U32)), 1n),
+                             T.EBad{})),
+     (nex + 65536 : U32)), 0),
    ((tln, nlv), R.TNil{}))
 
 def fst_flat(r: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>))
@@ -427,7 +430,7 @@ def fsd(+recs: List<&2, D.Rec>) -> String:
              natn, ntt, nex, nlv, 0, 4294967295,
              fresh_flat(recs, nex, tln, nlv))
   ++ " sl bad "
-  ++ U32.show(loop_sl2(U32.to_nat(nex), 0, ext, tln, ntt, lp, 0,
+  ++ U32.show(loop_sl2(U32.to_nat(nex), 0, ext, tln, ntt, lp, 0, nex,
                        (fst_flat(fresh_flat(recs, nex, tln, nlv)), 0)))
   ++ " dq bad "
   ++ loop_dq(U32.to_nat(U32.min(nex, 1200)), 0, ext, tln, mt, ntt, lp, vt,

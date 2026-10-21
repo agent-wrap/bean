@@ -68,10 +68,10 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       ((ex, nx), C.VDecline{})
     case _ Tuple{ex, nx}:
       +pd = d
-      fck_fold(M.fck_typed(1000000000n, (ex, basenx), I.is_lnt(st),
+      fck_fold(M.fck_typed(1000000000n, (ex, nx), I.is_lnt(st),
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
-                           K.dcl_value(pd)),
+                           K.dcl_value(pd), basenx),
                C.self_ref_v(I.is_ex(st), pd))
 
 # each declaration is checked against the environment built from the ones
@@ -111,5 +111,8 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
                  natn, qtt, C.VAccept{},
                  ((F.fb_ex(recs,
-                           Array.new(T.Ex, Nat.add(F.fdepth(nx), 4n),
-                                     T.EBad{})), nx), C.VAccept{})))
+                           Array.new(T.Ex,
+                                     Nat.add(F.fdepth((nx + 131072 : U32)),
+                                             1n),
+                                     T.EBad{})),
+                   (nx + 65536 : U32)), C.VAccept{})))
