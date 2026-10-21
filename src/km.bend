@@ -244,6 +244,36 @@ type KF is Data:
   DAq5{d1: L.Tri, w3: U32, a1: U32, a2: U32, xi: U32, yi: U32,
        ctx: List<&2, U32>, fu: U32}
   DAq6{d1: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
+  # lazy-delta args-first (Lean's isDefEqArgs): collect both spines; if the
+  # heads are the SAME constant with equal arity, compare arguments pairwise
+  # by defeq. All-yes answers YES soundly (congruence); anything else FALLS
+  # BACK to the unchanged DAq1 path -- never a premature NO, since a
+  # constant-ignoring function could still make the two equal after
+  # unfolding. Purely additive: only turns declines into accepts.
+  DLz1{f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+       ctx: List<&2, U32>, fu: U32}
+  DLz2{hx: T.Ex, sx: List<&2, U32>, f1: U32, f2: U32, a1: U32, a2: U32,
+       xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLz2b{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, f1: U32,
+        f2: U32, a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
+        fu: U32}
+  DLzA{xs: List<&2, U32>, ys: List<&2, U32>, f1: U32, f2: U32, a1: U32,
+       a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLzAx{xt: List<&2, U32>, yt: List<&2, U32>, yh: U32, f1: U32, f2: U32,
+        a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLzAy{xt: List<&2, U32>, yt: List<&2, U32>, wx: U32, f1: U32, f2: U32,
+        a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLzAk{xt: List<&2, U32>, yt: List<&2, U32>, f1: U32, f2: U32, a1: U32,
+        a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLzAk2{yes: Bool, xt: List<&2, U32>, yt: List<&2, U32>, f1: U32, f2: U32,
+         a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  # projection/projection: same (type,index) -> compare structures by defeq,
+  # YES answers YES (congruence); else fall back to the DC1 catch-all.
+  DPjDecide{sp: Bool, xn: T.Ex, yn: T.Ex, xi: U32, yi: U32,
+            ctx: List<&2, U32>, fu: U32}
+  DPjK{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DPjK2{yes: Bool, xn: T.Ex, yn: T.Ex, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
   # Const/Const: shared type then its universe
   DCn2{a: U32, us: List<&2, U32>, b: U32, vs: List<&2, U32>, ta: U32,
        tb: U32, ctx: List<&2, U32>}
@@ -1348,6 +1378,14 @@ def knat_shape(+x: T.Ex) -> U32:
     case _:
       0
 
+# the structure argument index of a projection node (sentinel if not EProj)
+def kproj_s(+x: T.Ex) -> U32:
+  match x:
+    case T.EProj{tn, idx, s}:
+      s
+    case _:
+      4294967295
+
 # a transition that touches no store: pass the store through, message MN
 def knoop(fs: Array<T.Ex> & U32,
           +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -2086,6 +2124,85 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DAq1{f12, f22, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb,
          keq_lists_tin(fs, Con{f12, Nil{}}, Con{f22, Nil{}}, lnt))
+    case 1n+p KCon{DLz1{f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +hx2 : T.Ex = hd
+      +sx2 : List<&2, U32> = sargs
+      +yi2 : U32 = yi
+      km(p, KCon{DLz2{hx2, sx2, f1, f2, a1, a2, xi, yi, ctx, fu}, k}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, yi2, ri))
+    case 1n+p KCon{DLz2{hx, sx, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +nmx : U32 = I.const_nm2(hx)
+      +nmy : U32 = I.const_nm2(hd)
+      +sx2 : List<&2, U32> = sx
+      +sy2 : List<&2, U32> = sargs
+      +samehd : Bool = Bool.not(U32.is_eq(nmx, 4294967295))
+                       && U32.is_eq(nmx, nmy)
+                       && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
+      +f12 : U32 = f1
+      +f22 : U32 = f2
+      km(p, KCon{DLz2b{samehd, sx2, sy2, f12, f22, a1, a2, xi, yi, ctx,
+                       fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLz2b{True{}, sx, sy, f1, f2, a1, a2, xi, yi, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLzA{sx, sy, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLz2b{False{}, sx, sy, f1, f2, a1, a2, xi, yi, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      # not the same spine head -> unchanged "whnf the functions" path
+      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # args-first loop: walk both argument lists, defeq each pair
+    case 1n+p KCon{DLzA{Nil{}, Nil{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DLzA{Con{xh, xt}, Con{yh, yt}, f1, f2, a1, a2, xi, yi,
+                        ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      # whnf this argument pair (DSub's precondition), then defeq it
+      km(p, KCon{DWhd{xh},
+                 KCon{DLzAx{xt, yt, yh, f1, f2, a1, a2, xi, yi, ctx, fu},
+                      k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DLzA{xs, ys, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      # arity disagreed after all -> unchanged "whnf the functions" path
+      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLzAx{xt, yt, yh, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      +yh2 : U32 = yh
+      km(p, KCon{DWhd{yh2},
+                 KCon{DLzAy{xt, yt, wx, f1, f2, a1, a2, xi, yi, ctx, fu},
+                      k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DLzAy{xt, yt, wx, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{U32.is_eq((fu - 1 : U32), 4294967295),
+                      U32.is_eq(wx2, wy), wx2, wy, c2, (fu - 1 : U32)},
+                 KCon{DLzAk{xt, yt, f1, f2, a1, a2, xi, yi, c2, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DLzAk{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DLzAk2{L.tri_is_yes(t), xt, yt, f1, f2, a1, a2, xi, yi,
+                        ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DLzAk2{True{}, xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLzA{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLzAk2{False{}, xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      # an argument did not settle -> unchanged "whnf the functions" path
+      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAq1{f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
       +f12 : U32 = f1
@@ -2099,12 +2216,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DWhd{a12}, KCon{DAq4{L.TYes{}, a12, a2, xi, yi, ctx, fu},
                                  k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # immediate functions differ: try args-first (same spine-head constant,
+    # arguments convertible) BEFORE unfolding. Collect both spines; if that
+    # does not settle it, fall back to the unchanged "whnf the functions"
+    # path. Confined to this branch so the common deep comparisons (functions
+    # structurally equal -> DAqGo{True}) pay no spine-collection overhead.
     case 1n+p KCon{DAqGo{False{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      +f12 : U32 = f1
-      km(p, KCon{DWhd{f12}, KCon{DAq2{f12, f2, a1, a2, xi, yi, ctx, fu},
-                                 k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      +xi2 : U32 = xi
+      km(p, KCon{DLz1{f1, f2, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, xi2, ri))
     case 1n+p KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +f22 : U32 = f2
@@ -2290,6 +2411,54 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       r2, ctx, (f2 - 1 : U32)},
                  KCon{DNtL5{islit}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # -- projection/projection: same (type,index) -> compare structures by
+    #    defeq (args-first makes same-head structure arguments cheap), YES
+    #    answers YES; otherwise fall back to the catch-all below unchanged --
+    case 1n+p KCon{DEy{T.EProj{tn1, idx1, s1}, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EProj{tn2, idx2, s2}}}, ri}:
+      +tn1r : U32 = tn1
+      +idx1r : U32 = idx1
+      +s1b : U32 = s1
+      +tn2r : U32 = tn2
+      +idx2r : U32 = idx2
+      +s2b : U32 = s2
+      +xn2 : T.Ex = T.EProj{tn1r, idx1r, s1b}
+      +yn2 : T.Ex = T.EProj{tn2r, idx2r, s2b}
+      +c2 : List<&2, U32> = ctx
+      +sp : Bool = U32.is_eq(tn1r, tn2r) && U32.is_eq(idx1r, idx2r)
+      km(p, KCon{DPjDecide{sp, xn2, yn2, xi, yi, c2, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # sp true: compare the two structures by defeq, YES answers YES
+    case 1n+p KCon{DPjDecide{True{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +xn2 : T.Ex = xn
+      +yn2 : T.Ex = yn
+      +s1b : U32 = kproj_s(xn2)
+      +s2b : U32 = kproj_s(yn2)
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{U32.is_eq((fu - 1 : U32), 4294967295),
+                      U32.is_eq(s1b, s2b), s1b, s2b, c2, (fu - 1 : U32)},
+                 KCon{DPjK{xn2, yn2, xi, yi, c2, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # sp false: not the same projection -> catch-all unchanged
+    case 1n+p KCon{DPjDecide{False{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{DC1{xn, yn, x2, yi, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+    case 1n+p KCon{DPjK{xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{DPjK2{L.tri_is_yes(t), xn, yn, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DPjK2{True{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DPjK2{False{}, xn, yn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{DC1{xn, yn, x2, yi, ctx, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
     # -- the structural catch-all: structure eta, else denial/delta/irrel --
     case 1n+p KCon{DEy{xn, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, MX{yn}}, ri}:
       +x2 : U32 = xi
