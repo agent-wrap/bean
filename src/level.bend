@@ -169,17 +169,6 @@ def ln_add_off(+k: U32, +a: LN) -> LN:
     case LNsym{}:
       LNsym{}
 
-def ln_max(+a: LN, +b: LN) -> LN:
-  match a b:
-    case LNun{} _:
-      LNun{}
-    case _ LNun{}:
-      LNun{}
-    case LNmax{xs} LNmax{ys}:
-      LNmax{List.append(&2, Atom, xs, ys)}
-    case _ _:
-      LNsym{}
-
 # `imax a b` is zero when b is, and `max a b` when b is at least one. When b
 # is a bare parameter it could be either, and no max-of-atoms form expresses
 # that -- so it is kept as a structural `LNimax`, which is still comparable
@@ -217,6 +206,28 @@ def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
       U32.is_eq(o1, o2) && ln_eq(pf, x1, x2) && ln_eq(pf, y1, y2)
     case 1n+p _ _:
       False{}
+
+# Mixing a max-of-atoms with an `imax` has no max-of-atoms form, but two
+# cases are exact and common: `max 0 x = x` and `max x x = x`. The first is
+# what level SUBSTITUTION hits on every parameter instantiated to an imax --
+# ln_subst_go folds atoms into an accumulator that starts at zero -- so
+# without it `Eq.{imax u v} (a -> b)` (any equality at a function type in a
+# universe-polymorphic statement: congr, congrFun, funext) read Eq's
+# parameter type as `Sort LNsym`, undecidable, and declined.
+def ln_max(+a: LN, +b: LN) -> LN:
+  match a b:
+    case LNun{} _:
+      LNun{}
+    case _ LNun{}:
+      LNun{}
+    case LNmax{xs} LNmax{ys}:
+      LNmax{List.append(&2, Atom, xs, ys)}
+    case LNmax{xs} _:
+      pick_ln(all_zero(xs), b, LNsym{})
+    case _ LNmax{ys}:
+      pick_ln(all_zero(ys), a, LNsym{})
+    case _ _:
+      pick_ln(ln_eq(32n, a, b), a, LNsym{})
 
 def is_zero_ln(+a: LN) -> Bool:
   match a:
