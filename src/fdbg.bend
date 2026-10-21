@@ -1,6 +1,6 @@
 # DEBUG ENTRY (not the checker): per-declaration verdicts of the flat
 # checker. Prints: scans word (4294966272 + 16*pre + 4*consts + projs), then
-# for each non-accepting declaration i: i*1024 + 64*structural +
+# for each declaration: name_index*1024 (0 for inductive blocks) + 64*structural +
 # typed_verdict + 16*incomplete + 32*corrupt (verdict 0/1/2, 3 = sentinel).
 import Base
 import ./scan.bend as S
@@ -122,17 +122,20 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 def fck_all_d(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            +i: U32, acc: List<&2, U32>,
+            +i: U32, +pn: U32, acc: List<&2, U32>,
             fr: (Array<T.Ex> & U32) & U32) -> List<&2, U32>:
   match ds fr:
     case Nil{} Tuple{fs, c}:
-      acc
+      +c3 : U32 = c
+      Con{(pn * 1024 + c3 : U32), acc}
     case Con{head, tail} Tuple{fs, c}:
       +h = head
       +c2 : U32 = c
       fck_all_d(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, (i + 1 : U32),
-              Con{(i * 1024 + c2 : U32), acc},
+              K.dcl_name(h),
+              # fr carries the PREVIOUS declaration's code: label it pn
+              Con{(pn * 1024 + c2 : U32), acc},
               fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt, fs))
 
 def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
@@ -154,7 +157,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
        + vcode(C.scan_projs(nex, 0, ex, strt, C.VAccept{})) : U32),
       fck_all_d(ds, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
-                 natn, qtt, 0, Nil{},
+                 natn, qtt, 0, 0, Nil{},
                  ((F.fb_ex(recs,
                            Array.new(T.Ex,
                                      Nat.add(F.fdepth((nx + 2097152 : U32)),
