@@ -437,6 +437,23 @@ def build_wk3(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
     15, find_under(rs, n, [98, 101, 113], 4294967295), 4294967295)
 
 
+# definition heights for the machine's lazy delta probe, keyed name + 2^31
+# in the same small table as the literal-operation names
+def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  match rs:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      match head:
+        case D.Rec{kind, ix, flds, b1, b2, sb}:
+          +k = kind
+          +fs = flds
+          add_hts(tail,
+            R2.sub(U32, U32.is_eq(k, 99333),
+                   R2.set(U32, 32n, t,
+                          (T.fld(fs, 3373707, 0) + 2147483648 : U32),
+                          height_of(fs), 4294967295), t))
+
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:
     case Nil{}:

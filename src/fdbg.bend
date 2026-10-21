@@ -167,9 +167,9 @@ def dfold2(r: (Array<T.Ex> & U32) & List<&2, U32>,
       (fs, Con{c, d})
 
 def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
-          +sv: C.V) -> (Array<T.Ex> & U32) & List<&2, U32>:
+          +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match kr:
-    case Tuple{Tuple{fs, v}, Tuple{lt, wm}}:
+    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
       +w2 : R.Tr<U32> = wm
       +cor : U32 = S.pick(U32.is_eq(R.get(U32, 64n, w2, 4294967291,
                                           4294967295), 4294967295), 0, 32)
@@ -179,16 +179,23 @@ def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       # probe breadcrumb (key 4294967290): its value replaces the code,
       # offset by 512 so it stays readable after the name*1024 packing
       +pr : U32 = R.get(U32, 64n, w2, 4294967290, 4294967295)
+      +nxf : U32 = nx
+      +ovf : Bool = U32.is_ge(nxf, M.khalf(base))
       +dx : U32 = R.get(U32, 64n, w2, 4294967288, 4294967295)
       +dy : U32 = R.get(U32, 64n, w2, 4294967287, 4294967295)
-      dfold2(dump_if(Bool.not(U32.is_eq(dx, 4294967295)), fs, dx, dy),
+      dfold2(dump_if(Bool.not(U32.is_eq(dx, 4294967295)), (ex, nxf), dx, dy),
              S.pick(U32.is_eq(pr, 4294967295),
                     (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
-                     + cor : U32),
+                     + cor + S.pick(ovf, 256, 0) : U32),
                     (512 + pr : U32)))
 
 def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   (fs, Con{c, Nil{}})
+
+def krestart(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      (ex, (basenx + 1048576 : U32))
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
@@ -217,7 +224,7 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
                            K.dcl_value(pd), basenx),
-               C.self_ref_v(I.is_ex(st), pd))
+               C.self_ref_v(I.is_ex(st), pd), basenx)
 
 # a declaration's code (labelled with its name) followed by any probe dump
 def push_codes(+pn: U32, cl: List<&2, U32>,
@@ -243,7 +250,8 @@ def fck_all_d(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
               K.dcl_name(h),
               # fr carries the PREVIOUS declaration's code: label it pn
               push_codes(pn, c, acc),
-              fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt, fs))
+              fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
+                        krestart(fs, basenx)))
 
 def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> List<&2, U32>:
@@ -251,7 +259,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.build_wk3(recs, R.TNil{})
+  +qtt = K.add_hts(recs, K.build_wk3(recs, R.TNil{}))
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     natn,
                     K.find_name(recs,

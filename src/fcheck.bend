@@ -100,8 +100,11 @@ def kpow2(n: Nat) -> U32:
 # past capacity therefore overwrites live early slots -- the export's own
 # terms and the hash table -- and every later read is garbage. That silently
 # turned true library declarations into rejects in perf/magma-list-deep-n21.
-# nx is monotonic, so once it reaches capacity the CURRENT declaration and
-# every later one are untrustworthy: they decline. Earlier ones are unaffected.
+# Allocation restarts at the region base for every declaration (and drops
+# back inside one at km's rollback regions, KRb), so an overflow is checked
+# per declaration -- at its end here, and at every KRb, which marks it
+# CORRUPT. Overflow aliases slots below, so every LATER declaration is
+# untrustworthy too: the combined verdict declines.
 def ovf_v(+nx: U32, +cap: U32, +v: C.V) -> C.V:
   C.pick_v(U32.is_ge(nx, cap), C.VDecline{}, v)
 
@@ -119,8 +122,12 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
       fck_all(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, cap,
               C.comb(acc, ovf_v(nx2, cap, v)),
+              # every declaration allocates from the region base again:
+              # nothing a finished declaration allocated is referenced
+              # later (its memo dies with it, the hash table's pointers
+              # into the reused range become tombstones)
               fck_one(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                      (ex, nx2)))
+                      (ex, (basenx + 1048576 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:
@@ -128,7 +135,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.build_wk3(recs, R.TNil{})
+  +qtt = K.add_hts(recs, K.build_wk3(recs, R.TNil{}))
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     natn,
                     K.find_name(recs,

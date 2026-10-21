@@ -601,6 +601,8 @@ type KF is Data:
   SLChk{want: L.LN}
   # memoised whnf (infer.bend's whd): check, reduce, store
   DWhd{i: U32}
+  # rollback region around a whnf memo miss (see KRb's handler)
+  KRb{mark: U32, snap: R.Tr<U32>}
   DWhdGo{hit: Bool, h: U32, i: U32}
   DWhdSt{i: U32}
   WIhNext{ic: IC}
@@ -889,10 +891,10 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
 # allocate `node`, result register = fresh index
 # --- hash-consing (proven in bench/hashcons.bend) -------------------------
 # A region of the expression Array itself, [base, base+KMASK], is an open-
-# addressing hash table: slot = base + (fingerprint & KMASK), linear probe.
-# A fixed-K scan (always iterates, no early return -> no mutual recursion)
-# finds the first structural match and the first empty slot; kalloc then
-# shares, inserts, or overflow-appends at nx. Children are already
+# addressing hash table of node pointers: slot = base + (fingerprint &
+# KMASK), linear probe. A fixed-K scan (always iterates, no early return ->
+# no mutual recursion) finds the first structural match and the first free
+# slot; kalloc then shares, or appends at nx and records the pointer. Children are already
 # hash-consed, so structural equality is tag + field-index equality (no
 # recursion). This restores the export's DAG sharing through reduction, so
 # the whnf memo hits and reduction stays linear.
@@ -988,22 +990,70 @@ def kpu(+z: Bool, +x: U32, +y: U32) -> U32:
     case False{}:
       y
 
+# The table holds POINTERS: a slot is EBad (never used), or EApp{j, h} for
+# the node at index j with fingerprint h. Nodes themselves are always
+# appended at nx, so rolling nx back (KRb) frees them all at once; a pointer
+# at or above nx is then a tombstone: probing passes over it (a live entry
+# may lie beyond) and an insertion may reuse it. The node behind a pointer
+# is read only when the fingerprints agree.
+def kpn2(pr: Array<T.Ex> & T.Ex, +ent: T.Ex,
+         +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
+  match pr:
+    case Tuple{a, cand}:
+      (a, (ent, kexeq(cand, node)))
+
+def kpn3(+cmp: Bool, a: Array<T.Ex>, +j: U32, +h: U32,
+         +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
+  match cmp:
+    case True{}:
+      kpn2(Array.get(T.Ex, a, j), T.EApp{j, h}, node)
+    case False{}:
+      (a, (T.EApp{j, h}, False{}))
+
+def kpn1(pr: Array<T.Ex> & T.Ex, +nx: U32, +fp: U32, +look: Bool,
+         +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
+  match pr:
+    case Tuple{a, T.EApp{j, h}}:
+      +j2 : U32 = j
+      +h2 : U32 = h
+      kpn3(look && U32.is_lt(j2, nx) && U32.is_eq(h2, fp), a, j2, h2, node)
+    case Tuple{a, ent}:
+      (a, (ent, False{}))
+
+def kprobe_slot(a: Array<T.Ex>, +s: U32, +nx: U32, +fp: U32, +look: Bool,
+                +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
+  kpn1(Array.get(T.Ex, a, s), nx, fp, look, node)
+
+def kptr_of(+x: T.Ex) -> U32:
+  match x:
+    case T.EApp{j, h}:
+      j
+    case _:
+      4294967295
+
+# fixed-K scan: the first hit (a node index) and the first free slot
+# (never used, or a tombstone); stops at a never-used slot
 def kscan(k: Nat, +base: U32, +node: T.Ex, +slot: U32, +found: U32,
-          +fempty: U32, +stopped: Bool,
-          pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & (U32 & U32):
+          +fempty: U32, +stopped: Bool, +nx: U32, +fp: U32,
+          pr: Array<T.Ex> & (T.Ex & Bool)) -> Array<T.Ex> & (U32 & U32):
   match k pr:
     case 0n Tuple{ex, cand}:
       (ex, (found, fempty))
-    case 1n+p Tuple{ex, cand}:
-      +cd : T.Ex = cand
-      +eb : Bool = kis_bad(cd)
-      +hit : Bool = Bool.not(stopped) && kexeq(cd, node)
+    case 1n+p Tuple{ex, Tuple{ent, hit0}}:
+      +e2 : T.Ex = ent
+      +eb : Bool = kis_bad(e2)
+      +pj : U32 = kptr_of(e2)
+      +tomb : Bool = Bool.not(eb) && U32.is_ge(pj, nx)
+      +hit : Bool = Bool.not(stopped) && hit0
                     && U32.is_eq(found, 4294967295)
-      +f2 : U32 = kpu(hit, slot, found)
-      +fe2 : U32 = kpu(eb && U32.is_eq(fempty, 4294967295), slot, fempty)
+      +f2 : U32 = kpu(hit, pj, found)
+      +fe2 : U32 = kpu((eb || tomb) && Bool.not(stopped)
+                       && U32.is_eq(fempty, 4294967295), slot, fempty)
       +slot2 : U32 = knxt(base, slot)
-      kscan(p, base, node, slot2, f2, fe2, Bool.or(stopped, eb),
-            Array.get(T.Ex, ex, slot2))
+      +st2 : Bool = Bool.or(stopped, eb)
+      kscan(p, base, node, slot2, f2, fe2, st2, nx, fp,
+            kprobe_slot(ex, slot2, nx, fp,
+                        Bool.not(st2) && U32.is_eq(f2, 4294967295), node))
 
 # --- loose-bvar ranges in the store --------------------------------------
 # Every node written to slot i also records lbr(node) -- one more than its
@@ -1159,12 +1209,16 @@ def klb_init(n: Nat, +i: U32, +hb: U32, a: Array<T.Ex>) -> Array<T.Ex>:
     case 1n+p:
       klb_init(p, (i + 1 : U32), hb, klb_init2(Array.get(T.Ex, a, i), i, hb))
 
-def kfin2b(+hb: U32, +miss: Bool, +fempty: U32, ex: Array<T.Ex>, +node: T.Ex,
-           +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
-  match miss:
-    case False{}:
-      (((kput(hb, ex, fempty, node), nx), MN{}), fempty)
+# a miss: append the node at nx and point the free slot (if any) at it
+def kfin2b(+hb: U32, +haveslot: Bool, +fempty: U32, ex: Array<T.Ex>,
+           +node: T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match haveslot:
     case True{}:
+      +n : U32 = nx
+      +nd : T.Ex = node
+      (((Array.set(T.Ex, kput(hb, ex, n, nd), fempty, T.EApp{n, kfp(nd)}),
+         (n + 1 : U32)), MN{}), n)
+    case False{}:
       +n : U32 = nx
       (((kput(hb, ex, n, node), (n + 1 : U32)), MN{}), n)
 
@@ -1174,7 +1228,7 @@ def kfin1b(+hb: U32, +miss: Bool, +found: U32, +fempty: U32, ex: Array<T.Ex>,
     case False{}:
       (((ex, nx), MN{}), found)
     case True{}:
-      kfin2b(hb, U32.is_eq(fempty, 4294967295), fempty, ex, node, nx)
+      kfin2b(hb, U32.is_ne(fempty, 4294967295), fempty, ex, node, nx)
 
 def kfin(r: Array<T.Ex> & (U32 & U32), +node: T.Ex, +nx: U32,
          +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -1188,10 +1242,12 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
   match fs:
     case Tuple{ex, nx}:
       +nd : T.Ex = node
-      +s0 : U32 = (base + U32.and(kfp(nd), kmask()) : U32)
-      kfin(kscan(24n, base, nd, s0, 4294967295, 4294967295, False{},
-                 Array.get(T.Ex, ex, s0)),
-           nd, nx, base)
+      +n2 : U32 = nx
+      +fp : U32 = kfp(nd)
+      +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
+      kfin(kscan(24n, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
+                 kprobe_slot(ex, s0, n2, fp, True{}, nd)),
+           nd, n2, base)
 
 # no allocation, result register = existing index
 def kkeep(fs: Array<T.Ex> & U32,
@@ -1523,6 +1579,21 @@ def kpick_tr(+z: Bool, +x: R.Tr<U32>, +y: R.Tr<U32>) -> R.Tr<U32>:
       x
     case False{}:
       y
+
+# the snapshot memo plus the current run's flags (INCOMPLETE, CORRUPT, the
+# debug probe keys); CORRUPT also when the store overflowed meanwhile
+def kflag1(+cur: R.Tr<U32>, +k: U32, +snap: R.Tr<U32>) -> R.Tr<U32>:
+  +c2 : R.Tr<U32> = cur
+  +v : U32 = R.get(U32, 64n, c2, k, 4294967295)
+  kpick_tr(U32.is_eq(v, 4294967295), snap, R.set(U32, 64n, snap, k, v,
+                                                 4294967295))
+
+def kflags_into(+cur: R.Tr<U32>, +snap: R.Tr<U32>, +ovf: Bool) -> R.Tr<U32>:
+  +c2 : R.Tr<U32> = cur
+  +s1 : R.Tr<U32> = kflag1(c2, 4294967292, kflag1(c2, 4294967291,
+                     kflag1(c2, 4294967290, kflag1(c2, 4294967289,
+                     kflag1(c2, 4294967288, kflag1(c2, 4294967287, snap))))))
+  kpick_tr(ovf, R.set(U32, 64n, s1, 4294967291, 1, 4294967295), s1)
 
 def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
   match x:
@@ -4920,10 +4991,33 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DWhdGo{True{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, h))
-    case 1n+p KCon{DWhdGo{False{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{DWhdGo{False{}, h, i}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
       +i2 : U32 = i
-      km(p, KCon{kwev(True{}, i2, Nil{}, 1000000), KCon{DWhdSt{i2}, k}}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, i2, 0))
+      +n2 : U32 = nx
+      km(p, KCon{kwev(True{}, i2, Nil{}, 1000000),
+                 KCon{KRb{n2, wm}, KCon{DWhdSt{i2}, k}}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch((ex, n2), i2, 0))
+    # A rollback region: the whnf began with the allocation pointer at
+    # `mark` and memo `snap`. If its result is an OLDER node (index below
+    # mark), nothing that survives can reference a node allocated since --
+    # the frames below were pushed before mark, the memo is restored to the
+    # snapshot (flags carried over), and the hash table's pointers into the
+    # freed range become tombstones -- so the pointer drops back to mark.
+    # A decide-style evaluation (a closed term to `true`) thus runs in
+    # bounded store. An overflow seen here (or at the end, by fcheck)
+    # marks the declaration CORRUPT.
+    case 1n+p KCon{KRb{mark, snap}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +r2 : U32 = ri
+      +n2 : U32 = nx
+      +m2 : U32 = mark
+      +roll : Bool = U32.is_lt(r2, m2)
+      +ovf : Bool = U32.is_ge(n2, khalf(hcb))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         kpick_tr(roll, kflags_into(wm, snap, ovf),
+                  kpick_tr(ovf, R.set(U32, 64n, wm, 4294967291, 1,
+                                      4294967295), wm)),
+         nt, hcb, (((ex, S.pick(roll, m2, n2)), msg), r2))
     case 1n+p KCon{DWhdSt{i}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
