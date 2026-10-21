@@ -343,14 +343,15 @@ def occursi(+st: I.IS, +x: U32, +ns: List<&2, U32>) -> Bool:
   occurs(4096n, st, node(st, x), ns)
 
 # Lean's consume_type_annotations: optParam/autoParam (two arguments) and
-# outParam (one) wrappers dropped at the head. `ann` = [optParam, autoParam,
-# outParam] name indices.
+# outParam/semiOutParam (one) wrappers dropped at the head. `ann` =
+# [optParam, autoParam, outParam, semiOutParam] name indices.
 def ann_one(+st: I.IS, +x: U32, +ann: List<&2, U32>) -> Bool:
   +h : U32 = I.const_nm2(spine_hd(st, x))
   +n2 : U32 = I.len_u(spine_args(st, x), 0)
   (U32.is_eq(h, I.nth_u(ann, 0, 4294967294))
    || U32.is_eq(h, I.nth_u(ann, 1, 4294967294))) && U32.is_eq(n2, 2)
-  || U32.is_eq(h, I.nth_u(ann, 2, 4294967294)) && U32.is_eq(n2, 1)
+  || (U32.is_eq(h, I.nth_u(ann, 2, 4294967294))
+      || U32.is_eq(h, I.nth_u(ann, 3, 4294967294))) && U32.is_eq(n2, 1)
 
 def strip_go(fuel: Nat, +z: Bool, +st: I.IS, +x: U32,
              +ann: List<&2, U32>) -> U32:
@@ -727,33 +728,44 @@ def ml_fvs(+r: ML) -> List<&2, U32>:
     case ML{st, kc, fvs}:
       fvs
 
+# binders (fields, params, indices) with their types' annotations dropped
+def strip_fvs(xs: List<&2, U32>, +st: I.IS, +ann: List<&2, U32>,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Con{a, Con{b, Con{c, t}}}:
+      strip_fvs(t, st, ann, Con{strip_ann(st, c, ann), Con{b, Con{a, acc}}})
+    case _:
+      I.rev_u(acc, Nil{})
+
 # spec_j's type, instantiated; the index variables and the major premise
-# with its type `spec_j params indices`; returns (st, kc, idx ++ [t] flat)
+# with its type `spec_j params indices`; returns (st, kc, idx ++ [t] flat).
+# The indices' types lose their annotations (Lean's mk_local_decl_for)
 def spec_tele(+sp: SP, +st: I.IS, +kc: U32, +items: List<&2, K.IItem>,
-              +itab: R.Tr<K.IItem>) -> TL:
+              +itab: R.Tr<K.IItem>, +ann: List<&2, U32>) -> TL:
   +ii = ind_of(items, itab, sp_n(sp))
   +r = at_spec(st, ii_ty(ii), ii_lps(ii), sp_us(sp), sp_ps(sp))
   +tl = tele(I.ir_st(r), kc, I.ir_ty(r))
+  +ifv : List<&2, U32> = strip_fvs(tl_fvs(tl), tl_st(tl), ann, Nil{})
   +hc = I.alloc_ex(tl_st(tl), T.EConst{sp_n(sp), sp_us(sp)})
-  +ap = I.app_args(List.append(&2, U32, sp_ps(sp), fv_nodes(tl_fvs(tl), Nil{})),
+  +ap = I.app_args(List.append(&2, U32, sp_ps(sp), fv_nodes(ifv, Nil{})),
                    I.ir_st(hc), I.ir_ty(hc))
   +t = fv_new(I.ir_st(ap), tl_kc(tl))
   TL{nr_st(t), nr_kc(t),
-     List.append(&2, U32, tl_fvs(tl),
+     List.append(&2, U32, ifv,
                  [(fvb() + tl_kc(tl) : U32), nr_x(t), I.ir_ty(ap)]),
      4294967295}
 
 def mk_motives(specs: List<&2, SP>, +st: I.IS, +kc: U32, +sortv: U32,
                +items: List<&2, K.IItem>, +itab: R.Tr<K.IItem>,
-               +acc: List<&2, U32>) -> ML:
+               +ann: List<&2, U32>, +acc: List<&2, U32>) -> ML:
   match specs:
     case Nil{}:
       ML{st, kc, acc}
     case Con{sp, t}:
-      +te = spec_tele(sp, st, kc, items, itab)
+      +te = spec_tele(sp, st, kc, items, itab, ann)
       +ty = mk_pi(tl_fvs(te), tl_st(te), sortv)
       +m = fv_new(I.ir_st(ty), tl_kc(te))
-      mk_motives(t, nr_st(m), nr_kc(m), sortv, items, itab,
+      mk_motives(t, nr_st(m), nr_kc(m), sortv, items, itab, ann,
                  List.append(&2, U32, acc,
                              [(fvb() + tl_kc(te) : U32), nr_x(m), I.ir_ty(ty)]))
 
@@ -792,14 +804,6 @@ def mn_info(+r: MN) -> List<&2, MI>:
     case MN{st, kc, fvs, info}:
       info
 
-# fields with their types' annotations dropped
-def strip_fvs(xs: List<&2, U32>, +st: I.IS, +ann: List<&2, U32>,
-              acc: List<&2, U32>) -> List<&2, U32>:
-  match xs:
-    case Con{a, Con{b, Con{c, t}}}:
-      strip_fvs(t, st, ann, Con{strip_ann(st, c, ann), Con{b, Con{a, acc}}})
-    case _:
-      I.rev_u(acc, Nil{})
 
 # one IH per field whose (whnf'd) type ends in a spec:
 #   ih : forall zs, motive_k ix (f zs)
@@ -955,18 +959,18 @@ def rt_tys(+r: RT) -> List<&2, U32>:
 def rec_types(sps: List<&2, SP>, +j: U32, +st: I.IS, +kc: U32,
               +pre: List<&2, U32>, +mots: List<&2, U32>,
               +items: List<&2, K.IItem>, +itab: R.Tr<K.IItem>,
-              +acc: List<&2, U32>) -> RT:
+              +ann: List<&2, U32>, +acc: List<&2, U32>) -> RT:
   match sps:
     case Nil{}:
       RT{st, kc, acc}
     case Con{sp, t}:
-      +te = spec_tele(sp, st, kc, items, itab)
+      +te = spec_tele(sp, st, kc, items, itab, ann)
       +bd = I.app_args(fv_nodes(tl_fvs(te), Nil{}), tl_st(te),
                        I.nth_u(fv_nodes(mots, Nil{}), j, 0))
       +tail = mk_pi(tl_fvs(te), I.ir_st(bd), I.ir_ty(bd))
       +rty = mk_pi(pre, I.ir_st(tail), I.ir_ty(tail))
       rec_types(t, (j + 1 : U32), I.ir_st(rty), tl_kc(te), pre, mots, items,
-                itab, List.append(&2, U32, acc, [I.ir_ty(rty)]))
+                itab, ann, List.append(&2, U32, acc, [I.ir_ty(rty)]))
 
 # --- association with the export's recursors --------------------------------
 # for each derived type, the name of the exported recursor whose type is it
@@ -1221,7 +1225,9 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
   +pl = W.param_lvls(lps, st0, Nil{})
   +us0 : List<&2, U32> = I.rev_u(I.ls_xs(pl), Nil{})
   +pt = tele_n(I.ls_st(pl), 0, ii_ty(i0), np)
-  +params : List<&2, U32> = tl_fvs(pt)
+  # binder types lose their annotations (Lean's mk_local_decl_for):
+  # `class C (a : A) (b : outParam B)` has `b : B` in C.rec
+  +params : List<&2, U32> = strip_fvs(tl_fvs(pt), tl_st(pt), ann, Nil{})
   +pv : List<&2, U32> = fv_nodes(params, Nil{})
   # the result sort: Prop-valued blocks (elimination into Prop only, or
   # subsingletons) are not handled here
@@ -1254,7 +1260,7 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
             specs0(tn, us0, pv), False{}, tn, items, itab, ctab, mt, lp, vt)
   +specs : List<&2, SP> = ds_specs(d)
   # motives, minors
-  +ml = mk_motives(specs, ds_st(d), ds_kc(d), I.ir_ty(sv), items, itab,
+  +ml = mk_motives(specs, ds_st(d), ds_kc(d), I.ir_ty(sv), items, itab, ann,
                    Nil{})
   +mots : List<&2, U32> = ml_fvs(ml)
   +mn = mk_minors(specs, 0, ml_st(ml), ml_kc(ml), specs, mots, ann, items,
@@ -1263,7 +1269,7 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                              List.append(&2, U32, mots, mn_fvs(mn)))
   # recursor types and their exported namesakes
   +rty = rec_types(specs, 0, mn_st(mn), mn_kc(mn), prefv, mots, items,
-                   itab, Nil{})
+                   itab, ann, Nil{})
   +rnames : List<&2, U32> = assoc_recs(rt_tys(rty), items, rt_st(rty), Nil{})
   +nmot : U32 = len_sp(specs, 0)
   +recok : Bool = all_found(rnames) && distinct(rnames)

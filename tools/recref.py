@@ -6,7 +6,7 @@ abstracted into binders at the end (Lean's kernel builds them the same way).
 
 usage: recref.py EXPORT.ndjson [NAME-SUBSTRING]
 """
-import json, sys, itertools
+import json, os, sys, itertools
 
 # ---- terms: tuples ----------------------------------------------------------
 # ('bv',i) ('sort',lvl) ('c',name,lvls) ('app',f,a) ('lam',ty,b) ('pi',ty,b)
@@ -155,7 +155,7 @@ def strip_ann(t):
         h, xs = spine(t)
         if h[0] == 'c' and h[1] in ('optParam', 'autoParam') and len(xs) == 2:
             t = xs[0]; continue
-        if h[0] == 'c' and h[1] == 'outParam' and len(xs) == 1:
+        if h[0] == 'c' and h[1] in ('outParam', 'semiOutParam') and len(xs) == 1:
             t = xs[0]; continue
         return t
 
@@ -179,6 +179,9 @@ def derive(X, blk, inds):
     us0 = tuple(('p', l) for l in lps)
     # params: from the first type's telescope
     params, _ = tele(X.ex(types[0]['type']), np)
+    # Lean's mk_local_decl_for: every binder the kernel opens -- params,
+    # indices, fields -- has its type's annotations consumed
+    params = [(k, strip_ann(t)) for k, t in params]
     pv = [('fv', k) for k, _ in params]
     # specs: (head name, level args, param args (in terms of param fvars))
     specs = [(n, us0, tuple(pv)) for n in tnames]
@@ -248,6 +251,7 @@ def build(X, blk, inds):
     motives = []
     for j, (n, us, ps) in enumerate(specs):
         idx, _ = tele(ind_type_of(j))
+        idx = [(k, strip_ann(t)) for k, t in idx]
         t = fv()
         mty = mkpi(idx + [(t[1], app(('c', n, us), *ps, *[('fv', k) for k, _ in idx]))], ('sort', v))
         motives.append((next(FRESH), mty))
@@ -280,6 +284,7 @@ def build(X, blk, inds):
     out = {}
     for j, (n, us, ps) in enumerate(specs):
         idx, _ = tele(ind_type_of(j))
+        idx = [(k, strip_ann(t)) for k, t in idx]
         t = fv()
         tail = mkpi(idx + [(t[1], app(('c', n, us), *ps, *[('fv', k) for k, _ in idx]))],
                     app(mv[j], *[('fv', k) for k, _ in idx], t))
@@ -307,7 +312,8 @@ def main():
         names = [X.nm(t['name']) for t in blk['types']]
         nested = any(t.get('numNested', 0) for t in blk['types'])
         mutual = len(names) > 1
-        if (nested or mutual) and (filt is None or any(filt in n for n in names)):
+        # single blocks too when a name filter selects them
+        if (nested or mutual or filt is not None or os.environ.get('ALL')) and (filt is None or any(filt in n for n in names)):
             try:
                 out = build(X, blk, INDS)
             except Exception as e:

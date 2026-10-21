@@ -454,9 +454,11 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                           (T.fld(fs, 3373707, 0) + 2147483648 : U32),
                           height_of(fs), 4294967295), t))
 
-# keys 16..18: optParam, autoParam, outParam -- the type annotations Lean's
-# consume_type_annotations drops from a minor premise's field types
+# keys 16..19: optParam, autoParam, outParam, semiOutParam -- the type
+# annotations Lean's consume_type_annotations drops from the binder types of
+# an inductive's params, indices and fields when it derives the recursor
 def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  R2.set(U32, 64n,
   R2.set(U32, 64n,
   R2.set(U32, 64n,
   R2.set(U32, 64n, build_wk3(rs, t),
@@ -465,6 +467,9 @@ def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
     17, find_name(rs, [97, 117, 116, 111, 80, 97, 114, 97, 109], 4294967295),
     4294967295),
     18, find_name(rs, [111, 117, 116, 80, 97, 114, 97, 109], 4294967295),
+    4294967295),
+    19, find_name(rs, [115, 101, 109, 105, 79, 117, 116, 80, 97, 114, 97, 109],
+                  4294967295),
     4294967295)
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
