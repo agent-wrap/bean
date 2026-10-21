@@ -273,6 +273,14 @@ def add_dcl(+r: D.Rec, ds: List<&2, Dcl>) -> List<&2, Dcl>:
 # tries instead, so nothing here needs an Array.
 # Names, so that a recursor's name can be compared with the one the kernel
 # would derive -- `I.rec` -- rather than taken from the export.
+def nm_step(+go: Bool, +t: R2.Tr<T.Nm>, +ix: U32, +k: U32,
+            +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> R2.Tr<T.Nm>:
+  match go:
+    case True{}:
+      R2.set(T.Nm, 64n, t, ix, T.mk_nm(k, flds, sb), T.NAnon{})
+    case False{}:
+      t
+
 def build_nm(rs: List<&2, D.Rec>, +t: R2.Tr<T.Nm>) -> R2.Tr<T.Nm>:
   match rs:
     case Nil{}:
@@ -281,10 +289,7 @@ def build_nm(rs: List<&2, D.Rec>, +t: R2.Tr<T.Nm>) -> R2.Tr<T.Nm>:
       match head:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
-          build_nm(tail,
-            R2.sub(T.Nm, is_nm_kind(k),
-                   R2.set(T.Nm, 64n, t, ix, T.mk_nm(k, flds, sb),
-                          T.NAnon{}), t))
+          build_nm(tail, nm_step(is_nm_kind(k), t, ix, k, flds, sb))
 
 # --- reducibility heights ------------------------------------------------
 # Lean's `ReducibilityHints`, which the export carries in a `def`'s `hints`
@@ -306,6 +311,16 @@ def height_of(+fs: List<&2, D.Fld>) -> U32:
   +h = T.fld(fs, 1086463900, 4294967295)
   S.pick(U32.is_eq(h, 4294967295), 4294967294, h)
 
+# a def's height under `name + off` (only def records insert)
+def ht_step(+go: Bool, +t: R2.Tr<U32>, +off: U32,
+            +fs: List<&2, D.Fld>) -> R2.Tr<U32>:
+  match go:
+    case True{}:
+      R2.set(U32, 64n, t, (T.fld(fs, 3373707, 0) + off : U32),
+             height_of(fs), 4294967295)
+    case False{}:
+      t
+
 def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   match rs:
     case Nil{}:
@@ -314,11 +329,7 @@ def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
       match head:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
-          +fs = flds
-          build_ht(tail,
-            R2.sub(U32, U32.is_eq(k, 99333),
-                   R2.set(U32, 64n, t, T.fld(fs, 3373707, 0),
-                          height_of(fs), 4294967295), t))
+          build_ht(tail, ht_step(U32.is_eq(k, 99333), t, 0, flds))
 
 # --- finding a name by its text ------------------------------------------
 # `Nat` and `String` have to be named to type a literal: `infer` on
@@ -448,29 +459,116 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           +fs = flds
-          add_hts(tail,
-            R2.sub(U32, U32.is_eq(k, 99333),
-                   R2.set(U32, 64n, t,
-                          (T.fld(fs, 3373707, 0) + 2147483648 : U32),
-                          height_of(fs), 4294967295), t))
+          add_hts(tail, ht_step(U32.is_eq(k, 99333), t, 2147483648, fs))
 
-# keys 16..19: optParam, autoParam, outParam, semiOutParam -- the type
-# annotations Lean's consume_type_annotations drops from the binder types of
-# an inductive's params, indices and fields when it derives the recursor
+# --- every well-known name in two passes ---------------------------------
+# find_name / find_under each walk the whole record list (6.4M records in
+# init), and the tables below need 23 names: ~27 passes, about 50 s. These
+# resolve every ROOT name in one pass, then every name UNDER a found root in
+# a second. Same answer as find_name / find_under: the LAST matching record.
+def I_hd(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Con{h, t}:
+      h
+    case Nil{}:
+      4294967294
+
+def I_tl(xs: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Con{h, t}:
+      t
+    case Nil{}:
+      Nil{}
+
+def fm_upd(wants: List<&2, List<&2, U32>>, +pres: List<&2, U32>,
+           +pre: U32, +sb: List<&2, U32>, +pix: U32,
+           acc: List<&2, U32>) -> List<&2, U32>:
+  match wants acc:
+    case Con{w, wt} Con{a, at}:
+      +ps = pres
+      Con{S.pick(U32.is_eq(I_hd(ps), pre) && bytes_eq(w, sb), pix, a),
+          fm_upd(wt, I_tl(ps), pre, sb, pix, at)}
+    case _ _:
+      Nil{}
+
+# a name record's update, only for name records (a Bool match: `S.pick`
+# would evaluate the update on every record)
+def fm_step(+go: Bool, +wants: List<&2, List<&2, U32>>,
+            +pres: List<&2, U32>, +pre: U32, +sb: List<&2, U32>,
+            +pix: U32, acc: List<&2, U32>) -> List<&2, U32>:
+  match go:
+    case True{}:
+      fm_upd(wants, pres, pre, sb, pix, acc)
+    case False{}:
+      acc
+
+# `pres` gives each wanted name's prefix (0: a root name)
+def find_many(rs: List<&2, D.Rec>, +wants: List<&2, List<&2, U32>>,
+              +pres: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match rs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case D.Rec{kind, ix, flds, b1, b2, sb}:
+          +k = kind
+          +fs = flds
+          find_many(tail, wants, pres,
+                    fm_step(U32.is_eq(k, 114225), wants, pres,
+                            T.fld(fs, 111267, 4294967295), sb, ix, acc))
+
+def nth_or(xs: List<&2, U32>, +i: U32) -> U32:
+  match xs:
+    case Nil{}:
+      4294967295
+    case Con{h, t}:
+      S.pick(U32.is_eq(i, 0), h, nth_or(t, (i - 1 : U32)))
+
+def nones(n: Nat) -> List<&2, U32>:
+  match n:
+    case 0n:
+      Nil{}
+    case 1n+p:
+      Con{4294967295, nones(p)}
+
+def set_keys(ks: List<&2, U32>, vs: List<&2, U32>,
+             +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  match ks vs:
+    case Con{k, kt} Con{v, vt}:
+      set_keys(kt, vt, R2.set(U32, 64n, t, k, v, 4294967295))
+    case _ _:
+      t
+
+# keys 0..2 Quot.lift/ind/mk; 3, 4 Nat.zero/succ; 5..9 Nat.add/sub/ble,
+# Bool.true/false; 10 String; 11..15 Nat.mul/pow/div/mod/beq (the literal
+# operations Lean's kernel computes directly); 16..19 optParam, autoParam,
+# outParam, semiOutParam -- the type annotations Lean's
+# consume_type_annotations drops from the binder types of an inductive's
+# params, indices and fields when it derives the recursor; 20 Nat
 def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
-  R2.set(U32, 64n,
-  R2.set(U32, 64n,
-  R2.set(U32, 64n,
-  R2.set(U32, 64n, build_wk3(rs, t),
-    16, find_name(rs, [111, 112, 116, 80, 97, 114, 97, 109], 4294967295),
-    4294967295),
-    17, find_name(rs, [97, 117, 116, 111, 80, 97, 114, 97, 109], 4294967295),
-    4294967295),
-    18, find_name(rs, [111, 117, 116, 80, 97, 114, 97, 109], 4294967295),
-    4294967295),
-    19, find_name(rs, [115, 101, 109, 105, 79, 117, 116, 80, 97, 114, 97, 109],
-                  4294967295),
-    4294967295)
+  +roots : List<&2, U32> =
+    find_many(rs, [[81, 117, 111, 116], [78, 97, 116], [66, 111, 111, 108],
+                   [83, 116, 114, 105, 110, 103],
+                   [111, 112, 116, 80, 97, 114, 97, 109],
+                   [97, 117, 116, 111, 80, 97, 114, 97, 109],
+                   [111, 117, 116, 80, 97, 114, 97, 109],
+                   [115, 101, 109, 105, 79, 117, 116, 80, 97, 114, 97, 109]],
+              [0, 0, 0, 0, 0, 0, 0, 0], nones(8n))
+  +q : U32 = nth_or(roots, 0)
+  +n : U32 = nth_or(roots, 1)
+  +b : U32 = nth_or(roots, 2)
+  +un : List<&2, U32> =
+    find_many(rs, [[108, 105, 102, 116], [105, 110, 100], [109, 107],
+                   [122, 101, 114, 111], [115, 117, 99, 99],
+                   [97, 100, 100], [115, 117, 98], [98, 108, 101],
+                   [116, 114, 117, 101], [102, 97, 108, 115, 101],
+                   [109, 117, 108], [112, 111, 119], [100, 105, 118],
+                   [109, 111, 100], [98, 101, 113]],
+              [q, q, q, n, n, n, n, n, b, b, n, n, n, n, n], nones(15n))
+  set_keys([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15], un,
+    set_keys([10, 16, 17, 18, 19, 20],
+             [nth_or(roots, 3), nth_or(roots, 4), nth_or(roots, 5),
+              nth_or(roots, 6), nth_or(roots, 7), n], t))
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:

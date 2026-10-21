@@ -74,3 +74,14 @@ def set(-A: Data, fuel: Nat, +t: Tr<A>, +k: U32, +x: A,
       sub(A, here,
           TNode{x, pl, pr},
           sub(A, goleft, TNode{pv, nc, pr}, TNode{pv, pl, nc}))
+
+# a set only when `go`. `sub(go, set(..), t)` computes the set either way --
+# arguments are strict -- which made every whole-export table pass pay a
+# trie insertion per RECORD (init: 6.4M) instead of per relevant record
+def set_if(-A: Data, +go: Bool, +t: Tr<A>, +k: U32, +x: A,
+           +dflt: A) -> Tr<A>:
+  match go:
+    case True{}:
+      set(A, 64n, t, k, x, dflt)
+    case False{}:
+      t

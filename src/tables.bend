@@ -17,6 +17,17 @@ import ./level.bend as L
 import ./store.bend as K
 import ./trie.bend as R
 
+# The node is built and inserted only for a record of the right kind (a
+# Bool match: arguments are strict, so `R.sub(kind_ok, R.set(..), t)` paid
+# an insertion for every record of the export)
+def ex_step(+go: Bool, +t: R.Tr<T.Ex>, +ix: U32, +k: U32, +b: U32,
+            +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> R.Tr<T.Ex>:
+  match go:
+    case True{}:
+      R.set(T.Ex, 64n, t, ix, T.mk_ex(k, b, flds, sb), T.EBad{})
+    case False{}:
+      t
+
 def build_ex(rs: List<&2, D.Rec>, +t: R.Tr<T.Ex>) -> R.Tr<T.Ex>:
   match rs:
     case Nil{}:
@@ -26,11 +37,16 @@ def build_ex(rs: List<&2, D.Rec>, +t: R.Tr<T.Ex>) -> R.Tr<T.Ex>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           build_ex(tail,
-            R.sub(T.Ex, K.is_ex_kind(k),
-                  R.set(T.Ex, 64n, t, ix,
-                        T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb),
-                        T.EBad{}),
-                  t))
+            ex_step(K.is_ex_kind(k), t, ix, k, ((b1 * 256 : U32) + b2 : U32),
+                    flds, sb))
+
+def lv_step(+go: Bool, +t: R.Tr<T.Lvl>, +ix: U32, +k: U32,
+            +flds: List<&2, D.Fld>) -> R.Tr<T.Lvl>:
+  match go:
+    case True{}:
+      R.set(T.Lvl, 64n, t, ix, T.mk_lvl(k, flds), T.LZero{})
+    case False{}:
+      t
 
 def build_lv(rs: List<&2, D.Rec>, +t: R.Tr<T.Lvl>) -> R.Tr<T.Lvl>:
   match rs:
@@ -40,10 +56,7 @@ def build_lv(rs: List<&2, D.Rec>, +t: R.Tr<T.Lvl>) -> R.Tr<T.Lvl>:
       match head:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
-          build_lv(tail,
-            R.sub(T.Lvl, K.is_lvl_kind(k),
-                  R.set(T.Lvl, 64n, t, ix, T.mk_lvl(k, flds), T.LZero{}),
-                  t))
+          build_lv(tail, lv_step(K.is_lvl_kind(k), t, ix, k, flds))
 
 # Name index 0 is `Name.anonymous` and level index 0 is `Level.zero`; neither
 # is ever emitted, and the tries' defaults supply them.
@@ -56,8 +69,7 @@ def build_nt(ds: List<&2, K.Dcl>, +t: R.Tr<U32>) -> R.Tr<U32>:
       +nm = K.dcl_name(h)
       +ty = K.dcl_type(h)
       build_nt(tail,
-        R.sub(U32, U32.is_gt(nm, 0),
-              R.set(U32, 64n, t, nm, ty, 4294967295), t))
+        R.set_if(U32, U32.is_gt(nm, 0), t, nm, ty, 4294967295))
 
 def build_lp(ds: List<&2, K.Dcl>, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
   match ds:
@@ -67,9 +79,7 @@ def build_lp(ds: List<&2, K.Dcl>, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>
       +h = head
       +nm = K.dcl_name(h)
       build_lp(tail,
-        R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-              R.set(List<&2, U32>, 64n, t, nm, K.dcl_lparams(h), Nil{}),
-              t))
+        R.set_if(List<&2, U32>, U32.is_gt(nm, 0), t, nm, K.dcl_lparams(h), Nil{}))
 
 # Only `def` values are unfoldable. Theorem bodies are opaque in recent Lean,
 # and an `opaque` declaration is opaque by construction, so neither goes in.
@@ -129,8 +139,7 @@ def add_items_nt(items: List<&2, K.IItem>, +t: R.Tr<U32>) -> R.Tr<U32>:
       +h = head
       +nm = item_name(h)
       add_items_nt(tail,
-        R.sub(U32, U32.is_gt(nm, 0),
-              R.set(U32, 64n, t, nm, item_type(h), 4294967295), t))
+        R.set_if(U32, U32.is_gt(nm, 0), t, nm, item_type(h), 4294967295))
 
 def add_items_lp(items: List<&2, K.IItem>,
                  +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
@@ -141,8 +150,7 @@ def add_items_lp(items: List<&2, K.IItem>,
       +h = head
       +nm = item_name(h)
       add_items_lp(tail,
-        R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-              R.set(List<&2, U32>, 64n, t, nm, item_lps(h), Nil{}), t))
+        R.set_if(List<&2, U32>, U32.is_gt(nm, 0), t, nm, item_lps(h), Nil{}))
 
 # --- adding one declaration to the environment --------------------------
 # A declaration is only in scope for the ones AFTER it. Building the tables
@@ -156,8 +164,7 @@ def add_nt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
       add_items_nt(items, t)
     case _:
       +nm = K.dcl_name(d)
-      R.sub(U32, U32.is_gt(nm, 0),
-            R.set(U32, 64n, t, nm, K.dcl_type(d), 4294967295), t)
+      R.set_if(U32, U32.is_gt(nm, 0), t, nm, K.dcl_type(d), 4294967295)
 
 def add_lp(+d: K.Dcl, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
   match d:
@@ -165,8 +172,7 @@ def add_lp(+d: K.Dcl, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
       add_items_lp(items, t)
     case _:
       +nm = K.dcl_name(d)
-      R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-            R.set(List<&2, U32>, 64n, t, nm, K.dcl_lparams(d), Nil{}), t)
+      R.set_if(List<&2, U32>, U32.is_gt(nm, 0), t, nm, K.dcl_lparams(d), Nil{})
 
 def add_vt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
   match d:

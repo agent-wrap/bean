@@ -160,14 +160,13 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
-  +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.add_hts(recs, K.build_wk4(recs, R.TNil{}))
+  # Nat (key 20) and String (key 10) come from build_wk4's two passes
+  +wk = K.build_wk4(recs, R.TNil{})
+  +natn : U32 = R.get(U32, 64n, wk, 20, 4294967295)
+  +strn : U32 = R.get(U32, 64n, wk, 10, 4294967295)
+  +qtt = K.add_hts(recs, wk)
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
-                    natn,
-                    K.find_name(recs,
-                                [83, 116, 114, 105, 110, 103],
-                                4294967295),
-                    qtt}
+                    natn, strn, qtt}
   +strt = C.build_str(ds, R.TNil{})
   C.comb(C.comb(C.pre_check(ds),
                 C.comb(C.bad_v(C.scan_consts(nex, 0, ex, dn, False{})),

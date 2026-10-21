@@ -75,13 +75,23 @@ def mem(+v: U32, xs: List<&2, U32>) -> Bool:
     case Con{head, tail}:
       U32.is_eq(head, v) || mem(v, tail)
 
-def has_dup(xs: List<&2, U32>) -> Bool:
+# one pass with a trie of the names seen so far (a pairwise `mem` scan was
+# quadratic: 44 s of init's 58k declarations)
+def has_dup_go(xs: List<&2, U32>, +hit: Bool, +seen: R.Tr<Bool>) -> Bool:
   match xs:
     case Nil{}:
-      False{}
+      hit
     case Con{head, tail}:
-      +t = tail
-      mem(head, t) || has_dup(t)
+      match hit:
+        case True{}:
+          True{}
+        case False{}:
+          +h = head
+          has_dup_go(tail, R.get(Bool, 64n, seen, h, False{}),
+                     R.set(Bool, 64n, seen, h, True{}, False{}))
+
+def has_dup(xs: List<&2, U32>) -> Bool:
+  has_dup_go(xs, False{}, R.TNil{})
 
 def dcl_all_nms(+d: K.Dcl) -> List<&2, U32>:
   match d:

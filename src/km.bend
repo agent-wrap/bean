@@ -1970,7 +1970,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +hyh : U32 = khgt(q2, nb)
       +samehd : Bool = Bool.not(U32.is_eq(na, 4294967295))
                        && U32.is_eq(na, nb)
-                       && I.eq_u32s(kcus(ha), kcus(hb))
+                       && L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt))
                        && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       km(p, KCon{LZ6{samehd, sa, sb,
                      cx && (Bool.not(cy) || U32.is_ge(hxh, hyh)),
@@ -2159,7 +2159,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           +same : Bool = L.tri_is_yes(L.ln_cmp(old, u))
           +nl : U32 = nlx
           km(p, k,
-             R.sub(L.LN, same, lnt, R.set(L.LN, 64n, lnt, nl, u, L.LNun{})),
+             R.set_if(L.LN, Bool.not(same), lnt, nl, u, L.LNun{}),
              S.pick(same, nl, (nl + 1 : U32)), mt, lp, vt, qtt, natn, wm, nt, hcb,
              ksort3(same, fs, nl, e, hcb))
         case T.EConst{n, us}:
@@ -2954,7 +2954,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # level lists is a conservative sufficient test
       +samehd : Bool = Bool.not(U32.is_eq(nmx, 4294967295))
                        && U32.is_eq(nmx, nmy)
-                       && I.eq_u32s(kcus(hx2), kcus(hy2))
+                       && L.tri_is_yes(I.eq_lvls(kcus(hx2), kcus(hy2), lnt))
                        && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
       +f12 : U32 = f1
       +f22 : U32 = f2
@@ -3044,7 +3044,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +sb : List<&2, U32> = sargs
       +gate : Bool = Bool.not(U32.is_eq(kcn(ha), 4294967295))
                      && U32.is_eq(kcn(ha), kcn(hb))
-                     && I.eq_u32s(kcus(ha), kcus(hb))
+                     && L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt))
                      && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       km(p, KCon{DAqH3{gate, sa, sb, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
@@ -3086,7 +3086,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +sb : List<&2, U32> = sargs
       +gate : Bool = Bool.not(U32.is_eq(kcn(ha), 4294967295))
                      && U32.is_eq(kcn(ha), kcn(hb))
-                     && I.eq_u32s(kcus(ha), kcus(hb))
+                     && L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt))
                      && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       # bail (abandon) when both are applications and NEITHER head is a
       # constructor: comparing would need unfolding two defined functions
