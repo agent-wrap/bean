@@ -39,6 +39,13 @@ type Meta is Data:
   # projection rule in `infer`.
   MInd{p: U32, nf: U32, cty: U32, pr: U32, ppx: U32}
 
+def pick_meta(+z: Bool, +x: Meta, +y: Meta) -> Meta:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
 def meta_is_rec(+m: Meta) -> Bool:
   match m:
     case MRec{p, k, n, ind, kf, cty}:

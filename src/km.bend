@@ -1349,6 +1349,13 @@ def kprojb(n: Nat, +i: U32, +tn: U32, +yi: U32,
 
 # STUCK: nothing can reduce this term's head (infer.bend's rigid), with the
 # spine head supplied by the caller
+def kpick_tr(+z: Bool, +x: R.Tr<U32>, +y: R.Tr<U32>) -> R.Tr<U32>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
 def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
   match x:
     case T.ESort{l}:
@@ -2012,12 +2019,23 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +p2 : U32 = pp
       +i2 : U32 = ind
       +cmi : I.Meta = R.get(I.Meta, 32n, mt, I.const_nm2(hd), I.MNone{})
+      # The major premise IS a constructor application, but of a different
+      # inductive: a nested inductive's auxiliary recursor (Lean.Syntax.rec_2
+      # on List.nil). Lean reduces it by the recursor rule; this iota does
+      # not, so the term is NOT stuck, only beyond us. A NO built on it is
+      # unsound (it rejected Lean.Syntax.brecOn.go in init-prelude): flag
+      # the declaration INCOMPLETE so a reject becomes a decline.
+      +other : Bool = I.meta_is_ctor(cmi)
+                      && Bool.not(U32.is_eq(I.meta_ind(cmi), i2))
+      +wm2 : R.Tr<U32> = kpick_tr(other,
+                                  R.set(U32, 64n, wm, 4294967292, 1,
+                                        4294967295), wm)
       km(p, KCon{WIGo{I.meta_is_ctor(cmi)
                       && U32.is_eq(I.meta_ind(cmi), i2),
                       I.skip_u(sargs, p2), I.meta_recs(cmi),
                       I.meta_ci(cmi), I.meta_ccty(cmi), need, p2, mk, cn,
                       us, can, delta, vi, ps, qs, e, args, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm2, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{WIGo{True{}, fields, recsl, ci, ccty, need, pp, mk, cn,
                         us, can, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:

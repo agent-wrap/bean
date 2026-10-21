@@ -1658,12 +1658,35 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
       t
     case Con{head, tail}:
       match head:
+        # A NESTED block's recursors (numMotives > 1: Lean.Syntax.rec and
+        # its auxiliaries rec_1/rec_2 over Array/List) take several motives
+        # and more minors, so "params + 1 + #ctors + indices" points at a
+        # minor, not the major premise; and the built-in iota below assumes
+        # a non-nested block (minor at params+1+cidx, IHs from this block
+        # only). For those the major position is read off the recursor's own
+        # type (binders - 1, encoded so params+1+n+indices lands on it) and
+        # the inductive is a SENTINEL, so that iota never fires: a
+        # constructor major then flags the declaration INCOMPLETE (km WI3)
+        # instead of producing a wrong reduct or a "stuck" term to deny.
         case K.IRec{nm, lps, ty, rp, rni, nmo, kf}:
+          +pty = ty
+          +prp = rp
+          +prni = rni
+          +pkf = kf
+          +nested : Bool = Bool.not(U32.is_eq(nmo, 1))
+          +tot : U32 = I.len_u(tele_doms(256n, ex, U.ex_at(ex, pty), Nil{}),
+                               0)
           meta_items(tail, allit, ex, ind, np, ni, nc,
                      R.set(I.Meta, 32n, t, nm,
-                           I.MRec{np, ni, nc, ind, kf,
-                                  ctor_ty_by_cidx(allit, ind, 0,
-                                                  4294967295)},
+                           I.pick_meta(nested,
+                             I.MRec{prp, prni,
+                                    (tot - 2 - prp - prni : U32),
+                                    4294967293, pkf,
+                                    ctor_ty_by_cidx(allit, ind, 0,
+                                                    4294967295)},
+                             I.MRec{np, ni, nc, ind, pkf,
+                                    ctor_ty_by_cidx(allit, ind, 0,
+                                                    4294967295)}),
                            I.MNone{}))
         case K.ICtor{nm, lps, ty, ind2, cnp, nf, ci}:
           +pcnp = cnp
