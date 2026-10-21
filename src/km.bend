@@ -244,6 +244,35 @@ type KF is Data:
   DAq5{d1: L.Tri, w3: U32, a1: U32, a2: U32, xi: U32, yi: U32,
        ctx: List<&2, U32>, fu: U32}
   DAq6{d1: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
+  # DAqGo{True} argument congruence (Lean's is_def_eq_args): if BOTH
+  # arguments are applications of the same constant (same levels, same
+  # arity), walk a worklist of argument pairs: same-head pairs are expanded,
+  # any other pair is a leaf compared by full whnf + defeq. All leaves YES =>
+  # YES (congruence). The first non-YES abandons the attempt and falls back
+  # to the unchanged whnf+defeq path -- never trusted as NO.
+  DAqH1{a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DAqH2{h1: T.Ex, s1: List<&2, U32>, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
+  DAqH3{gate: Bool, s1: List<&2, U32>, s2: List<&2, U32>, a1: U32, a2: U32,
+        xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgL{xs: List<&2, U32>, ys: List<&2, U32>, a1: U32, a2: U32, xi: U32,
+       yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgS1{x: U32, y: U32, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32,
+        a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgS2{h1: T.Ex, s1: List<&2, U32>, x: U32, y: U32, xt: List<&2, U32>,
+        yt: List<&2, U32>, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
+  DCgS3{gate: Bool, s1: List<&2, U32>, s2: List<&2, U32>, x: U32, y: U32,
+        xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32, xi: U32,
+        yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgW1{y: U32, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
+        xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgW2{wx: U32, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
+        xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgK{xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32, xi: U32,
+       yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgK2{yes: Bool, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
+        xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # lazy-delta args-first (Lean's isDefEqArgs): collect both spines; if the
   # heads are the SAME constant with equal arity, compare arguments pairwise
   # by defeq. All-yes answers YES soundly (congruence); anything else FALLS
@@ -1378,6 +1407,32 @@ def knat_shape(+x: T.Ex) -> U32:
     case _:
       0
 
+# head constant name, SENTINEL (not 0) when the node is not a constant --
+# I.const_nm2 answers 0 for non-constants, which made two different bound-
+# variable heads compare as "the same head"
+def kcn(+x: T.Ex) -> U32:
+  match x:
+    case T.EConst{n, us}:
+      n
+    case _:
+      4294967295
+
+# a constant's universe-level indices (Nil for non-constants)
+def kcus(+x: T.Ex) -> List<&2, U32>:
+  match x:
+    case T.EConst{n, us}:
+      us
+    case _:
+      Nil{}
+
+# list append, for the congruence worklist
+def kapp_u(xs: List<&2, U32>, ys: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      ys
+    case Con{head, tail}:
+      Con{head, kapp_u(tail, ys)}
+
 # the structure argument index of a projection node (sentinel if not EProj)
 def kproj_s(+x: T.Ex) -> U32:
   match x:
@@ -2133,12 +2188,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, yi2, ri))
     case 1n+p KCon{DLz2{hx, sx, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +nmx : U32 = I.const_nm2(hx)
-      +nmy : U32 = I.const_nm2(hd)
+      +hx2 : T.Ex = hx
+      +hy2 : T.Ex = hd
+      +nmx : U32 = kcn(hx2)
+      +nmy : U32 = kcn(hy2)
       +sx2 : List<&2, U32> = sx
       +sy2 : List<&2, U32> = sargs
+      # same head = the SAME constant with the SAME universe levels (Lean's
+      # lazy_delta step also requires is_def_eq on the levels); index-equal
+      # level lists is a conservative sufficient test
       +samehd : Bool = Bool.not(U32.is_eq(nmx, 4294967295))
                        && U32.is_eq(nmx, nmy)
+                       && I.eq_u32s(kcus(hx2), kcus(hy2))
                        && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
       +f12 : U32 = f1
       +f22 : U32 = f2
@@ -2213,8 +2274,105 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DAqGo{True{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +a12 : U32 = a1
-      km(p, KCon{DWhd{a12}, KCon{DAq4{L.TYes{}, a12, a2, xi, yi, ctx, fu},
-                                 k}},
+      km(p, KCon{DAqH1{a12, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, kspine_tin(fs, a12, ri))
+    case 1n+p KCon{DAqH1{a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +a22 : U32 = a2
+      km(p, KCon{DAqH2{hd, sargs, a1, a22, xi, yi, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, a22, ri))
+    case 1n+p KCon{DAqH2{h1, s1, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +ha : T.Ex = h1
+      +hb : T.Ex = hd
+      +sa : List<&2, U32> = s1
+      +sb : List<&2, U32> = sargs
+      +gate : Bool = Bool.not(U32.is_eq(kcn(ha), 4294967295))
+                     && U32.is_eq(kcn(ha), kcn(hb))
+                     && I.eq_u32s(kcus(ha), kcus(hb))
+                     && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
+      km(p, KCon{DAqH3{gate, sa, sb, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DAqH3{True{}, s1, s2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DCgL{s1, s2, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DAqH3{False{}, s1, s2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DWhd{a1}, KCon{DAq4{L.TYes{}, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # congruence worklist
+    case 1n+p KCon{DCgL{Nil{}, Nil{}, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DAq6{L.TYes{}, xi, yi, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DCgL{Con{x, xt}, Con{y, yt}, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DCgS1{x2, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+    case 1n+p KCon{DCgL{xs, ys, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DWhd{a1}, KCon{DAq4{L.TYes{}, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCgS1{x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +y2 : U32 = y
+      km(p, KCon{DCgS2{hd, sargs, x, y2, xt, yt, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, ri))
+    case 1n+p KCon{DCgS2{h1, s1, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +ha : T.Ex = h1
+      +hb : T.Ex = hd
+      +sa : List<&2, U32> = s1
+      +sb : List<&2, U32> = sargs
+      +gate : Bool = Bool.not(U32.is_eq(kcn(ha), 4294967295))
+                     && U32.is_eq(kcn(ha), kcn(hb))
+                     && I.eq_u32s(kcus(ha), kcus(hb))
+                     && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
+      km(p, KCon{DCgS3{gate, sa, sb, x, y, xt, yt, a1, a2, xi, yi, ctx, fu},
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # same head: expand the argument pairs onto the worklist
+    case 1n+p KCon{DCgS3{True{}, s1, s2, x, y, xt, yt, a1, a2, xi, yi, ctx,
+                         fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DCgL{kapp_u(s1, xt), kapp_u(s2, yt), a1, a2, xi, yi, ctx,
+                      fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # leaf: full whnf both sides (defeq's precondition), then defeq
+    case 1n+p KCon{DCgS3{False{}, s1, s2, x, y, xt, yt, a1, a2, xi, yi, ctx,
+                         fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DWhd{x2}, KCon{DCgW1{y, xt, yt, a1, a2, xi, yi, ctx, fu},
+                                k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCgW1{y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      +y2 : U32 = y
+      km(p, KCon{DWhd{y2}, KCon{DCgW2{wx, xt, yt, a1, a2, xi, yi, ctx, fu},
+                                k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DCgW2{wx, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{U32.is_eq((fu - 1 : U32), 4294967295),
+                      U32.is_eq(wx2, wy), wx2, wy, c2, (fu - 1 : U32)},
+                 KCon{DCgK{xt, yt, a1, a2, xi, yi, c2, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DCgK{xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{DCgK2{L.tri_is_yes(t), xt, yt, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCgK2{True{}, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DCgL{xt, yt, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCgK2{False{}, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DWhd{a1}, KCon{DAq4{L.TYes{}, a1, a2, xi, yi, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # immediate functions differ: try args-first (same spine-head constant,
     # arguments convertible) BEFORE unfolding. Collect both spines; if that
