@@ -42,7 +42,7 @@ def is_typed(+d: K.Dcl) -> Bool:
 def refs(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (ex, basenx)
+      (ex, (basenx + 65536 : U32))
 
 # one pipelined loop: the machine verdict of declaration i arrives at
 # iteration i+1 through `fr` and is compared against the trie verdict saved
@@ -86,7 +86,7 @@ def fkd(ds: List<&2, K.Dcl>, +n: U32, +st: I.IS, +mt: R.Tr<I.Meta>,
                                K.dcl_is_theorem(h2),
                                S.pick(ist, K.dcl_type(h2), 4294967295),
                                S.pick(ist, K.dcl_value(h2),
-                                      4294967295))))
+                                      4294967295), basenx)))
 
 def fjd(+recs: List<&2, D.Rec>) -> String:
   +ds = K.decls_of(recs, Nil{})
@@ -103,7 +103,7 @@ def fjd(+recs: List<&2, D.Rec>) -> String:
                                 4294967295), qtt}
   fkd(ds, 0, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{}, R.TNil{},
       R.TNil{}, nx, natn, qtt, 0, 4294967295, 9, 9, 0, False{},
-      ((F.fb_ex(recs, Array.new(T.Ex, Nat.add(F.fdepth(nx), 4n),
+      ((F.fb_ex(recs, Array.new(T.Ex, Nat.add(F.fdepth((nx + 131072 : U32)), 1n),
                                 T.EBad{})), nx), 0))
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
