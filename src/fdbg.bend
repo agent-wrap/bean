@@ -84,8 +84,13 @@ def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       +inc : U32 = S.pick(U32.is_eq(R.get(U32, 64n, w2, 4294967292,
                                           4294967295), 4294967295), 0, 16)
       +v2 : U32 = v
-      (fs, (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc + cor
-            : U32))
+      # probe breadcrumb (key 4294967290): its value replaces the code,
+      # offset by 512 so it stays readable after the name*1024 packing
+      +pr : U32 = R.get(U32, 64n, w2, 4294967290, 4294967295)
+      (fs, S.pick(U32.is_eq(pr, 4294967295),
+                  (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
+                   + cor : U32),
+                  (512 + pr : U32)))
 
 def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & U32:
   (fs, c)
