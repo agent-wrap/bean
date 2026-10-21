@@ -283,7 +283,7 @@ def build_nm(rs: List<&2, D.Rec>, +t: R2.Tr<T.Nm>) -> R2.Tr<T.Nm>:
           +k = kind
           build_nm(tail,
             R2.sub(T.Nm, is_nm_kind(k),
-                   R2.set(T.Nm, 32n, t, ix, T.mk_nm(k, flds, sb),
+                   R2.set(T.Nm, 64n, t, ix, T.mk_nm(k, flds, sb),
                           T.NAnon{}), t))
 
 # --- reducibility heights ------------------------------------------------
@@ -317,7 +317,7 @@ def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
           +fs = flds
           build_ht(tail,
             R2.sub(U32, U32.is_eq(k, 99333),
-                   R2.set(U32, 32n, t, T.fld(fs, 3373707, 0),
+                   R2.set(U32, 64n, t, T.fld(fs, 3373707, 0),
                           height_of(fs), 4294967295), t))
 
 # --- finding a name by its text ------------------------------------------
@@ -382,8 +382,8 @@ def find_under(+rs: List<&2, D.Rec>, +pre: U32, +want: List<&2, U32>,
 
 def build_quot(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +q = find_name(rs, [81, 117, 111, 116], 4294967295)
-  R2.set(U32, 32n, R2.set(U32, 32n,
-           R2.set(U32, 32n, t, 0,
+  R2.set(U32, 64n, R2.set(U32, 64n,
+           R2.set(U32, 64n, t, 0,
                   find_under(rs, q, [108, 105, 102, 116], 4294967295),
                   4294967295),
            1, find_under(rs, q, [105, 110, 100], 4294967295), 4294967295),
@@ -393,8 +393,8 @@ def build_quot(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
 # with a numeral in constructor form.
 def build_wk(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +n = find_name(rs, [78, 97, 116], 4294967295)
-  R2.set(U32, 32n,
-         R2.set(U32, 32n, build_quot(rs, t), 3,
+  R2.set(U32, 64n,
+         R2.set(U32, 64n, build_quot(rs, t), 3,
                 find_under(rs, n, [122, 101, 114, 111], 4294967295),
                 4294967295),
          4, find_under(rs, n, [115, 117, 99, 99], 4294967295), 4294967295)
@@ -405,12 +405,12 @@ def build_wk(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
 def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +n = find_name(rs, [78, 97, 116], 4294967295)
   +b = find_name(rs, [66, 111, 111, 108], 4294967295)
-  R2.set(U32, 32n,
-  R2.set(U32, 32n,
-    R2.set(U32, 32n,
-      R2.set(U32, 32n,
-        R2.set(U32, 32n,
-          R2.set(U32, 32n, build_wk(rs, t), 5,
+  R2.set(U32, 64n,
+  R2.set(U32, 64n,
+    R2.set(U32, 64n,
+      R2.set(U32, 64n,
+        R2.set(U32, 64n,
+          R2.set(U32, 64n, build_wk(rs, t), 5,
                  find_under(rs, n, [97, 100, 100], 4294967295), 4294967295),
           6, find_under(rs, n, [115, 117, 98], 4294967295), 4294967295),
         7, find_under(rs, n, [98, 108, 101], 4294967295), 4294967295),
@@ -425,11 +425,11 @@ def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
 # the literal operations Lean's kernel computes directly
 def build_wk3(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +n = find_name(rs, [78, 97, 116], 4294967295)
-  R2.set(U32, 32n,
-  R2.set(U32, 32n,
-  R2.set(U32, 32n,
-  R2.set(U32, 32n,
-  R2.set(U32, 32n, build_wk2(rs, t),
+  R2.set(U32, 64n,
+  R2.set(U32, 64n,
+  R2.set(U32, 64n,
+  R2.set(U32, 64n,
+  R2.set(U32, 64n, build_wk2(rs, t),
     11, find_under(rs, n, [109, 117, 108], 4294967295), 4294967295),
     12, find_under(rs, n, [112, 111, 119], 4294967295), 4294967295),
     13, find_under(rs, n, [100, 105, 118], 4294967295), 4294967295),
@@ -450,7 +450,7 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
           +fs = flds
           add_hts(tail,
             R2.sub(U32, U32.is_eq(k, 99333),
-                   R2.set(U32, 32n, t,
+                   R2.set(U32, 64n, t,
                           (T.fld(fs, 3373707, 0) + 2147483648 : U32),
                           height_of(fs), 4294967295), t))
 

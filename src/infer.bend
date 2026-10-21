@@ -235,7 +235,7 @@ def is_qt_t(+s: IS) -> R.Tr<U32>:
 
 # The quotient names: 0 = `Quot.lift`, 1 = `Quot.ind`, 2 = `Quot.mk`.
 def is_qt(+s: IS, +i: U32) -> U32:
-  R.get(U32, 32n, is_qt_t(s), i, 4294967295)
+  R.get(U32, 64n, is_qt_t(s), i, 4294967295)
 
 def ir_st(+r: IR) -> IS:
   match r:
@@ -289,7 +289,7 @@ def lns_of(us: List<&2, U32>, +ln: R.Tr<L.LN>) -> List<&2, L.LN>:
     case Nil{}:
       Nil{}
     case Con{head, tail}:
-      Con{R.get(L.LN, 32n, ln, head, L.LNun{}), lns_of(tail, ln)}
+      Con{R.get(L.LN, 64n, ln, head, L.LNun{}), lns_of(tail, ln)}
 
 # A bound variable's type is its context entry; its universe is that entry's
 # level when the entry is a Sort. Anything else needs reduction.
@@ -297,17 +297,17 @@ def sl_bvar(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +ctx: List<&2, U32>,
             +i: U32) -> L.LN:
   +tx = R.get(T.Ex, 64n, ex, nth_u(ctx, i, 4294967295), T.EBad{})
   L.pick_ln(is_sortx(tx),
-            R.get(L.LN, 32n, ln, sort_lvl_of(tx), L.LNun{}), L.LNun{})
+            R.get(L.LN, 64n, ln, sort_lvl_of(tx), L.LNun{}), L.LNun{})
 
 # A constant's type is the declared type of the name, read under the level
 # substitution the `const` carries.
 def sl_const(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
              +lp: R.Tr<List<&2, U32>>, +n: U32,
              +us: List<&2, U32>) -> L.LN:
-  +tx = R.get(T.Ex, 64n, ex, R.get(U32, 32n, nt, n, 4294967295), T.EBad{})
+  +tx = R.get(T.Ex, 64n, ex, R.get(U32, 64n, nt, n, 4294967295), T.EBad{})
   L.pick_ln(is_sortx(tx),
-            L.ln_subst(R.get(L.LN, 32n, ln, sort_lvl_of(tx), L.LNun{}),
-                       R.get(List<&2, U32>, 32n, lp, n, Nil{}),
+            L.ln_subst(R.get(L.LN, 64n, ln, sort_lvl_of(tx), L.LNun{}),
+                       R.get(List<&2, U32>, 64n, lp, n, Nil{}),
                        lns_of(us, ln)),
             L.LNun{})
 
@@ -379,7 +379,7 @@ def sl_const_us(+x: T.Ex) -> List<&2, U32>:
 def sl_head_ty(+hd: T.Ex, +nt: R.Tr<U32>, +ctx: List<&2, U32>) -> U32:
   match hd:
     case T.EConst{n, us}:
-      R.get(U32, 32n, nt, n, 4294967295)
+      R.get(U32, 64n, nt, n, 4294967295)
     case T.EBVar{i}:
       nth_u(ctx, i, 4294967295)
     case _:
@@ -394,8 +394,8 @@ def sl_app(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
   +res = sl_tele_after(U32.to_nat(sl_nargs(256n, ex, x, 0)), ex,
                        R.get(T.Ex, 64n, ex, ti, T.EBad{}))
   L.pick_ln(Bool.not(U32.is_eq(ti, 4294967295)) && is_sortx(res),
-            L.ln_subst(R.get(L.LN, 32n, ln, sort_lvl_of(res), L.LNun{}),
-                       R.get(List<&2, U32>, 32n, lp, nm, Nil{}),
+            L.ln_subst(R.get(L.LN, 64n, ln, sort_lvl_of(res), L.LNun{}),
+                       R.get(List<&2, U32>, 64n, lp, nm, Nil{}),
                        lns_of(sl_const_us(hd), ln)),
             L.LNun{})
 
@@ -405,7 +405,7 @@ def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
     case 0n _:
       L.LNun{}
     case 1n+p T.ESort{l}:
-      L.ln_succ(R.get(L.LN, 32n, ln, l, L.LNun{}))
+      L.ln_succ(R.get(L.LN, 64n, ln, l, L.LNun{}))
     case 1n+p T.EAll{n, t, b, bi}:
       +pt = t
       +pf = p
@@ -455,7 +455,7 @@ def not_a_type(+ex: R.Tr<T.Ex>, +nt: R.Tr<U32>, +x: T.Ex) -> Bool:
       True{}
     case T.EConst{n, us}:
       head_not_sort(R.get(T.Ex, 64n, ex,
-                          R.get(U32, 32n, nt, n, 4294967295), T.EBad{}))
+                          R.get(U32, 64n, nt, n, 4294967295), T.EBad{}))
     case _:
       False{}
 
@@ -504,8 +504,8 @@ def eq_lvls(us: List<&2, U32>, vs: List<&2, U32>, +ln: R.Tr<L.LN>) -> L.Tri:
     case Nil{} Nil{}:
       L.TYes{}
     case Con{a, as} Con{b, bs}:
-      tri_and(L.ln_cmp(R.get(L.LN, 32n, ln, a, L.LNun{}),
-                       R.get(L.LN, 32n, ln, b, L.LNun{})),
+      tri_and(L.ln_cmp(R.get(L.LN, 64n, ln, a, L.LNun{}),
+                       R.get(L.LN, 64n, ln, b, L.LNun{})),
               eq_lvls(as, bs, ln))
     case _ _:
       L.TUnk{}
@@ -533,8 +533,8 @@ def eq_ex(+fuel: Nat, +same: Bool, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
     case 1n+p True{} _ _:
       L.TYes{}
     case 1n+p False{} T.ESort{a} T.ESort{b}:
-      L.ln_cmp(R.get(L.LN, 32n, ln, a, L.LNun{}),
-               R.get(L.LN, 32n, ln, b, L.LNun{}))
+      L.ln_cmp(R.get(L.LN, 64n, ln, a, L.LNun{}),
+               R.get(L.LN, 64n, ln, b, L.LNun{}))
     case 1n+p False{} T.EBVar{a} T.EBVar{b}:
       L.pick_tri(U32.is_eq(a, b), L.TYes{}, L.TUnk{})
     case 1n+p False{} T.EConst{a, us} T.EConst{b, vs}:
@@ -624,7 +624,7 @@ def all_bi(+x: T.Ex) -> U32:
 def alloc_lvl(+s: IS, +u: L.LN) -> IR:
   match s:
     case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
-      IR{IS{ex, nx, R.set(L.LN, 32n, lnt, nlx, u, L.LNun{}),
+      IR{IS{ex, nx, R.set(L.LN, 64n, lnt, nlx, u, L.LNun{}),
             (nlx + 1 : U32), wm, ht, natn, strn, qt}, nlx, True{}}
 
 def alloc_ex(+s: IS, +x: T.Ex) -> IR:
@@ -678,7 +678,7 @@ def lsub_lvls(us: List<&2, U32>, +st: IS, +ps: List<&2, U32>,
     case Nil{}:
       LS{st, Nil{}}
     case Con{head, tail}:
-      +rl = alloc_lvl(st, L.ln_subst(R.get(L.LN, 32n, is_lnt(st), head,
+      +rl = alloc_lvl(st, L.ln_subst(R.get(L.LN, 64n, is_lnt(st), head,
                                            L.LNun{}), ps, qs))
       +rest = lsub_lvls(tail, ir_st(rl), ps, qs)
       LS{ls_st(rest), Con{ir_ty(rl), ls_xs(rest)}}
@@ -692,7 +692,7 @@ def lsubst(+fuel: Nat, +st: IS, +x: T.Ex, +e: U32, +ps: List<&2, U32>,
     case 0n _:
       keep_ir(st, e)
     case 1n+p T.ESort{l}:
-      +old = R.get(L.LN, 32n, is_lnt(st), l, L.LNun{})
+      +old = R.get(L.LN, 64n, is_lnt(st), l, L.LNun{})
       +u = L.ln_subst(old, ps, qs)
       pick_ir(L.tri_is_yes(L.ln_cmp(old, u)), keep_ir(st, e),
               alloc_sort(st, u))
@@ -1076,7 +1076,7 @@ def rebuild(args: List<&2, U32>, +st: IS, +h: U32) -> IR:
 def unfold_const(+st: IS, +lp: R.Tr<List<&2, U32>>, +n: U32, +vi: U32,
                  +us: List<&2, U32>) -> IR:
   lsubst(256n, st, U.ex_at(is_ex(st), vi), vi,
-         R.get(List<&2, U32>, 32n, lp, n, Nil{}), lns_of(us, is_lnt(st)))
+         R.get(List<&2, U32>, 64n, lp, n, Nil{}), lns_of(us, is_lnt(st)))
 
 def iota_tgt(+ok2: Bool, +can: Bool, +st: IS, +lp: R.Tr<List<&2, U32>>,
              +n: U32, +us: List<&2, U32>, +vi: U32,
@@ -1470,7 +1470,7 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
     # arguments and this does not build them.
     case 1n+p T.EConst{n, us} _:
       +pf = p
-      +mi = R.get(Meta, 32n, mt, n, MNone{})
+      +mi = R.get(Meta, 64n, mt, n, MNone{})
       +pp = meta_p(mi)
       # The major premise sits after params, motive, minors AND indices.
       +need = (pp + 1 + meta_n(mi) + meta_k(mi) : U32)
@@ -1501,11 +1501,11 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
                       is_qt(st, 3), is_qt(st, 4))
       +exm = is_ex(ir_st(wm))
       +mnode = U.ex_at(exm, ir_ty(wm))
-      +cmi = R.get(Meta, 32n, mt,
+      +cmi = R.get(Meta, 64n, mt,
                    const_nm2(spine_hd(256n, exm, mnode)), MNone{})
       +ok2 = canio && meta_is_ctor(cmi)
              && U32.is_eq(meta_ind(cmi), meta_ind(mi))
-      +vi = R.get(U32, 32n, vt, n, 4294967295)
+      +vi = R.get(U32, 64n, vt, n, 4294967295)
       # Delta happens only when the caller allows it. `defeq` turns it
       # off so it can drive unfolding itself, by height.
       +can = delta && U32.is_ne(vi, 4294967295)
@@ -1539,7 +1539,7 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       # one constructor and no indices. `113_indexedStructEta` (indices) and
       # `125_accRecNoEta` (recursive, with fields) are exactly the exports
       # that must not get this, and neither qualifies.
-      +uind = R.get(Meta, 32n, mt, meta_ind(mi), MNone{})
+      +uind = R.get(Meta, 64n, mt, meta_ind(mi), MNone{})
       +isue = meta_is_rec(mi) && meta_is_ind(uind)
               && U32.is_eq(meta_nf(uind), 0)
               && U32.is_eq(meta_k(mi), 0)
@@ -1608,7 +1608,7 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       +ws = whnf(pf, delta, st, mt, lp, vt, U.ex_at(is_ex(st), sx), sx, Nil{})
       +exz = is_ex(ir_st(ws))
       +snode = U.ex_at(exz, ir_ty(ws))
-      +cmi = R.get(Meta, 32n, mt,
+      +cmi = R.get(Meta, 64n, mt,
                    const_nm2(spine_hd(256n, exz, snode)), MNone{})
       # Off, on measurement -- the one feature here whose cost is real and
       # not an artefact. Reduction re-reduces the same structure for every
@@ -1829,11 +1829,11 @@ def cdeny(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     case T.EConst{n1, u1} T.EConst{n2, u2}:
       +pn1 = n1
       +pn2 = n2
-      +t1 = R.get(U32, 32n, nt, pn1, 4294967295)
-      +t2 = R.get(U32, 32n, nt, pn2, 4294967295)
+      +t1 = R.get(U32, 64n, nt, pn1, 4294967295)
+      +t2 = R.get(U32, 64n, nt, pn2, 4294967295)
       Bool.not(U32.is_eq(pn1, pn2))
-      && U32.is_eq(R.get(U32, 32n, vt, pn1, 4294967295), 4294967295)
-      && U32.is_eq(R.get(U32, 32n, vt, pn2, 4294967295), 4294967295)
+      && U32.is_eq(R.get(U32, 64n, vt, pn1, 4294967295), 4294967295)
+      && U32.is_eq(R.get(U32, 64n, vt, pn2, 4294967295), 4294967295)
       && Bool.not(U32.is_eq(t1, 4294967295))
       && L.tri_is_yes(eq_ex(256n, U32.is_eq(t1, t2), is_ex(st),
                             is_lnt(st), U.ex_at(is_ex(st), t1),
@@ -1867,7 +1867,7 @@ def k_idx_cmp(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
 def ctor_headed(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   match x:
     case T.EApp{f, a}:
-      meta_is_ctor(R.get(Meta, 32n, mt,
+      meta_is_ctor(R.get(Meta, 64n, mt,
                          const_nm2(spine_hd(256n, is_ex(st),
                                             T.EApp{f, a})), MNone{}))
     case _:
@@ -1887,7 +1887,7 @@ def ctor_headed(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
 def rec_stuck(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
               +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   +hd = spine_hd(256n, is_ex(st), x)
-  +mi = R.get(Meta, 32n, mt, const_nm2(hd), MNone{})
+  +mi = R.get(Meta, 64n, mt, const_nm2(hd), MNone{})
   +args = spine_ar(256n, is_ex(st), x, Nil{})
   +pp = meta_p(mi)
   +ni = meta_k(mi)
@@ -1897,11 +1897,11 @@ def rec_stuck(+st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
   +wm2 = whd(st, mt, lp, vt, maj)
   +mn2 = U.ex_at(is_ex(ir_st(wm2)), ir_ty(wm2))
   +mhd = spine_hd(256n, is_ex(ir_st(wm2)), mn2)
-  +cmi2 = R.get(Meta, 32n, mt, const_nm2(mhd), MNone{})
+  +cmi2 = R.get(Meta, 64n, mt, const_nm2(mhd), MNone{})
   # the major is stuck and not a constructor
   +mstuck = rigid(is_ex(ir_st(wm2)), mn2) && Bool.not(meta_is_ctor(cmi2))
   # the inductive is not a zero-field structure (those reduce regardless)
-  +uind2 = R.get(Meta, 32n, mt, meta_ind(mi), MNone{})
+  +uind2 = R.get(Meta, 64n, mt, meta_ind(mi), MNone{})
   +nue = Bool.not(meta_is_ind(uind2) && U32.is_eq(meta_nf(uind2), 0))
   # and K can never fire: no flag, or a definite index mismatch
   +kexp2 = k_expected(ir_st(wm2),
@@ -1980,10 +1980,10 @@ def dq_head_ty(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                +ctx: List<&2, U32>, +h: T.Ex) -> IR:
   match h:
     case T.EConst{n, us}:
-      +ti = R.get(U32, 32n, nt, n, 4294967295)
+      +ti = R.get(U32, 64n, nt, n, 4294967295)
       pick_ir(U32.is_eq(ti, 4294967295), IR{st, 4294967295, False{}},
               lsubst(256n, st, U.ex_at(is_ex(st), ti), ti,
-                     R.get(List<&2, U32>, 32n, lp, n, Nil{}),
+                     R.get(List<&2, U32>, 64n, lp, n, Nil{}),
                      lns_of(us, is_lnt(st))))
     case T.EBVar{i}:
       +ti = nth_u(ctx, i, 4294967295)
@@ -2171,8 +2171,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
     case 1n+p True{} _ _:
       DR{st, L.TYes{}}
     case 1n+p False{} T.ESort{a} T.ESort{b}:
-      DR{st, L.ln_cmp(R.get(L.LN, 32n, is_lnt(st), a, L.LNun{}),
-                      R.get(L.LN, 32n, is_lnt(st), b, L.LNun{}))}
+      DR{st, L.ln_cmp(R.get(L.LN, 64n, is_lnt(st), a, L.LNun{}),
+                      R.get(L.LN, 64n, is_lnt(st), b, L.LNun{}))}
     # Two bound variables. Equal indices are equal. Different indices are
     # still equal in two cases, and both are decided from their types:
     #
@@ -2222,13 +2222,13 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       +s4 : IS = ir_st(wrt)
       +ks = U.ex_at(is_ex(s4), ir_ty(wrt))
       +isprop = (ir_ok(rt) && is_sortx(ks)
-                 && L.tri_is_yes(L.ln_is_zero(R.get(L.LN, 32n, is_lnt(s4),
+                 && L.tri_is_yes(L.ln_is_zero(R.get(L.LN, 64n, is_lnt(s4),
                                                     sort_lvl_of(ks),
                                                     L.LNun{}))))
                 || L.tri_is_yes(L.ln_is_zero(sl(256n, is_ex(s4),
                                                 is_lnt(s4), nt, lp,
                                                 tynode, ctx)))
-      +smi = R.get(Meta, 32n, mt, const_nm2(spine_hd(256n, is_ex(s4),
+      +smi = R.get(Meta, 64n, mt, const_nm2(spine_hd(256n, is_ex(s4),
                                                      tynode)), MNone{})
       +isunit = meta_is_ind(smi) && U32.is_eq(meta_nf(smi), 0)
       +both = U32.is_lt(pa2, 4294967295) && U32.is_lt(pb2, 4294967295)
@@ -2257,8 +2257,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
     case 1n+p False{} T.EConst{a, us} T.EConst{b, vs}:
       +pa3 = a
       +pb3 = b
-      +ta3 = R.get(U32, 32n, nt, pa3, 4294967295)
-      +tb3 = R.get(U32, 32n, nt, pb3, 4294967295)
+      +ta3 = R.get(U32, 64n, nt, pa3, 4294967295)
+      +tb3 = R.get(U32, 64n, nt, pb3, 4294967295)
       +known = Bool.not(U32.is_eq(ta3, 4294967295))
                && Bool.not(U32.is_eq(tb3, 4294967295))
       +tn3 = U.ex_at(is_ex(st), ta3)
@@ -2273,8 +2273,8 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # irrelevance, and none of the three can relate two distinct
       # irreducible constants outside a Prop. `false` against `true` is the
       # case, and it is what `perf/refute-cheap-*` need refuted in Th(1).
-      +novals = U32.is_eq(R.get(U32, 32n, vt, pa3, 4294967295), 4294967295)
-                && U32.is_eq(R.get(U32, 32n, vt, pb3, 4294967295),
+      +novals = U32.is_eq(R.get(U32, 64n, vt, pa3, 4294967295), 4294967295)
+                && U32.is_eq(R.get(U32, 64n, vt, pb3, 4294967295),
                              4294967295)
       +notprop = L.tri_is_no(L.ln_is_zero(sl(256n, is_ex(st), is_lnt(st),
                                              nt, lp, tn3, ctx)))
@@ -2282,7 +2282,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # constant has no definition -- a def can unfold, and the unfolding
       # may erase the level difference.
       +lv3 = eq_lvls(us, vs, is_lnt(st))
-      +hasval3 = Bool.not(U32.is_eq(R.get(U32, 32n, vt, pa3, 4294967295),
+      +hasval3 = Bool.not(U32.is_eq(R.get(U32, 64n, vt, pa3, 4294967295),
                                     4294967295))
       DR{st, L.pick_tri(U32.is_eq(pa3, pb3),
                         L.pick_tri(L.tri_is_no(lv3) && hasval3, L.TUnk{},
@@ -2453,14 +2453,14 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # nothing else changes.
       +hdl = spine_hd(256n, is_ex(st), x)
       +hdr = spine_hd(256n, is_ex(st), y)
-      +swap = Bool.not(meta_is_ctor(R.get(Meta, 32n, mt, const_nm2(hdl),
+      +swap = Bool.not(meta_is_ctor(R.get(Meta, 64n, mt, const_nm2(hdl),
                                           MNone{})))
-              && meta_is_ctor(R.get(Meta, 32n, mt, const_nm2(hdr),
+              && meta_is_ctor(R.get(Meta, 64n, mt, const_nm2(hdr),
                                     MNone{}))
       +px : T.Ex = pick_exx(swap, y, x)
       +py : T.Ex = pick_exx(swap, x, y)
       +hd = pick_exx(swap, hdr, hdl)
-      +cmi = R.get(Meta, 32n, mt, const_nm2(hd), MNone{})
+      +cmi = R.get(Meta, 64n, mt, const_nm2(hd), MNone{})
       # The inductive must be a registered STRUCTURE -- one constructor,
       # no indices -- which is what `MInd` means here. That restriction is
       # the whole safety of this rule: `bugs`-side `111_indexedUnitEta` and
@@ -2470,7 +2470,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # Zero fields is allowed and is the unit-like case: every element of a
       # no-field structure equals its constructor.
       +eok = meta_is_ctor(cmi)
-             && meta_is_ind(R.get(Meta, 32n, mt, meta_ind(cmi), MNone{}))
+             && meta_is_ind(R.get(Meta, 64n, mt, meta_ind(cmi), MNone{}))
       +ahd = alloc_ex(st, hd)
       +pre = app_build(64n,
                        take_u(spine_ar(256n, is_ex(ir_st(ahd)), px, Nil{}),
@@ -2575,8 +2575,8 @@ def no_value(+st: IS, +mt: R.Tr<Meta>, +vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   match x:
     case T.EConst{n, us}:
       +pn5 = n
-      U32.is_eq(R.get(U32, 32n, vt, pn5, 4294967295), 4294967295)
-      && Bool.not(meta_is_rec(R.get(Meta, 32n, mt, pn5, MNone{})))
+      U32.is_eq(R.get(U32, 64n, vt, pn5, 4294967295), 4294967295)
+      && Bool.not(meta_is_rec(R.get(Meta, 64n, mt, pn5, MNone{})))
       && Bool.not(U32.is_eq(pn5, is_qt(st, 0)))
       && Bool.not(U32.is_eq(pn5, is_qt(st, 1)))
       && Bool.not(U32.is_eq(pn5, is_qt(st, 5)))
@@ -2638,7 +2638,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     case 0n _:
       ir_bad(s)
     case 1n+p T.ESort{l}:
-      sort_of(s, L.ln_succ(R.get(L.LN, 32n, is_lnt(s), l, L.LNun{})))
+      sort_of(s, L.ln_succ(R.get(L.LN, 64n, is_lnt(s), l, L.LNun{})))
     # `infer (forall x:A, B) = Sort (imax (univ A) (univ B))`, with each
     # universe obtained by inferring and reducing rather than by `sl`, which
     # has no rule for applications and so failed on any Pi with one in it.
@@ -2671,9 +2671,9 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
                 || U32.is_eq(ir_ty(rb), 4294967294)
       pick_ir(ir_ok(ra) && ir_ok(rb) && is_sortx(ka) && is_sortx(kb),
               sort_of(sb,
-                      L.ln_imax(R.get(L.LN, 32n, is_lnt(sb),
+                      L.ln_imax(R.get(L.LN, 64n, is_lnt(sb),
                                       sort_lvl_of(ka), L.LNun{}),
-                                R.get(L.LN, 32n, is_lnt(sb),
+                                R.get(L.LN, 64n, is_lnt(sb),
                                       sort_lvl_of(kb), L.LNun{}))),
               pick_ir(defbad || subbad, IR{sb, 4294967294, False{}},
                       ir_bad(sb)))
@@ -2705,10 +2705,10 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       pick_ir(U32.is_eq(is_strn(s), 4294967295), ir_bad(s),
               alloc_ex(s, T.EConst{is_strn(s), Nil{}}))
     case 1n+p T.EConst{n, us}:
-      +ti = R.get(U32, 32n, nt, n, 4294967295)
+      +ti = R.get(U32, 64n, nt, n, 4294967295)
       pick_ir(U32.is_eq(ti, 4294967295), ir_bad(s),
               lsubst(256n, s, U.ex_at(is_ex(s), ti), ti,
-                     R.get(List<&2, U32>, 32n, lp, n, Nil{}),
+                     R.get(List<&2, U32>, 64n, lp, n, Nil{}),
                      lns_of(us, is_lnt(s))))
     case 1n+p T.ELet{n, ty, v, b}:
       +pf = p
@@ -2802,7 +2802,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +ws = whd(ir_st(rs), mt, lp, vt, ir_ty(rs))
       +sst = ir_st(ws)
       +sty = U.ex_at(is_ex(sst), ir_ty(ws))
-      +mi = R.get(Meta, 32n, mt, ptn, MNone{})
+      +mi = R.get(Meta, 64n, mt, ptn, MNone{})
       +ok = ir_ok(rs) && meta_is_ind(mi)
             && U32.is_lt(pidx, meta_nf(mi))
             && U32.is_eq(const_nm2(spine_hd(256n, is_ex(sst), sty)), ptn)
@@ -2818,7 +2818,7 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       # substitution wrong fails both directions at once.
       +lsr = lsubst(256n, sst, U.ex_at(is_ex(sst), meta_cty(mi)),
                     meta_cty(mi),
-                    R.get(List<&2, U32>, 32n, lp, ptn, Nil{}),
+                    R.get(List<&2, U32>, 64n, lp, ptn, Nil{}),
                     lns_of(sl_const_us(spine_hd(256n, is_ex(sst), sty)),
                            is_lnt(sst)))
       +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, ir_st(lsr), Nil{})

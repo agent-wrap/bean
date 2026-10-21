@@ -195,7 +195,7 @@ def univ_of(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +st2 = I.ir_st(wk)
   +kx = U.ex_at(I.is_ex(st2), I.ir_ty(wk))
   L.pick_ln(I.ir_ok(ri) && I.is_sortx(kx),
-            R.get(L.LN, 32n, I.is_lnt(st2), I.sort_lvl_of(kx), L.LNun{}),
+            R.get(L.LN, 64n, I.is_lnt(st2), I.sort_lvl_of(kx), L.LNun{}),
             L.LNun{})
 
 # `infer` applied to the head `const` of a value, which is where the level
@@ -315,7 +315,7 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ U32.show(head_const(32n, I.is_ex(st2),
                          U.ex_at(I.is_ex(st2), vi)))
   ++ "  its type-ix: "
-  ++ U32.show(R.get(U32, 32n, nt,
+  ++ U32.show(R.get(U32, 64n, nt,
                     head_const(32n, I.is_ex(st2),
                                U.ex_at(I.is_ex(st2), vi)), 4294967295))
   # The head constant's type as declared, and the type `infer` gives its
@@ -324,7 +324,7 @@ def show_cmp(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ "\n    head-ty:  "
   ++ show_ex(10n, I.is_ex(st2),
              U.ex_at(I.is_ex(st2),
-                     R.get(U32, 32n, nt,
+                     R.get(U32, 64n, nt,
                            head_const(32n, I.is_ex(st2),
                                       U.ex_at(I.is_ex(st2), vi)),
                            4294967295)))
@@ -447,7 +447,7 @@ def show_le(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +its = items
       +res = C.tele_res(256n, I.is_ex(st), U.ex_at(I.is_ex(st), ty))
       +isprop = L.pick_tri(I.is_sortx(res),
-                           L.ln_is_zero(R.get(L.LN, 32n, I.is_lnt(st),
+                           L.ln_is_zero(R.get(L.LN, 64n, I.is_lnt(st),
                                               I.sort_lvl_of(res),
                                               L.LNun{})),
                            L.TUnk{})

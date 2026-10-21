@@ -140,7 +140,7 @@ def fcmp_lv(n: Nat, +i: U32, +lvt: R.Tr<T.Lvl>, +acc: U32,
     case 1n+p Tuple{a, f}:
       fcmp_lv(p, (i + 1 : U32), lvt, (acc + f : U32),
               fcmp_lv2(Array.get(T.Lvl, a, i),
-                       R.get(T.Lvl, 32n, lvt, i, T.LZero{})))
+                       R.get(T.Lvl, 64n, lvt, i, T.LZero{})))
 
 def fcmp_ln2(r: Array<L.LN> & L.LN, te: L.LN) -> Array<L.LN> & U32:
   match r:
@@ -155,7 +155,7 @@ def fcmp_ln(n: Nat, +i: U32, +lnt: R.Tr<L.LN>, +acc: U32,
     case 1n+p Tuple{a, f}:
       fcmp_ln(p, (i + 1 : U32), lnt, (acc + f : U32),
               fcmp_ln2(Array.get(L.LN, a, i),
-                       R.get(L.LN, 32n, lnt, i, L.LNun{})))
+                       R.get(L.LN, 64n, lnt, i, L.LNun{})))
 
 def fcmp_nm2(r: Array<T.Nm> & T.Nm, te: T.Nm) -> Array<T.Nm> & U32:
   match r:
@@ -170,7 +170,7 @@ def fcmp_nm(n: Nat, +i: U32, +nmt: R.Tr<T.Nm>, +acc: U32,
     case 1n+p Tuple{a, f}:
       fcmp_nm(p, (i + 1 : U32), nmt, (acc + f : U32),
               fcmp_nm2(Array.get(T.Nm, a, i),
-                       R.get(T.Nm, 32n, nmt, i, T.NAnon{})))
+                       R.get(T.Nm, 64n, nmt, i, T.NAnon{})))
 
 # --- driver ----------------------------------------------------------------
 def fdiff_lv(st: Array<T.Lvl> & Array<L.LN>, +lvt: R.Tr<T.Lvl>,

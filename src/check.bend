@@ -139,7 +139,7 @@ def mark_names(ns: List<&2, U32>, +t: R.Tr<Bool>) -> R.Tr<Bool>:
     case Nil{}:
       t
     case Con{head, tail}:
-      mark_names(tail, R.set(Bool, 32n, t, head, True{}, False{}))
+      mark_names(tail, R.set(Bool, 64n, t, head, True{}, False{}))
 
 def declared(ds: List<&2, K.Dcl>, acc: List<&2, U32>) -> List<&2, U32>:
   match ds:
@@ -158,7 +158,7 @@ def const_nm_of(+x: T.Ex) -> U32:
 def bad_const_at(+i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> Bool:
   +x = R.get(T.Ex, 64n, ex, i, T.EBad{})
   U32.is_gt(const_nm_of(x), 0)
-  && Bool.not(R.get(Bool, 32n, dn, const_nm_of(x), False{}))
+  && Bool.not(R.get(Bool, 64n, dn, const_nm_of(x), False{}))
 
 def scan_consts(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>,
                 +bad: Bool) -> Bool:
@@ -227,7 +227,7 @@ def ind_item_v(+t: L.Tri, +enough: Bool) -> V:
 def stuck_const(+vt: R.Tr<U32>, +x: T.Ex) -> Bool:
   match x:
     case T.EConst{n, us}:
-      U32.is_eq(R.get(U32, 32n, vt, n, 4294967295), 4294967295)
+      U32.is_eq(R.get(U32, 64n, vt, n, 4294967295), 4294967295)
     case _:
       False{}
 
@@ -416,54 +416,54 @@ def occ_go(+fuel: Nat, +skip: Bool, +ex: R.Tr<T.Ex>,
       OM{m, L.pick_tri(mem(n, names), L.TYes{}, L.TNo{})}
     case 1n+p False{} T.EApp{f, a}:
       +pf = p
-      +h1 = R.get(U32, 32n, m, f, 0)
+      +h1 = R.get(U32, 64n, m, f, 0)
       +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
                    U.ex_at(ex, f))
-      +m1 = R.set(U32, 32n, om_m(r1), f, occ_code(om_r(r1)), 0)
-      +h2 = R.get(U32, 32n, m1, a, 0)
+      +m1 = R.set(U32, 64n, om_m(r1), f, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 64n, m1, a, 0)
       +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
                    U.ex_at(ex, a))
-      OM{R.set(U32, 32n, om_m(r2), a, occ_code(om_r(r2)), 0),
+      OM{R.set(U32, 64n, om_m(r2), a, occ_code(om_r(r2)), 0),
          tri_or(om_r(r1), om_r(r2))}
     case 1n+p False{} T.EAll{n, t, b, bi}:
       +pf = p
-      +h1 = R.get(U32, 32n, m, t, 0)
+      +h1 = R.get(U32, 64n, m, t, 0)
       +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
                    U.ex_at(ex, t))
-      +m1 = R.set(U32, 32n, om_m(r1), t, occ_code(om_r(r1)), 0)
-      +h2 = R.get(U32, 32n, m1, b, 0)
+      +m1 = R.set(U32, 64n, om_m(r1), t, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 64n, m1, b, 0)
       +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
                    U.ex_at(ex, b))
-      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+      OM{R.set(U32, 64n, om_m(r2), b, occ_code(om_r(r2)), 0),
          tri_or(om_r(r1), om_r(r2))}
     case 1n+p False{} T.ELam{n, t, b, bi}:
       +pf = p
-      +h1 = R.get(U32, 32n, m, t, 0)
+      +h1 = R.get(U32, 64n, m, t, 0)
       +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
                    U.ex_at(ex, t))
-      +m1 = R.set(U32, 32n, om_m(r1), t, occ_code(om_r(r1)), 0)
-      +h2 = R.get(U32, 32n, m1, b, 0)
+      +m1 = R.set(U32, 64n, om_m(r1), t, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 64n, m1, b, 0)
       +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
                    U.ex_at(ex, b))
-      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+      OM{R.set(U32, 64n, om_m(r2), b, occ_code(om_r(r2)), 0),
          tri_or(om_r(r1), om_r(r2))}
     case 1n+p False{} T.ELet{n, t, v, b}:
       +pf = p
-      +h1 = R.get(U32, 32n, m, v, 0)
+      +h1 = R.get(U32, 64n, m, v, 0)
       +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
                    U.ex_at(ex, v))
-      +m1 = R.set(U32, 32n, om_m(r1), v, occ_code(om_r(r1)), 0)
-      +h2 = R.get(U32, 32n, m1, b, 0)
+      +m1 = R.set(U32, 64n, om_m(r1), v, occ_code(om_r(r1)), 0)
+      +h2 = R.get(U32, 64n, m1, b, 0)
       +r2 = occ_go(pf, U32.is_ne(h2, 0), ex, names, m1, occ_tri(h2),
                    U.ex_at(ex, b))
-      OM{R.set(U32, 32n, om_m(r2), b, occ_code(om_r(r2)), 0),
+      OM{R.set(U32, 64n, om_m(r2), b, occ_code(om_r(r2)), 0),
          tri_or(om_r(r1), om_r(r2))}
     case 1n+p False{} T.EProj{tn, i, sx}:
       +pf = p
-      +h1 = R.get(U32, 32n, m, sx, 0)
+      +h1 = R.get(U32, 64n, m, sx, 0)
       +r1 = occ_go(pf, U32.is_ne(h1, 0), ex, names, m, occ_tri(h1),
                    U.ex_at(ex, sx))
-      OM{R.set(U32, 32n, om_m(r1), sx, occ_code(om_r(r1)), 0), om_r(r1)}
+      OM{R.set(U32, 64n, om_m(r1), sx, occ_code(om_r(r1)), 0), om_r(r1)}
     case 1n+p False{} _:
       OM{m, L.TNo{}}
 
@@ -947,7 +947,7 @@ def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
       +res = tele_res(256n, ex, U.ex_at(ex, ty))
       +isprop = L.pick_tri(I.is_sortx(res),
-                           L.ln_is_zero(R.get(L.LN, 32n, ln,
+                           L.ln_is_zero(R.get(L.LN, 64n, ln,
                                               I.sort_lvl_of(res), L.LNun{})),
                            L.TUnk{})
       +its = items
@@ -1008,7 +1008,7 @@ def str_of_items(items: List<&2, K.IItem>, +all: List<&2, K.IItem>,
         case K.IInd{nm, lps, ty, np, ni, nn, cs}:
           +pn = nm
           str_of_items(tail, all,
-            R.set(U32, 32n, t, pn,
+            R.set(U32, 64n, t, pn,
                   str_code(count_ctors(all, pn, 0), ni, nn,
                            ctor_nf_for(all, pn, 0)), 0))
         case _:
@@ -1056,7 +1056,7 @@ def proj_idx(+x: T.Ex) -> U32:
 def proj_at(+i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>) -> V:
   +x = U.ex_at(ex, i)
   pick_v(not_projx(x), VAccept{},
-         proj_code_v(R.get(U32, 32n, strt, proj_tn(x), 0), proj_idx(x)))
+         proj_code_v(R.get(U32, 64n, strt, proj_tn(x), 0), proj_idx(x)))
 
 def scan_projs(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>,
                +acc: V) -> V:
@@ -1514,7 +1514,7 @@ def block_derive_one(+items: List<&2, K.IItem>, +st: I.IS,
       +pnm = nm
       +res = tele_res(256n, I.is_ex(st), U.ex_at(I.is_ex(st), ty))
       +isprop = L.pick_tri(I.is_sortx(res),
-                           L.ln_is_zero(R.get(L.LN, 32n, ln,
+                           L.ln_is_zero(R.get(L.LN, 64n, ln,
                                               I.sort_lvl_of(res),
                                               L.LNun{})),
                            L.TUnk{})
@@ -1604,7 +1604,7 @@ def bytes_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
 
 # "rec" is 114 101 99.
 def is_rec_name(+nmt: R.Tr<T.Nm>, +recnm: U32, +indnm: U32) -> Bool:
-  +n = R.get(T.Nm, 32n, nmt, recnm, T.NAnon{})
+  +n = R.get(T.Nm, 64n, nmt, recnm, T.NAnon{})
   nm_is_str(n) && U32.is_eq(nm_pre(n), indnm)
   && bytes_eq(nm_bytes(n), [114, 101, 99])
 
@@ -1676,7 +1676,7 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
           +tot : U32 = I.len_u(tele_doms(256n, ex, U.ex_at(ex, pty), Nil{}),
                                0)
           meta_items(tail, allit, ex, ind, np, ni, nc,
-                     R.set(I.Meta, 32n, t, nm,
+                     R.set(I.Meta, 64n, t, nm,
                            I.pick_meta(nested,
                              I.MRec{prp, prni,
                                     (tot - 2 - prp - prni : U32),
@@ -1691,7 +1691,7 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
           +pcnp = cnp
           +pty2 = ty
           meta_items(tail, allit, ex, ind, np, ni, nc,
-                     R.set(I.Meta, 32n, t, nm,
+                     R.set(I.Meta, 64n, t, nm,
                            I.MCtor{ci, pcnp, nf, ind2,
                                    rec_positions_syn(
                                      skip_n(D.rev_u32(
@@ -1790,13 +1790,13 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                  R.sub(I.Meta,
                        U32.is_eq(nc, 1) && U32.is_eq(ni, 0)
                        && U32.is_eq(nn, 0),
-                       R.set(I.Meta, 32n, t, pnm,
+                       R.set(I.Meta, 64n, t, pnm,
                              I.MInd{np, ctor_nf_by_cidx(its, pnm, 0, 0),
                                     ctor_ty_by_cidx(its, pnm, 0,
                                                     4294967295),
                                     S.pick(L.tri_is_yes(
                                       large_elim(
-                                        L.ln_is_zero(R.get(L.LN, 32n, ln,
+                                        L.ln_is_zero(R.get(L.LN, 64n, ln,
                                           I.sort_lvl_of(tele_res(256n, ex,
                                             U.ex_at(ex, ty))),
                                           L.LNun{})),
@@ -1805,7 +1805,7 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                           R.TNil{}, R.TNil{}, L.TYes{}))),
                                       0, 1),
                                     prop_proj_bound(
-                                      L.ln_is_zero(R.get(L.LN, 32n, ln,
+                                      L.ln_is_zero(R.get(L.LN, 64n, ln,
                                         I.sort_lvl_of(tele_res(256n, ex,
                                           U.ex_at(ex, ty))), L.LNun{})),
                                       ex, ln, R.TNil{},
@@ -1985,7 +1985,7 @@ def ck_expr(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +pf = p
       +pnat = I.not_a_type(I.is_ex(st), nt, x)
       +scmp = L.pick_tri(pnat, L.TNo{},
-                         L.ln_cmp(R.get(L.LN, 32n, I.is_lnt(st), lt,
+                         L.ln_cmp(R.get(L.LN, 64n, I.is_lnt(st), lt,
                                         L.LNun{}),
                                   I.sl(fuel, I.is_ex(st), I.is_lnt(st), nt,
                                        lp, x, ctx)))
@@ -2065,7 +2065,7 @@ def ck_typed(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   +st2 = I.ir_st(wk)
   +kx = U.ex_at(I.is_ex(st2), I.ir_ty(wk))
   +u = L.pick_ln(I.ir_ok(ri) && I.is_sortx(kx),
-                 R.get(L.LN, 32n, I.is_lnt(st2), I.sort_lvl_of(kx),
+                 R.get(L.LN, 64n, I.is_lnt(st2), I.sort_lvl_of(kx),
                        L.LNun{}),
                  L.LNun{})
   # A declared type that is itself ILL-TYPED -- `infer` reporting the

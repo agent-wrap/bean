@@ -76,8 +76,8 @@ def feq_lvls(xs: List<&2, U32>, ys: List<&2, U32>, +tln: R.Tr<L.LN>,
     case Nil{} Nil{}:
       True{}
     case Con{head, tail} Con{h2, t2}:
-      feq_ln(R.get(L.LN, 32n, tln, head, L.LNun{}),
-             R.get(L.LN, 32n, flnt, h2, L.LNun{}))
+      feq_ln(R.get(L.LN, 64n, tln, head, L.LNun{}),
+             R.get(L.LN, 64n, flnt, h2, L.LNun{}))
       && feq_lvls(tail, t2, tln, flnt)
     case _ _:
       False{}
@@ -94,8 +94,8 @@ def eq_shape(x: T.Ex, y: T.Ex, +tln: R.Tr<L.LN>, +flnt: R.Tr<L.LN>) -> ES:
     case T.EBVar{i} T.EBVar{j}:
       ES{U32.is_eq(i, j), Nil{}}
     case T.ESort{l} T.ESort{m}:
-      ES{feq_ln(R.get(L.LN, 32n, tln, l, L.LNun{}),
-                R.get(L.LN, 32n, flnt, m, L.LNun{})), Nil{}}
+      ES{feq_ln(R.get(L.LN, 64n, tln, l, L.LNun{}),
+                R.get(L.LN, 64n, flnt, m, L.LNun{})), Nil{}}
     case T.EConst{n, us} T.EConst{m, vs}:
       ES{U32.is_eq(n, m) && feq_lvls(us, vs, tln, flnt), Nil{}}
     case T.EApp{f, a} T.EApp{g, b}:

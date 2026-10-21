@@ -180,7 +180,7 @@ def pln(fuel: Nat, +a: L.LN) -> String:
 def sortlv(+st: I.IS, +x: T.Ex) -> String:
   match x:
     case T.ESort{l}:
-      " {" ++ pln(8n, R.get(L.LN, 32n, I.is_lnt(st), l, L.LNun{})) ++ "}"
+      " {" ++ pln(8n, R.get(L.LN, 64n, I.is_lnt(st), l, L.LNun{})) ++ "}"
     case _:
       ""
 
@@ -189,7 +189,7 @@ def lvls(+ln: R.Tr<L.LN>, us: List<&2, U32>) -> String:
     case Nil{}:
       ""
     case Con{head, tail}:
-      ".{" ++ pln(8n, R.get(L.LN, 32n, ln, head, L.LNun{})) ++ "}" ++ lvls(ln, tail)
+      ".{" ++ pln(8n, R.get(L.LN, 64n, ln, head, L.LNun{})) ++ "}" ++ lvls(ln, tail)
 
 def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +x: T.Ex) -> String:
   match fuel x:

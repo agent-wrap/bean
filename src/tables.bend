@@ -42,7 +42,7 @@ def build_lv(rs: List<&2, D.Rec>, +t: R.Tr<T.Lvl>) -> R.Tr<T.Lvl>:
           +k = kind
           build_lv(tail,
             R.sub(T.Lvl, K.is_lvl_kind(k),
-                  R.set(T.Lvl, 32n, t, ix, T.mk_lvl(k, flds), T.LZero{}),
+                  R.set(T.Lvl, 64n, t, ix, T.mk_lvl(k, flds), T.LZero{}),
                   t))
 
 # Name index 0 is `Name.anonymous` and level index 0 is `Level.zero`; neither
@@ -57,7 +57,7 @@ def build_nt(ds: List<&2, K.Dcl>, +t: R.Tr<U32>) -> R.Tr<U32>:
       +ty = K.dcl_type(h)
       build_nt(tail,
         R.sub(U32, U32.is_gt(nm, 0),
-              R.set(U32, 32n, t, nm, ty, 4294967295), t))
+              R.set(U32, 64n, t, nm, ty, 4294967295), t))
 
 def build_lp(ds: List<&2, K.Dcl>, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
   match ds:
@@ -68,7 +68,7 @@ def build_lp(ds: List<&2, K.Dcl>, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>
       +nm = K.dcl_name(h)
       build_lp(tail,
         R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-              R.set(List<&2, U32>, 32n, t, nm, K.dcl_lparams(h), Nil{}),
+              R.set(List<&2, U32>, 64n, t, nm, K.dcl_lparams(h), Nil{}),
               t))
 
 # Only `def` values are unfoldable. Theorem bodies are opaque in recent Lean,
@@ -80,7 +80,7 @@ def build_vt(ds: List<&2, K.Dcl>, +t: R.Tr<U32>) -> R.Tr<U32>:
     case Con{head, tail}:
       match head:
         case K.DDef{n, lps, ty, v}:
-          build_vt(tail, R.set(U32, 32n, t, n, v, 4294967295))
+          build_vt(tail, R.set(U32, 64n, t, n, v, 4294967295))
         case _:
           build_vt(tail, t)
 
@@ -130,7 +130,7 @@ def add_items_nt(items: List<&2, K.IItem>, +t: R.Tr<U32>) -> R.Tr<U32>:
       +nm = item_name(h)
       add_items_nt(tail,
         R.sub(U32, U32.is_gt(nm, 0),
-              R.set(U32, 32n, t, nm, item_type(h), 4294967295), t))
+              R.set(U32, 64n, t, nm, item_type(h), 4294967295), t))
 
 def add_items_lp(items: List<&2, K.IItem>,
                  +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
@@ -142,7 +142,7 @@ def add_items_lp(items: List<&2, K.IItem>,
       +nm = item_name(h)
       add_items_lp(tail,
         R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-              R.set(List<&2, U32>, 32n, t, nm, item_lps(h), Nil{}), t))
+              R.set(List<&2, U32>, 64n, t, nm, item_lps(h), Nil{}), t))
 
 # --- adding one declaration to the environment --------------------------
 # A declaration is only in scope for the ones AFTER it. Building the tables
@@ -157,7 +157,7 @@ def add_nt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
     case _:
       +nm = K.dcl_name(d)
       R.sub(U32, U32.is_gt(nm, 0),
-            R.set(U32, 32n, t, nm, K.dcl_type(d), 4294967295), t)
+            R.set(U32, 64n, t, nm, K.dcl_type(d), 4294967295), t)
 
 def add_lp(+d: K.Dcl, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
   match d:
@@ -166,12 +166,12 @@ def add_lp(+d: K.Dcl, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
     case _:
       +nm = K.dcl_name(d)
       R.sub(List<&2, U32>, U32.is_gt(nm, 0),
-            R.set(List<&2, U32>, 32n, t, nm, K.dcl_lparams(d), Nil{}), t)
+            R.set(List<&2, U32>, 64n, t, nm, K.dcl_lparams(d), Nil{}), t)
 
 def add_vt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
   match d:
     case K.DDef{n, lps, ty, v}:
-      R.set(U32, 32n, t, n, v, 4294967295)
+      R.set(U32, 64n, t, n, v, 4294967295)
     case _:
       t
 
@@ -180,12 +180,12 @@ def add_vt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
 # il 1 = succ 2 before il 2), so this is a bounded fixpoint: an unresolved
 # child propagates as LNun and a later round fills it in.
 def lv_one(+i: U32, +lv: R.Tr<T.Lvl>, +ln: R.Tr<L.LN>) -> R.Tr<L.LN>:
-  +l = R.get(T.Lvl, 32n, lv, i, T.LZero{})
-  +old = R.get(L.LN, 32n, ln, i, L.LNun{})
+  +l = R.get(T.Lvl, 64n, lv, i, T.LZero{})
+  +old = R.get(L.LN, 64n, ln, i, L.LNun{})
   +v = L.combine(L.op_of(l), L.c1_of(l),
-                 R.get(L.LN, 32n, ln, L.c1_of(l), L.LNun{}),
-                 R.get(L.LN, 32n, ln, L.c2_of(l), L.LNun{}))
-  R.set(L.LN, 32n, ln, i, L.pick_ln(L.is_un(old), v, old), L.LNun{})
+                 R.get(L.LN, 64n, ln, L.c1_of(l), L.LNun{}),
+                 R.get(L.LN, 64n, ln, L.c2_of(l), L.LNun{}))
+  R.set(L.LN, 64n, ln, i, L.pick_ln(L.is_un(old), v, old), L.LNun{})
 
 def lv_pass(n: Nat, +i: U32, +lv: R.Tr<T.Lvl>, +ln: R.Tr<L.LN>) -> R.Tr<L.LN>:
   match n:
