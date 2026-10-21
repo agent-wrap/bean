@@ -163,11 +163,12 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
       fck_all_d(ds, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
                  natn, qtt, 0, 0, Nil{},
-                 ((F.fb_ex(recs,
+                 ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
+                   F.fb_ex(recs,
                            Array.new(T.Ex,
                                      Nat.add(F.fdepth((nx + 2097152 : U32)),
-                                             1n),
-                                     T.EBad{})),
+                                             2n),
+                                     T.EBad{}))),
                    (nx + 1048576 : U32)), 0))}
 
 def show_all(xs: List<&2, U32>) -> String:
