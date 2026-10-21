@@ -1199,6 +1199,144 @@ def dec_sub(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
            dec_sub_r(256n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{}),
            [48])
 
+# --- the rest of Lean's literal accelerator: mul, pow, div, mod, beq ------
+# Lean's kernel computes these on literals too (GMP); without them a
+# comparison like `2 ^ 32 =?= 4294967296` (BitVec.ofNatLT 32 against
+# UInt32.size) unfolds Nat.pow/Nat.mul and then peels `succ` off the
+# literal one at a time -- unbounded. The digit loops share dec_add's
+# 256-digit bound, so lit_ok() refuses (falls back to ordinary reduction,
+# never a wrong number) whenever a result could exceed it.
+
+# strip leading zeros; zero is "0"
+def dec_norm(+a: List<&2, U32>) -> List<&2, U32>:
+  +sd = dec_strip(256n, a)
+  S.pick_l(U32.is_eq(len_u(sd, 0), 0), [48], sd)
+
+# xs (least-significant first) times one digit d, plus carry c; the result
+# comes out most-significant first
+def dec_mul_d(fuel: Nat, xs: List<&2, U32>, +d: U32, +c: U32,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel xs:
+    case 0n _:
+      acc
+    case 1n+p Nil{}:
+      +pa = acc
+      S.pick_l(U32.is_eq(c, 0), pa, Con{(c + 48 : U32), pa})
+    case 1n+p Con{a, ta}:
+      +pr = ((a - 48 : U32) * d + c : U32)
+      dec_mul_d(p, ta, d, (pr / 10 : U32),
+                Con{((pr % 10 : U32) + 48 : U32), acc})
+
+def dec_mul_small(+b: List<&2, U32>, +k: U32) -> List<&2, U32>:
+  dec_mul_d(256n, rev_u(b, Nil{}), k, 0, Nil{})
+
+# schoolbook: for each digit y of b (most significant first),
+# acc := acc * 10 + a * y
+def dec_mul_r(fuel: Nat, +a: List<&2, U32>, ys: List<&2, U32>,
+              +acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel ys:
+    case 0n _:
+      acc
+    case 1n+p Nil{}:
+      acc
+    case 1n+p Con{y, ty}:
+      dec_mul_r(p, a, ty,
+                dec_add(List.append(&2, U32, acc, [48]),
+                        dec_mul_small(a, (y - 48 : U32))))
+
+def dec_mul(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  dec_norm(dec_mul_r(256n, a, b, [48]))
+
+# a ^ e by square-and-multiply over e's bits (least significant first)
+def dec_pow_r(bits: List<&2, U32>, +base: List<&2, U32>,
+              +acc: List<&2, U32>) -> List<&2, U32>:
+  match bits:
+    case Nil{}:
+      acc
+    case Con{b, rest}:
+      +acc2 : List<&2, U32> = S.pick_l(U32.is_eq(b, 1), dec_mul(acc, base),
+                                       acc)
+      dec_pow_r(rest, dec_mul(base, base), acc2)
+
+def u32_bits(fuel: Nat, +e: U32, +acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel:
+    case 0n:
+      rev_u(acc, Nil{})
+    case 1n+p:
+      S.pick_l(U32.is_eq(e, 0), rev_u(acc, Nil{}),
+               u32_bits(p, (e / 2 : U32), Con{(e % 2 : U32), acc}))
+
+# decimal digits -> U32 (callers ensure it fits)
+def dec_u32(xs: List<&2, U32>, +acc: U32) -> U32:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      dec_u32(tail, (acc * 10 + (head - 48 : U32) : U32))
+
+def dec_pow(+a: List<&2, U32>, +e: List<&2, U32>) -> List<&2, U32>:
+  dec_norm(dec_pow_r(u32_bits(32n, dec_u32(dec_norm(e), 0), Nil{}),
+                     dec_norm(a), [49]))
+
+# largest k in 0..9 with k * b <= r
+def dec_qdigit(fuel: Nat, +r: List<&2, U32>, +b: List<&2, U32>,
+               +k: U32) -> U32:
+  match fuel:
+    case 0n:
+      0
+    case 1n+p:
+      S.pick(dec_le(dec_mul_small(b, k), r), k,
+             dec_qdigit(p, r, b, (k - 1 : U32)))
+
+# long division, most-significant digit first: (quotient, remainder)
+def dec_dm_r(fuel: Nat, xs: List<&2, U32>, +b: List<&2, U32>,
+             +q: List<&2, U32>,
+             +r: List<&2, U32>) -> List<&2, U32> & List<&2, U32>:
+  match fuel xs:
+    case 0n _:
+      (q, r)
+    case 1n+p Nil{}:
+      (q, r)
+    case 1n+p Con{x, tx}:
+      +r1 : List<&2, U32> = dec_norm(List.append(&2, U32, r, [x]))
+      +dg : U32 = dec_qdigit(10n, r1, b, 9)
+      dec_dm_r(p, tx, b, List.append(&2, U32, q, [(dg + 48 : U32)]),
+               dec_norm(dec_sub(r1, dec_mul_small(b, dg))))
+
+def dm_fst(pr: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
+  match pr:
+    case Tuple{q, r}:
+      q
+
+def dm_snd(pr: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
+  match pr:
+    case Tuple{q, r}:
+      r
+
+# Lean: n / 0 = 0 and n % 0 = n
+def dec_div(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  S.pick_l(U32.is_eq(len_u(dec_strip(256n, b), 0), 0), [48],
+           dec_norm(dm_fst(dec_dm_r(256n, dec_norm(a), dec_norm(b), Nil{},
+                                    [48]))))
+
+def dec_mod(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  S.pick_l(U32.is_eq(len_u(dec_strip(256n, b), 0), 0), dec_norm(a),
+           dec_norm(dm_snd(dec_dm_r(256n, dec_norm(a), dec_norm(b), Nil{},
+                                    [48]))))
+
+def dec_eq(+a: List<&2, U32>, +b: List<&2, U32>) -> Bool:
+  eq_u32s(dec_norm(a), dec_norm(b))
+
+# may operation aw (0 add, 1 sub, 2 ble, 3 mul, 4 pow, 5 div, 6 mod, 7 beq)
+# be computed here without exceeding the 256-digit bound?
+def lit_ok(+aw: U32, +da: List<&2, U32>, +db: List<&2, U32>) -> Bool:
+  +la : U32 = len_u(dec_norm(da), 0)
+  +lb : U32 = len_u(dec_norm(db), 0)
+  S.pick_b(U32.is_eq(aw, 3), U32.is_le((la + lb : U32), 200),
+   S.pick_b(U32.is_eq(aw, 4),
+            U32.is_le(lb, 4) && U32.is_le((la * dec_u32(dec_norm(db), 0) : U32), 90),
+            U32.is_le(la, 200) && U32.is_le(lb, 200)))
+
 # --- literals against numerals -------------------------------------------
 # `ENat 3` and `Nat.succ (Nat.succ (Nat.succ Nat.zero))` are the same number
 # written two ways, and `defeq` has to see that: `103_natLitEq` states

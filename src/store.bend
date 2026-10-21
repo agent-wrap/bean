@@ -421,6 +421,21 @@ def build_wk2(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   # (it threads qtt but, unlike the trie engine's IS, has no strn field)
   10, find_name(rs, [83, 116, 114, 105, 110, 103], 4294967295), 4294967295)
 
+# keys 11..15: Nat.mul, Nat.pow, Nat.div, Nat.mod, Nat.beq -- the rest of
+# the literal operations Lean's kernel computes directly
+def build_wk3(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  +n = find_name(rs, [78, 97, 116], 4294967295)
+  R2.set(U32, 32n,
+  R2.set(U32, 32n,
+  R2.set(U32, 32n,
+  R2.set(U32, 32n,
+  R2.set(U32, 32n, build_wk2(rs, t),
+    11, find_under(rs, n, [109, 117, 108], 4294967295), 4294967295),
+    12, find_under(rs, n, [112, 111, 119], 4294967295), 4294967295),
+    13, find_under(rs, n, [100, 105, 118], 4294967295), 4294967295),
+    14, find_under(rs, n, [109, 111, 100], 4294967295), 4294967295),
+    15, find_under(rs, n, [98, 101, 113], 4294967295), 4294967295)
+
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:

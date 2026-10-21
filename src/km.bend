@@ -461,6 +461,14 @@ type KF is Data:
         ctx: List<&2, U32>, fu: U32}
   IStrGo{bad: Bool, sn: U32}
   INatGo{bad: Bool}
+  # whnf of `Nat.succ a`: when `a` whnfs to a literal, the result is the
+  # literal a+1 (Lean's kernel does the same). Without it
+  # `Nat.ble (Nat.succ 55296) 4294967296` -- every `Nat.decLt` -- missed the
+  # literal accelerator and recursed in unary. w3 is the unchanged pipeline.
+  WScB{issuc: Bool, a0: U32, w3: KF}
+  WSc2{w3: KF}
+  WSc3{w3: KF}
+  WSc4{islit: Bool, d: List<&2, U32>, w3: KF}
   ICnGo{bad: Bool, ti: U32, ps: List<&2, U32>, qs: List<&2, L.LN>}
   # wrap the incoming result register as an inference result
   IWrap{ok: Bool}
@@ -1098,8 +1106,18 @@ def klit(fs: Array<T.Ex> & U32, +aw: U32, +da: List<&2, U32>,
       kalloc(fs, T.ENat{I.dec_add(da, db)}, base)
     case 1:
       kalloc(fs, T.ENat{I.dec_sub(da, db)}, base)
-    case _:
+    case 2:
       kalloc(fs, T.EConst{S.pick(I.dec_le(da, db), tn, fn2), Nil{}}, base)
+    case 3:
+      kalloc(fs, T.ENat{I.dec_mul(da, db)}, base)
+    case 4:
+      kalloc(fs, T.ENat{I.dec_pow(da, db)}, base)
+    case 5:
+      kalloc(fs, T.ENat{I.dec_div(da, db)}, base)
+    case 6:
+      kalloc(fs, T.ENat{I.dec_mod(da, db)}, base)
+    case _:
+      kalloc(fs, T.EConst{S.pick(I.dec_eq(da, db), tn, fn2), Nil{}}, base)
 
 # --- iota reduct construction (infer.bend's build_ihs tail + nat_expand) ---
 def ktin_of(r: (Array<T.Ex> & U32) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -1768,15 +1786,50 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                    S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 6,
                                               4294967295)), 1,
                     S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 7,
-                                               4294967295)), 2, 3)))
+                                               4294967295)), 2,
+                     S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 11,
+                                                4294967295)), 3,
+                      S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 12,
+                                                 4294967295)), 4,
+                       S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 13,
+                                                  4294967295)), 5,
+                        S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 14,
+                                                   4294967295)), 6,
+                         S.pick(U32.is_eq(n2, R.get(U32, 32n, qtt, 15,
+                                                    4294967295)), 7,
+                                99))))))))
       +isql : Bool = U32.is_eq(n2, R.get(U32, 32n, qtt, 0, 4294967295))
                      && U32.is_gt(la, 5)
       +isqi : Bool = U32.is_eq(n2, R.get(U32, 32n, qtt, 1, 4294967295))
                      && U32.is_gt(la, 4)
-      km(p, KCon{WPh3{U32.is_lt(aw, 3) && U32.is_gt(la, 1), aw,
-                      Bool.or(isql, isqi), S.pick(isql, 5, 4), can, delta,
-                      vi, ps, qs, e, a2, fu, p5}, k},
+      +issuc : Bool = U32.is_eq(n2, R.get(U32, 32n, qtt, 4, 4294967295))
+                      && U32.is_eq(la, 1)
+      km(p, KCon{WScB{issuc, I.nth_u(a2, 0, 4294967295),
+                      WPh3{U32.is_lt(aw, 8) && U32.is_gt(la, 1), aw,
+                           Bool.or(isql, isqi), S.pick(isql, 5, 4), can,
+                           delta, vi, ps, qs, e, a2, fu, p5}}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WScB{False{}, a0, w3}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{w3, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         knoop(fs, ri))
+    case 1n+p KCon{WScB{True{}, a0, w3}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : U32 = a0
+      km(p, KCon{DWhd{a2}, KCon{WSc2{w3}, k}}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSc2{w3}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{WSc3{w3}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kfetch(fs, r2, r2))
+    case 1n+p KCon{WSc3{w3}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +nd : T.Ex = node
+      km(p, KCon{WSc4{I.is_nat_lit(nd), I.nat_digits(nd), w3}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSc4{True{}, d, w3}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kalloc(fs, T.ENat{I.dec_add(d, [49])}, hcb))
+    case 1n+p KCon{WSc4{False{}, d, w3}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{w3, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         knoop(fs, ri))
     # ---- phase 3: literal arithmetic ----
     case 1n+p KCon{WPh3{True{}, aw, isq, qneed, can, delta, vi, ps, qs, e,
                         args, fu, p5}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -1815,7 +1868,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                        fu, p5}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +n1 : T.Ex = na
       +n2x : T.Ex = node
-      km(p, KCon{WLGo{I.is_nat_lit(n1) && I.is_nat_lit(n2x), aw,
+      km(p, KCon{WLGo{I.is_nat_lit(n1) && I.is_nat_lit(n2x)
+                      && I.lit_ok(aw, I.nat_digits(n1), I.nat_digits(n2x)), aw,
                       I.nat_digits(n1), I.nat_digits(n2x), isq, qneed, can,
                       delta, vi, ps, qs, e, args, fu, p5}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))

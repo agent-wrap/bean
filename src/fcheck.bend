@@ -128,7 +128,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.build_wk2(recs, R.TNil{})
+  +qtt = K.build_wk3(recs, R.TNil{})
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     natn,
                     K.find_name(recs,
