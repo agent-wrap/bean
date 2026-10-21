@@ -55,6 +55,28 @@ def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
 
 # one declaration: structural checks on the trie, the typed check on the
 # machine; the machine state re-enters with the base nx (slot recycling)
+# an inductive block: the structural checks, and the recursors -- derived
+# by the single-inductive path, or (mutual / nested) by nested.bend, whose
+# verdict build_meta2 left in the metadata
+def block_v(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
+            +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+            +vt: R.Tr<U32>, +ntb: R.Tr<U32>, +nmt: R.Tr<T.Nm>) -> C.V:
+  match nb:
+    case True{}:
+      C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}),
+                    C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
+                               C.VAccept{})),
+             C.block_ver_v(its, mt))
+    case False{}:
+      C.comb(C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt,
+                                       C.VAccept{}),
+                           C.ctor_all(its, I.is_ex(st),
+                                      C.ind_names_of(its, Nil{}),
+                                      C.VAccept{})),
+                    C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)),
+             C.comb(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), ntb, lp),
+                    C.block_names_v(its, nmt)))
+
 def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
@@ -63,17 +85,8 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case K.DInd{nms, items} Tuple{ex, nx}:
       +its = items
       +ntb = B.add_items_nt(its, nt)
-      ((ex, nx),
-       C.comb(C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt,
-                                        C.VAccept{}),
-                            C.ctor_all(its, I.is_ex(st),
-                                       C.ind_names_of(its, Nil{}),
-                                       C.VAccept{})),
-                     C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb,
-                                   lp)),
-              C.comb(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), ntb,
-                                      lp),
-                     C.block_names_v(its, nmt))))
+      ((ex, nx), block_v(C.is_nm_block(its), its, st, mt, nt, lp, vt, ntb,
+                         nmt))
     case K.DNone{} Tuple{ex, nx}:
       ((ex, nx), C.VDecline{})
     case _ Tuple{ex, nx}:
@@ -135,7 +148,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   +natn = K.find_name(recs, [78, 97, 116], 4294967295)
-  +qtt = K.add_hts(recs, K.build_wk3(recs, R.TNil{}))
+  +qtt = K.add_hts(recs, K.build_wk4(recs, R.TNil{}))
   +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
                     natn,
                     K.find_name(recs,
@@ -146,7 +159,11 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
   C.comb(C.comb(C.pre_check(ds),
                 C.comb(C.bad_v(C.scan_consts(nex, 0, ex, dn, False{})),
                        C.scan_projs(nex, 0, ex, strt, C.VAccept{}))),
-         fck_all(ds, st, C.build_meta(ds, ex, ln, R.TNil{}), R.TNil{},
+         fck_all(ds, st, C.build_meta2(ds, st, R.TNil{}, R.TNil{}, R.TNil{},
+                                       R.TNil{},
+                                       [I.is_qt(st, 16), I.is_qt(st, 17),
+                                        I.is_qt(st, 18)], R.TNil{}),
+                 R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
                  natn, qtt,
                  # usable capacity; the array is twice that, its upper half

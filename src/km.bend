@@ -118,6 +118,16 @@ type KF is Data:
   # whnf fuel exhausted: rebuild the spine over e
   WRb{e: U32, args: List<&2, U32>}
   WRbP{e: U32, args: List<&2, U32>}
+  # rule-based iota (MRecR: nested/mutual recursors): whnf the major, find
+  # the rule for its constructor, reduce through the delta path
+  RI0{delta: Bool, e: U32, args: List<&2, U32>, fu: U32, mj: U32, pre: U32,
+      rules: List<&2, U32>, ps: List<&2, U32>, qs: List<&2, L.LN>}
+  RI1{delta: Bool, e: U32, args: List<&2, U32>, fu: U32, mj: U32, pre: U32,
+      rules: List<&2, U32>, ps: List<&2, U32>, qs: List<&2, L.LN>}
+  RI2{delta: Bool, e: U32, args: List<&2, U32>, fu: U32, mj: U32, pre: U32,
+      rules: List<&2, U32>, ps: List<&2, U32>, qs: List<&2, L.LN>}
+  RI3{hit: Bool, rhs: U32, delta: Bool, e: U32, args: List<&2, U32>,
+      fu: U32, ps: List<&2, U32>, qs: List<&2, L.LN>}
   # a substitution walk finished; whnf its result under the spine
   WCont{delta: Bool, args: List<&2, U32>, fu: U32}
   # branch point for delta: unfold (lsubst the value) or rebuild
@@ -1684,6 +1694,34 @@ def kpick_us(+z: Bool, xs: List<&2, U32>, ys: List<&2, U32>) -> List<&2, U32>:
     case False{}:
       ys
 
+# the rule for constructor c in a flat [ctor, nfields, rhs, ...] list:
+# (nfields, rhs), or sentinels
+def krule_nf(rs: List<&2, U32>, +c: U32) -> U32:
+  match rs:
+    case Con{ct, Con{nf, Con{rhs, t}}}:
+      S.pick(U32.is_eq(ct, c), nf, krule_nf(t, c))
+    case _:
+      4294967295
+
+def krule_rhs(rs: List<&2, U32>, +c: U32) -> U32:
+  match rs:
+    case Con{ct, Con{nf, Con{rhs, t}}}:
+      S.pick(U32.is_eq(ct, c), rhs, krule_rhs(t, c))
+    case _:
+      4294967295
+
+# the rhs's arguments: params, motives, minors (the recursor's first `pre`
+# arguments), the major's last `nf` arguments (its fields), and whatever
+# followed the major
+def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
+             +sargs: List<&2, U32>, +nf: U32) -> List<&2, U32>:
+  +a2 : List<&2, U32> = args
+  +s2 : List<&2, U32> = sargs
+  List.append(&2, U32, I.take_u(a2, pre, Nil{}),
+              List.append(&2, U32,
+                          I.skip_u(s2, (I.len_u(s2, 0) - nf : U32)),
+                          I.skip_u(a2, (mj + 1 : U32))))
+
 def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
   match x:
     case T.ESort{l}:
@@ -2186,12 +2224,21 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      && U32.is_gt(la, (pp + 1 + mn : U32))
       +need : U32 = (pp + 1 + mn + mk : U32)
       +u2 : List<&2, U32> = us
-      km(p, KCon{WPh1{iskr, isue, can, d2, vi,
-                      R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
-                      klns_of(u2, lnt), e, a2, fu, pp, mn, mk,
-                      I.meta_rcty(mi), n2,
-                      P5{I.meta_is_rec(mi) && U32.is_gt(la, need), need,
-                         I.meta_ind(mi), pp, mk, n2, u2}}, k},
+      +mi2 : I.Meta = mi
+      +rrj : U32 = I.meta_rr_major(mi2)
+      +isrr : Bool = I.meta_is_recr(mi2) && U32.is_gt(la, rrj)
+      km(p, KCon{pick_kf(isrr,
+                         RI0{d2, e, a2, fu, rrj, I.meta_rr_pre(mi2),
+                             I.meta_rr_rules(mi2),
+                             R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
+                             klns_of(u2, lnt)},
+                         WPh1{iskr, isue, can, d2, vi,
+                              R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
+                              klns_of(u2, lnt), e, a2, fu, pp, mn, mk,
+                              I.meta_rcty(mi2), n2,
+                              P5{I.meta_is_rec(mi2) && U32.is_gt(la, need),
+                                 need, I.meta_ind(mi2), pp, mk, n2, u2}}),
+                 k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EProj{tn, idx, sx}}}, ri}:
@@ -2202,6 +2249,42 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, s2, ri))
     case 1n+p KCon{WEv{delta, e, args, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, krebuild(hcb, args, fs, e))
+    # ---- rule-based iota (RI0) ----
+    case 1n+p KCon{RI0{delta, e, args, fu, mj, pre, rules, ps, qs}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +a2 : List<&2, U32> = args
+      +m2 : U32 = mj
+      +maj : U32 = I.nth_u(a2, m2, 4294967295)
+      km(p, KCon{kwev(delta, maj, Nil{}, (fu - 1 : U32)),
+                 KCon{RI1{delta, e, a2, fu, m2, pre, rules, ps, qs}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, maj, ri))
+    case 1n+p KCon{RI1{delta, e, args, fu, mj, pre, rules, ps, qs}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{RI2{delta, e, args, fu, mj, pre, rules, ps, qs}, k}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+    case 1n+p KCon{RI2{delta, e, args, fu, mj, pre, rules, ps, qs}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +c : U32 = kcn(hd)
+      +rs : List<&2, U32> = rules
+      +nf : U32 = krule_nf(rs, c)
+      +rhs : U32 = krule_rhs(rs, c)
+      +s2 : List<&2, U32> = sargs
+      +hit : Bool = Bool.not(U32.is_eq(rhs, 4294967295))
+                    && U32.is_ge(I.len_u(s2, 0), nf)
+      km(p, KCon{RI3{hit, rhs, delta, e,
+                     kri_args(args, pre, mj, s2, S.pick(hit, nf, 0)), fu, ps,
+                     qs}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{RI3{True{}, rhs, delta, e, args, fu, ps, qs}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WDelGo{True{}, delta, rhs, ps, qs, e, args, fu}, k}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # no rule for the major's head: stuck (the original application)
+    case 1n+p KCon{RI3{False{}, rhs, delta, e, args, fu, ps, qs}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         krebuild(hcb, args, fs, e))
     # ---- whnf: continue on a substitution result ----
     case 1n+p KCon{WCont{delta, args, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri

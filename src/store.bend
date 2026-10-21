@@ -454,6 +454,19 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                           (T.fld(fs, 3373707, 0) + 2147483648 : U32),
                           height_of(fs), 4294967295), t))
 
+# keys 16..18: optParam, autoParam, outParam -- the type annotations Lean's
+# consume_type_annotations drops from a minor premise's field types
+def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
+  R2.set(U32, 64n,
+  R2.set(U32, 64n,
+  R2.set(U32, 64n, build_wk3(rs, t),
+    16, find_name(rs, [111, 112, 116, 80, 97, 114, 97, 109], 4294967295),
+    4294967295),
+    17, find_name(rs, [97, 117, 116, 111, 80, 97, 114, 97, 109], 4294967295),
+    4294967295),
+    18, find_name(rs, [111, 117, 116, 80, 97, 114, 97, 109], 4294967295),
+    4294967295)
+
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:
     case Nil{}:
@@ -475,6 +488,14 @@ def build(rs: List<&2, D.Rec>, st: Store, ds: List<&2, Dcl>) -> Store & List<&2,
 # hundred for a small test.
 # Accessors used by the table builders; the kernel has its own copies that
 # also understand inductive blocks.
+# an inductive block's items (empty for any other declaration)
+def dcl_items(+d: Dcl) -> List<&2, IItem>:
+  match d:
+    case DInd{nms, items}:
+      items
+    case _:
+      Nil{}
+
 def dcl_name(+d: Dcl) -> U32:
   match d:
     case DAxiom{n, lps, t}:

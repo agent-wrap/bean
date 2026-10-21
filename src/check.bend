@@ -24,6 +24,7 @@ import ./subst.bend as U
 import ./infer.bend as I
 import ./tables.bend as B
 import ./recursor.bend as W
+import ./nested.bend as N
 
 type V is Data:
   VAccept{}
@@ -1644,6 +1645,50 @@ def block_names_v(+items: List<&2, K.IItem>, +nmt: R.Tr<T.Nm>) -> V:
          block_names_one(items, nmt, head_item(inds)),
          VDecline{})
 
+# --- rule-reduced recursors (nested blocks) ------------------------------
+# The inductive a constructor belongs to: this block's own, or (an external
+# inductive's constructor, for a nested auxiliary) from the metadata so far.
+def ctor_ind_items(items: List<&2, K.IItem>, +ct: U32) -> U32:
+  match items:
+    case Nil{}:
+      4294967295
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
+          S.pick(U32.is_eq(nm, ct), ind2, ctor_ind_items(tail, ct))
+        case _:
+          ctor_ind_items(tail, ct)
+
+def rule_ind(+ct: U32, +items: List<&2, K.IItem>, +t: R.Tr<I.Meta>) -> U32:
+  +c2 : U32 = ct
+  +own : U32 = ctor_ind_items(items, c2)
+  S.pick(U32.is_eq(own, 4294967295),
+         I.meta_ind(R.get(I.Meta, 64n, t, c2, I.MNone{})), own)
+
+# the recursor's rules: those whose constructor builds the major premise's
+# inductive (the head of its last binder's type), flat [ctor, nf, rhs, ...]
+def rules_for(items: List<&2, K.IItem>, +all: List<&2, K.IItem>,
+              +head: U32, +t: R.Tr<I.Meta>,
+              +acc: List<&2, U32>) -> List<&2, U32>:
+  match items:
+    case Nil{}:
+      acc
+    case Con{h, tail}:
+      match h:
+        case K.IRule{ct, nf, rhs}:
+          +c2 : U32 = ct
+          rules_for(tail, all, head, t,
+                    S.pick_l(U32.is_eq(rule_ind(c2, all, t), head),
+                             Con{c2, Con{nf, Con{rhs, acc}}}, acc))
+        case _:
+          rules_for(tail, all, head, t, acc)
+
+def rr_major_head(+ex: R.Tr<T.Ex>, +ty: U32) -> U32:
+  +e2 = ex
+  I.const_nm2(I.spine_hd(256n, e2,
+    U.ex_at(e2, head_u(tele_doms(256n, e2, U.ex_at(e2, ty), Nil{}),
+                       4294967295))))
+
 # --- metadata for iota --------------------------------------------------
 # What `whnf` needs to recognise a recursor application and its major
 # premise. The arities come from the inductive itself and the minor count
@@ -1672,19 +1717,21 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
           +prp = rp
           +prni = rni
           +pkf = kf
-          +nested : Bool = Bool.not(U32.is_eq(nmo, 1))
+          +nmo2 : U32 = nmo
+          +nested : Bool = Bool.not(U32.is_eq(nmo2, 1))
           +tot : U32 = I.len_u(tele_doms(256n, ex, U.ex_at(ex, pty), Nil{}),
                                0)
-          meta_items(tail, allit, ex, ind, np, ni, nc,
-                     R.set(I.Meta, 64n, t, nm,
+          +t2 : R.Tr<I.Meta> = t
+          +al2 : List<&2, K.IItem> = allit
+          meta_items(tail, al2, ex, ind, np, ni, nc,
+                     R.set(I.Meta, 64n, t2, nm,
                            I.pick_meta(nested,
-                             I.MRec{prp, prni,
-                                    (tot - 2 - prp - prni : U32),
-                                    4294967293, pkf,
-                                    ctor_ty_by_cidx(allit, ind, 0,
-                                                    4294967295)},
+                             I.MRecR{prp, nmo2,
+                                     (tot - 1 - prp - nmo2 - prni : U32),
+                                     prni,
+                                     Nil{}},
                              I.MRec{np, ni, nc, ind, pkf,
-                                    ctor_ty_by_cidx(allit, ind, 0,
+                                    ctor_ty_by_cidx(al2, ind, 0,
                                                     4294967295)}),
                            I.MNone{}))
         case K.ICtor{nm, lps, ty, ind2, cnp, nf, ci}:
@@ -1824,6 +1871,92 @@ def meta_block(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
   +inds = ind_only(items, Nil{})
   R.sub(I.Meta, U32.is_eq(len_items(inds, 0), 1),
         meta_block_one(items, ex, ln, t, head_item(inds)), t)
+
+# --- mutual and nested blocks -------------------------------------------
+def add_itab(items: List<&2, K.IItem>, +t: R.Tr<K.IItem>) -> R.Tr<K.IItem>:
+  match items:
+    case Nil{}:
+      t
+    case Con{K.IInd{nm, lps, ty, np, ni, nn, cs}, tl}:
+      +n2 : U32 = nm
+      add_itab(tl, R.set(K.IItem, 64n, t, n2,
+                         K.IInd{n2, lps, ty, np, ni, nn, cs}, K.IOther{}))
+    case Con{h, tl}:
+      add_itab(tl, t)
+
+def add_ctab(items: List<&2, K.IItem>, +t: R.Tr<U32>) -> R.Tr<U32>:
+  match items:
+    case Nil{}:
+      t
+    case Con{K.ICtor{nm, lps, ty, ind, np, nf, ci}, tl}:
+      add_ctab(tl, R.set(U32, 64n, t, nm, ty, 4294967295))
+    case Con{h, tl}:
+      add_ctab(tl, t)
+
+def nn_any(items: List<&2, K.IItem>) -> Bool:
+  match items:
+    case Nil{}:
+      False{}
+    case Con{K.IInd{nm, lps, ty, np, ni, nn, cs}, tl}:
+      U32.is_ne(nn, 0) || nn_any(tl)
+    case Con{h, tl}:
+      nn_any(tl)
+
+# mutual (several types) or nested: recursors derived by nested.bend
+def is_nm_block(+items: List<&2, K.IItem>) -> Bool:
+  +its = items
+  U32.is_gt(len_items(ind_only(its, Nil{}), 0), 1) || nn_any(its)
+
+def first_ind_nm(items: List<&2, K.IItem>) -> U32:
+  match items:
+    case Nil{}:
+      4294967295
+    case Con{K.IInd{nm, lps, ty, np, ni, nn, cs}, tl}:
+      nm
+    case Con{h, tl}:
+      first_ind_nm(tl)
+
+# where a block's verdict is kept in the metadata
+def ver_key(+items: List<&2, K.IItem>) -> U32:
+  (first_ind_nm(items) + 2147483648 : U32)
+
+def block_ver_v(+items: List<&2, K.IItem>, +mt: R.Tr<I.Meta>) -> V:
+  +v : U32 = I.meta_ver(R.get(I.Meta, 64n, mt, ver_key(items), I.MNone{}))
+  pick_v(U32.is_eq(v, 0), VAccept{}, VDecline{})
+
+def meta_nm(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+            +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+            +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  match nb:
+    case False{}:
+      t
+    case True{}:
+      +vr = N.verify_block(items, st, itab, ctab, t, lp, vt, ann)
+      R.set(I.Meta, 64n, N.vr_mt(vr), ver_key(items), I.MVer{N.vr_v(vr)},
+            I.MNone{})
+
+# build_meta, plus: the tables of earlier inductives and constructors, and
+# for every mutual/nested block the derivation of its recursors (verdict and
+# rule-based iota metadata)
+def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
+                +ctab: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+                +vt: R.Tr<U32>, +ann: List<&2, U32>,
+                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+  match ds:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      +h = head
+      +lp2 = B.add_lp(h, lp)
+      +vt2 = B.add_vt(h, vt)
+      +its : List<&2, K.IItem> = K.dcl_items(h)
+      +it2 = add_itab(its, itab)
+      +ct2 = add_ctab(its, ctab)
+      +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t)
+      build_meta2(tail, st, it2, ct2, lp2, vt2, ann,
+                  meta_nm(is_nm_block(its), its, st, it2, ct2, t1, lp2, vt2,
+                          ann))
 
 def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:

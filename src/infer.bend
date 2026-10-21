@@ -38,6 +38,13 @@ type Meta is Data:
   # allowed only at an index strictly below it. See the note at the
   # projection rule in `infer`.
   MInd{p: U32, nf: U32, cty: U32, pr: U32, ppx: U32}
+  # A recursor reduced by its (verified) rules: nested and mutual blocks.
+  # `rules` is flat [ctor, nfields, rhs, ...]; the major premise sits at
+  # p + nmot + nmin + k.
+  MRecR{p: U32, nmot: U32, nmin: U32, k: U32, rules: List<&2, U32>}
+  # the verdict on a mutual/nested block's recursors (nested.bend):
+  # 0 derived and equal, 2 cannot say
+  MVer{v: U32}
 
 def pick_meta(+z: Bool, +x: Meta, +y: Meta) -> Meta:
   match z:
@@ -52,6 +59,43 @@ def meta_is_rec(+m: Meta) -> Bool:
       True{}
     case _:
       False{}
+
+def meta_is_recr(+m: Meta) -> Bool:
+  match m:
+    case MRecR{p, nmot, nmin, k, rules}:
+      True{}
+    case _:
+      False{}
+
+# position of a rule-reduced recursor's major premise (sentinel otherwise)
+def meta_rr_major(+m: Meta) -> U32:
+  match m:
+    case MRecR{p, nmot, nmin, k, rules}:
+      (p + nmot + nmin + k : U32)
+    case _:
+      4294967295
+
+# params + motives + minors: the prefix a rule's rhs takes first
+def meta_rr_pre(+m: Meta) -> U32:
+  match m:
+    case MRecR{p, nmot, nmin, k, rules}:
+      (p + nmot + nmin : U32)
+    case _:
+      0
+
+def meta_rr_rules(+m: Meta) -> List<&2, U32>:
+  match m:
+    case MRecR{p, nmot, nmin, k, rules}:
+      rules
+    case _:
+      Nil{}
+
+def meta_ver(+m: Meta) -> U32:
+  match m:
+    case MVer{v}:
+      v
+    case _:
+      2
 
 def meta_is_ctor(+m: Meta) -> Bool:
   match m:
