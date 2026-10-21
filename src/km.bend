@@ -781,6 +781,148 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
       kfetch2(Array.get(T.Ex, ex, i), nx, ri)
 
 # allocate `node`, result register = fresh index
+# --- hash-consing (proven in bench/hashcons.bend) -------------------------
+# A region of the expression Array itself, [base, base+KMASK], is an open-
+# addressing hash table: slot = base + (fingerprint & KMASK), linear probe.
+# A fixed-K scan (always iterates, no early return -> no mutual recursion)
+# finds the first structural match and the first empty slot; kalloc then
+# shares, inserts, or overflow-appends at nx. Children are already
+# hash-consed, so structural equality is tag + field-index equality (no
+# recursion). This restores the export's DAG sharing through reduction, so
+# the whnf memo hits and reduction stays linear.
+def kmask() -> U32:
+  1048575
+
+def kmix(+h: U32, +x: U32) -> U32:
+  (U32.xor(h, x) * 16777619 : U32)
+
+def kmix_l(xs: List<&2, U32>, +h: U32) -> U32:
+  match xs:
+    case Nil{}:
+      h
+    case Con{head, tail}:
+      kmix_l(tail, kmix(h, head))
+
+def kfp(+x: T.Ex) -> U32:
+  match x:
+    case T.EBad{}:
+      0
+    case T.EBVar{i}:
+      kmix(kmix(2166136261, 1), i)
+    case T.ESort{l}:
+      kmix(kmix(2166136261, 2), l)
+    case T.EConst{n, us}:
+      kmix_l(us, kmix(kmix(2166136261, 3), n))
+    case T.EApp{f, a}:
+      kmix(kmix(kmix(2166136261, 4), f), a)
+    case T.ELam{n, t, b, bi}:
+      kmix(kmix(kmix(kmix(kmix(2166136261, 5), n), t), b), bi)
+    case T.EAll{n, t, b, bi}:
+      kmix(kmix(kmix(kmix(kmix(2166136261, 6), n), t), b), bi)
+    case T.ELet{n, t, v, b}:
+      kmix(kmix(kmix(kmix(kmix(2166136261, 7), n), t), v), b)
+    case T.EProj{tn, i, s}:
+      kmix(kmix(kmix(kmix(2166136261, 8), tn), i), s)
+    case T.ENat{d}:
+      kmix_l(d, kmix(2166136261, 9))
+    case T.EStr{d}:
+      kmix_l(d, kmix(2166136261, 10))
+
+def kueq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{a, as} Con{b, bs}:
+      U32.is_eq(a, b) && kueq(as, bs)
+    case _ _:
+      False{}
+
+def kexeq(+x: T.Ex, +y: T.Ex) -> Bool:
+  match x y:
+    case T.EBVar{i} T.EBVar{j}:
+      U32.is_eq(i, j)
+    case T.ESort{l} T.ESort{m}:
+      U32.is_eq(l, m)
+    case T.EConst{n, us} T.EConst{m, vs}:
+      U32.is_eq(n, m) && kueq(us, vs)
+    case T.EApp{f, a} T.EApp{g, b}:
+      U32.is_eq(f, g) && U32.is_eq(a, b)
+    case T.ELam{n, t, b, bi} T.ELam{m, u, c, b2}:
+      U32.is_eq(n, m) && U32.is_eq(t, u) && U32.is_eq(b, c)
+      && U32.is_eq(bi, b2)
+    case T.EAll{n, t, b, bi} T.EAll{m, u, c, b2}:
+      U32.is_eq(n, m) && U32.is_eq(t, u) && U32.is_eq(b, c)
+      && U32.is_eq(bi, b2)
+    case T.ELet{n, t, v, b} T.ELet{m, u, w, c}:
+      U32.is_eq(n, m) && U32.is_eq(t, u) && U32.is_eq(v, w)
+      && U32.is_eq(b, c)
+    case T.EProj{tn, i, s} T.EProj{t2, j, s2}:
+      U32.is_eq(tn, t2) && U32.is_eq(i, j) && U32.is_eq(s, s2)
+    case T.ENat{d} T.ENat{e}:
+      kueq(d, e)
+    case T.EStr{d} T.EStr{e}:
+      kueq(d, e)
+    case _ _:
+      False{}
+
+def kis_bad(+x: T.Ex) -> Bool:
+  match x:
+    case T.EBad{}:
+      True{}
+    case _:
+      False{}
+
+def knxt(+base: U32, +slot: U32) -> U32:
+  (base + U32.and((slot + 1 - base : U32), kmask()) : U32)
+
+def kpu(+z: Bool, +x: U32, +y: U32) -> U32:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def kscan(k: Nat, +base: U32, +node: T.Ex, +slot: U32, +found: U32,
+          +fempty: U32, +stopped: Bool,
+          pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & (U32 & U32):
+  match k pr:
+    case 0n Tuple{ex, cand}:
+      (ex, (found, fempty))
+    case 1n+p Tuple{ex, cand}:
+      +cd : T.Ex = cand
+      +eb : Bool = kis_bad(cd)
+      +hit : Bool = Bool.not(stopped) && kexeq(cd, node)
+                    && U32.is_eq(found, 4294967295)
+      +f2 : U32 = kpu(hit, slot, found)
+      +fe2 : U32 = kpu(eb && U32.is_eq(fempty, 4294967295), slot, fempty)
+      +slot2 : U32 = knxt(base, slot)
+      kscan(p, base, node, slot2, f2, fe2, Bool.or(stopped, eb),
+            Array.get(T.Ex, ex, slot2))
+
+def kfin2b(+miss: Bool, +fempty: U32, ex: Array<T.Ex>, +node: T.Ex,
+           +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match miss:
+    case False{}:
+      (((Array.set(T.Ex, ex, fempty, node), nx), MN{}), fempty)
+    case True{}:
+      +n : U32 = nx
+      (((Array.set(T.Ex, ex, n, node), (n + 1 : U32)), MN{}), n)
+
+def kfin1b(+miss: Bool, +found: U32, +fempty: U32, ex: Array<T.Ex>,
+           +node: T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match miss:
+    case False{}:
+      (((ex, nx), MN{}), found)
+    case True{}:
+      kfin2b(U32.is_eq(fempty, 4294967295), fempty, ex, node, nx)
+
+def kfin(r: Array<T.Ex> & (U32 & U32), +node: T.Ex, +nx: U32,
+         +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{ex, Tuple{found, fempty}}:
+      +fd : U32 = found
+      kfin1b(U32.is_eq(fd, 4294967295), fd, fempty, ex, node, nx)
+
 def kalloc(fs: Array<T.Ex> & U32,
            +node: T.Ex) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fs:
