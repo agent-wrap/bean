@@ -148,8 +148,10 @@ def dump_pair(fs: Array<T.Ex> & U32, +x: U32,
               +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match fs:
     case Tuple{ex, nx}:
-      dump_fin(dmp2(dmp(400n, Array.get(T.Ex, ex, x), Nil{},
-                        Con{4294966000, Nil{}}), y), nx)
+      +x2 : U32 = x
+      +y2 : U32 = y
+      dump_fin(dmp2(dmp(400n, Array.get(T.Ex, ex, x2), Nil{},
+                        Con{y2, Con{x2, Con{4294966000, Nil{}}}}), y2), nx)
 
 def dump_if(+z: Bool, fs: Array<T.Ex> & U32, +x: U32,
             +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
@@ -165,6 +167,23 @@ def dfold2(r: (Array<T.Ex> & U32) & List<&2, U32>,
   match r:
     case Tuple{fs, d}:
       (fs, Con{c, d})
+
+def kpb2(+none: Bool, +pb: U32, d: List<&2, U32>) -> List<&2, U32>:
+  match none:
+    case True{}:
+      d
+    case False{}:
+      Con{4294966003, Con{pb, d}}
+
+def kpb(+pb: U32, d: List<&2, U32>) -> List<&2, U32>:
+  kpb2(U32.is_eq(pb, 4294967295), pb, d)
+
+# the older event register (key 4294967286) after the code, if set
+def dfold3(+pb: U32, r: (Array<T.Ex> & U32) & List<&2, U32>,
+           +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match r:
+    case Tuple{fs, d}:
+      (fs, Con{c, kpb(pb, d)})
 
 def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
           +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
@@ -183,7 +202,9 @@ def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       +ovf : Bool = U32.is_ge(nxf, M.khalf(base))
       +dx : U32 = R.get(U32, 64n, w2, 4294967288, 4294967295)
       +dy : U32 = R.get(U32, 64n, w2, 4294967287, 4294967295)
-      dfold2(dump_if(Bool.not(U32.is_eq(dx, 4294967295)), (ex, nxf), dx, dy),
+      +pb : U32 = R.get(U32, 64n, w2, 4294967286, 4294967295)
+      dfold3(pb, dump_if(Bool.not(U32.is_eq(dx, 4294967295)), (ex, nxf),
+                         dx, dy),
              S.pick(U32.is_eq(pr, 4294967295),
                     (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
                      + cor + S.pick(ovf, 256, 0) : U32),
