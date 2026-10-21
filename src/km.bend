@@ -523,9 +523,11 @@ type KF is Data:
   # `f a` where f is `g a` (the same argument twice, e.g. a shared lambda
   # passed twice): f's inference just checked a under this very context --
   # its argument check is the last one run (defeq never infers) -- so a's
-  # recorded type (wm keys 4294967285/4/3) is reused, not re-inferred
+  # recorded type (the record slot, krec_slot) is reused, not re-inferred
   IApR{a: U32, node: T.Ex, rf: U32, rfok: Bool, ctx: List<&2, U32>, fu: U32}
   IApR2{hit: Bool, a: U32, node: T.Ex, rf: U32, rfok: Bool,
+        ctx: List<&2, U32>, fu: U32}
+  IApRr{a0: U32, a: U32, node: T.Ex, rf: U32, rfok: Bool,
         ctx: List<&2, U32>, fu: U32}
   IAp4{a: U32, node: T.Ex, rf: U32, rfok: Bool, ctx: List<&2, U32>,
        fu: U32}
@@ -1093,13 +1095,16 @@ def kptr_of(+x: T.Ex) -> U32:
 
 # fixed-K scan: the first hit (a node index) and the first free slot
 # (never used, or a tombstone); stops at a never-used slot
-def kscan(k: Nat, +base: U32, +node: T.Ex, +slot: U32, +found: U32,
-          +fempty: U32, +stopped: Bool, +nx: U32, +fp: U32,
+def kscan(k: Nat, +done: Bool, +base: U32, +node: T.Ex, +slot: U32,
+          +found: U32, +fempty: U32, +stopped: Bool, +nx: U32, +fp: U32,
           pr: Array<T.Ex> & (T.Ex & Bool)) -> Array<T.Ex> & (U32 & U32):
-  match k pr:
-    case 0n Tuple{ex, cand}:
+  match k done pr:
+    case 0n _ Tuple{ex, cand}:
       (ex, (found, fempty))
-    case 1n+p Tuple{ex, Tuple{ent, hit0}}:
+    # a hit, or a never-used slot (nothing lies beyond it): stop probing
+    case 1n+p True{} Tuple{ex, cand}:
+      (ex, (found, fempty))
+    case 1n+p False{} Tuple{ex, Tuple{ent, hit0}}:
       +e2 : T.Ex = ent
       +eb : Bool = kis_bad(e2)
       +pj : U32 = kptr_of(e2)
@@ -1111,9 +1116,10 @@ def kscan(k: Nat, +base: U32, +node: T.Ex, +slot: U32, +found: U32,
                        && U32.is_eq(fempty, 4294967295), slot, fempty)
       +slot2 : U32 = knxt(base, slot)
       +st2 : Bool = Bool.or(stopped, eb)
-      kscan(p, base, node, slot2, f2, fe2, st2, nx, fp,
-            kprobe_slot(ex, slot2, nx, fp,
-                        Bool.not(st2) && U32.is_eq(f2, 4294967295), node))
+      +f3 : U32 = f2
+      +dn : Bool = st2 || U32.is_ne(f3, 4294967295)
+      kscan(p, dn, base, node, slot2, f3, fe2, st2, nx, fp,
+            kprobe_slot(ex, slot2, nx, fp, Bool.not(dn), node))
 
 # --- loose-bvar ranges in the store --------------------------------------
 # Every node written to slot i also records lbr(node) -- one more than its
@@ -1305,7 +1311,7 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
       +n2 : U32 = nx
       +fp : U32 = kfp(nd)
       +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
-      kfin(kscan(24n, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
+      kfin(kscan(24n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
                  kprobe_slot(ex, s0, n2, fp, True{}, nd)),
            nd, n2, base)
 
@@ -1677,11 +1683,10 @@ def kflag1(+cur: R.Tr<U32>, +k: U32, +snap: R.Tr<U32>) -> R.Tr<U32>:
 
 def kflags_into(+cur: R.Tr<U32>, +snap: R.Tr<U32>, +ovf: Bool) -> R.Tr<U32>:
   +c2 : R.Tr<U32> = cur
+  # (the debug probe keys are not carried: a probe recorded inside a
+  # rollback region that rolls back is lost)
   +s1 : R.Tr<U32> = kflag1(c2, 4294967280,
-                     kflag1(c2, 4294967292, kflag1(c2, 4294967291,
-                     kflag1(c2, 4294967290, kflag1(c2, 4294967289,
-                     kflag1(c2, 4294967288, kflag1(c2, 4294967287,
-                     kflag1(c2, 4294967286, snap))))))))
+                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap)))
   kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, s1, 4294967291, 1,
                                       4294967295), 4294967280, 1, 4294967295),
            s1)
@@ -1724,6 +1729,18 @@ def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
               List.append(&2, U32,
                           I.skip_u(s2, (I.len_u(s2, 0) - nf : U32)),
                           I.skip_u(a2, (mj + 1 : U32))))
+
+# the shared-argument record (IApR): a reserved store slot right below the
+# allocation region, EApp{argument, type | ok << 31}
+def krec_slot(+hcb: U32) -> U32:
+  (hcb + 1048576 : U32)
+
+def krec_write(fs: Array<T.Ex> & U32, +slot: U32, +a: U32, +t: U32,
+               +ok: Bool) -> Array<T.Ex> & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      (Array.set(T.Ex, ex, slot,
+                 T.EApp{a, (t + S.pick(ok, 2147483648, 0) : U32)}), nx)
 
 def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
   match x:
@@ -3980,24 +3997,28 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          qtt, natn, wm, nt, hcb, kfetch(fs, f, ri))
     case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{g, a0}}}, ri}:
+      km(p, KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, kfetch(fs, krec_slot(hcb), ri))
+    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EApp{ra, rt}}}, ri}:
       +a2 : U32 = a
-      +w0 : R.Tr<U32> = wm
-      +hit : Bool = U32.is_eq(a0, a2)
-                    && U32.is_eq(R.get(U32, 64n, w0, 4294967285, 4294967295),
-                                 a2)
+      +hit : Bool = U32.is_eq(a0, a2) && U32.is_eq(ra, a2)
+      +rt2 : U32 = rt
       km(p, KCon{IApR2{hit, a2, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, w0, nt, hcb, knoop(fs, ri))
+         lp, vt, qtt, natn, wm, nt, hcb,
+         kmir(fs, U32.and(rt2, 2147483647), U32.is_ge(rt2, 2147483648)))
+    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{IApR2{True{}, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +w0 : R.Tr<U32> = wm
+         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
       km(p, KCon{IAp4{a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, w0, nt, hcb,
-         kmir(fs, R.get(U32, 64n, w0, 4294967284, 4294967295),
-              U32.is_eq(R.get(U32, 64n, w0, 4294967283, 0), 1)))
+         qtt, natn, wm, nt, hcb, kmir(fs, t, ok))
     case 1n+p KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +a2 : U32 = a
@@ -4013,13 +4034,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +ok2 : Bool = ok
       +a2 : U32 = a
       # record this argument check for an enclosing `f a` (see IApR)
-      +w1 : R.Tr<U32> = R.set(U32, 64n, R.set(U32, 64n, R.set(U32, 64n, wm,
-                          4294967285, a2, 4294967295), 4294967284, t2,
-                          4294967295), 4294967283, S.pick(ok2, 1, 0),
-                          4294967295)
       km(p, KCon{IAp5{a2, nd2, t2, ok2, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, w1, nt, hcb,
-         keq_lists_tin(fs, Con{t2, Nil{}},
+         mt, lp, vt, qtt, natn, wm, nt, hcb,
+         keq_lists_tin(krec_write(fs, krec_slot(hcb), a2, t2, ok2),
+                       Con{t2, Nil{}},
                        Con{I.all_dom(nd2), Nil{}}, lnt))
     case 1n+p KCon{IAp5{a, node, ra, raok, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
@@ -4769,24 +4787,28 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          qtt, natn, wm, nt, hcb, kfetch(fs, f, ri))
     case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{g, a0}}}, ri}:
+      km(p, KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, kfetch(fs, krec_slot(hcb), ri))
+    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EApp{ra, rt}}}, ri}:
       +a2 : U32 = a
-      +w0 : R.Tr<U32> = wm
-      +hit : Bool = U32.is_eq(a0, a2)
-                    && U32.is_eq(R.get(U32, 64n, w0, 4294967285, 4294967295),
-                                 a2)
+      +hit : Bool = U32.is_eq(a0, a2) && U32.is_eq(ra, a2)
+      +rt2 : U32 = rt
       km(p, KCon{IApR2{hit, a2, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, w0, nt, hcb, knoop(fs, ri))
+         lp, vt, qtt, natn, wm, nt, hcb,
+         kmir(fs, U32.and(rt2, 2147483647), U32.is_ge(rt2, 2147483648)))
+    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{IApR2{True{}, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +w0 : R.Tr<U32> = wm
+         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
       km(p, KCon{IAp4{a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, w0, nt, hcb,
-         kmir(fs, R.get(U32, 64n, w0, 4294967284, 4294967295),
-              U32.is_eq(R.get(U32, 64n, w0, 4294967283, 0), 1)))
+         qtt, natn, wm, nt, hcb, kmir(fs, t, ok))
     case 1n+p KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +a2 : U32 = a
@@ -4802,13 +4824,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +ok2 : Bool = ok
       +a2 : U32 = a
       # record this argument check for an enclosing `f a` (see IApR)
-      +w1 : R.Tr<U32> = R.set(U32, 64n, R.set(U32, 64n, R.set(U32, 64n, wm,
-                          4294967285, a2, 4294967295), 4294967284, t2,
-                          4294967295), 4294967283, S.pick(ok2, 1, 0),
-                          4294967295)
       km(p, KCon{IAp5{a2, nd2, t2, ok2, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, w1, nt, hcb,
-         keq_lists_tin(fs, Con{t2, Nil{}},
+         mt, lp, vt, qtt, natn, wm, nt, hcb,
+         keq_lists_tin(krec_write(fs, krec_slot(hcb), a2, t2, ok2),
+                       Con{t2, Nil{}},
                        Con{I.all_dom(nd2), Nil{}}, lnt))
     case 1n+p KCon{IAp5{a, node, ra, raok, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:

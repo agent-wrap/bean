@@ -153,7 +153,7 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
               # later (its memo dies with it, the hash table's pointers
               # into the reused range become tombstones)
               fck_one(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                      (ex, (basenx + 1048576 : U32))))
+                      (ex, (basenx + 1048578 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:
@@ -187,4 +187,4 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
-                   (nx + 1048576 : U32)), C.VAccept{})))
+                   (nx + 1048578 : U32)), C.VAccept{})))
