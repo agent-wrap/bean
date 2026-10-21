@@ -112,7 +112,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  natn, qtt, C.VAccept{},
                  ((F.fb_ex(recs,
                            Array.new(T.Ex,
-                                     Nat.add(F.fdepth((nx + 131072 : U32)),
+                                     Nat.add(F.fdepth((nx + 2097152 : U32)),
                                              1n),
                                      T.EBad{})),
-                   (nx + 65536 : U32)), C.VAccept{})))
+                   (nx + 1048576 : U32)), C.VAccept{})))

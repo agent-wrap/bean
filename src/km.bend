@@ -791,7 +791,7 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
 # recursion). This restores the export's DAG sharing through reduction, so
 # the whnf memo hits and reduction stays linear.
 def kmask() -> U32:
-  65535
+  1048575
 
 def kmix(+h: U32, +x: U32) -> U32:
   (U32.xor(h, x) * 16777619 : U32)
@@ -4136,7 +4136,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, h))
     case 1n+p KCon{DWhdGo{False{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
       +i2 : U32 = i
-      km(p, KCon{kwev(True{}, i2, Nil{}, 256), KCon{DWhdSt{i2}, k}}, lnt,
+      km(p, KCon{kwev(True{}, i2, Nil{}, 1000000), KCon{DWhdSt{i2}, k}}, lnt,
          nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, i2, 0))
     case 1n+p KCon{DWhdSt{i}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri

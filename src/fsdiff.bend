@@ -392,9 +392,9 @@ def loop_inf(n: Nat, +e: U32, +ext: R.Tr<T.Ex>, +tln: R.Tr<L.LN>,
 def fresh_flat(+recs: List<&2, D.Rec>, +nex: U32, +tln: R.Tr<L.LN>,
                +nlv: U32) -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   (((F.fb_ex(recs, Array.new(T.Ex,
-                             Nat.add(F.fdepth((nex + 131072 : U32)), 1n),
+                             Nat.add(F.fdepth((nex + 2097152 : U32)), 1n),
                              T.EBad{})),
-     (nex + 65536 : U32)), 0),
+     (nex + 1048576 : U32)), 0),
    ((tln, nlv), R.TNil{}))
 
 def fst_flat(r: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>))
