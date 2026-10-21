@@ -1014,8 +1014,16 @@ def kscan(k: Nat, +base: U32, +node: T.Ex, +slot: U32, +found: U32,
 # keep a subterm whose lbr is at most their cutoff without walking it --
 # Lean's has_loose_bvars test; without it a shared subterm (a DAG) is
 # walked as a tree (perf/shared-subterm: 2^1000).
+# log2 of hb, the usable store capacity: room for the export, the hash-cons
+# table and 2^20 more, rounded up twice. The store array is 2*hb (see
+# khalf). A floor of 2^25 was tried: every run then pays ~4 GB (a slot costs
+# ~64 bytes, all initialised) and perf/magma-list-pair-n7 still overflows --
+# the store never frees a slot, which is the real limit there.
+def sdepth(+base: U32) -> Nat:
+  Nat.add(U32.log2((base + 2097152 : U32)), 2n)
+
 def khalf(+base: U32) -> U32:
-  U32.shln(1, Nat.add(U32.log2((base + 2097152 : U32)), 2n))
+  U32.shln(1, sdepth(base))
 
 def klb_unpack(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
   match pr:

@@ -144,12 +144,10 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  natn, qtt,
                  # usable capacity; the array is twice that, its upper half
                  # holds the loose-bvar ranges (km's kput / khalf)
-                 kpow2(Nat.add(F.fdepth((nx + 2097152 : U32)), 1n)),
+                 kpow2(M.sdepth(nx)),
                  C.VAccept{},
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
-                           Array.new(T.Ex,
-                                     Nat.add(F.fdepth((nx + 2097152 : U32)),
-                                             2n),
+                           Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
                    (nx + 1048576 : U32)), C.VAccept{})))

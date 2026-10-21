@@ -73,9 +73,101 @@ def vcode(+v: C.V) -> U32:
     case C.VDecline{}:
       2
 
+# term dump for probes: preorder tokens of a node (fuel-bounded)
+# App 1, Lam 2, Pi 3, Let 4, Proj 5 tn i, Const 6 n, BVar 7 i, Sort 8,
+# Nat 9 value, Str 10, Bad 11
+def dmp(fuel: Nat, pr: Array<T.Ex> & T.Ex, work: List<&2, U32>,
+        acc: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
+  match fuel pr:
+    case 0n Tuple{a, nd}:
+      (a, acc)
+    case 1n+p Tuple{a, nd}:
+      match nd:
+        case T.EApp{f, g}:
+          dmp(p, Array.get(T.Ex, a, f), Con{g, work}, Con{1, acc})
+        case T.ELam{n, t, b, bi}:
+          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{2, acc})
+        case T.EAll{n, t, b, bi}:
+          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{3, acc})
+        case T.ELet{n, t, v, b}:
+          dmp(p, Array.get(T.Ex, a, t), Con{v, Con{b, work}}, Con{4, acc})
+        case T.EProj{tn, i, sx}:
+          dmp(p, Array.get(T.Ex, a, sx), work, Con{i, Con{tn, Con{5, acc}}})
+        case T.EConst{n, us}:
+          match work:
+            case Nil{}:
+              (a, Con{n, Con{6, acc}})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{n, Con{6, acc}})
+        case T.EBVar{i}:
+          match work:
+            case Nil{}:
+              (a, Con{i, Con{7, acc}})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{i, Con{7, acc}})
+        case T.ESort{l}:
+          match work:
+            case Nil{}:
+              (a, Con{8, acc})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{8, acc})
+        case T.ENat{d}:
+          match work:
+            case Nil{}:
+              (a, Con{I.dec_u32(d, 0), Con{9, acc}})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{I.dec_u32(d, 0), Con{9, acc}})
+        case T.EStr{d}:
+          match work:
+            case Nil{}:
+              (a, Con{10, acc})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{10, acc})
+        case _:
+          match work:
+            case Nil{}:
+              (a, Con{11, acc})
+            case Con{h, t}:
+              dmp(p, Array.get(T.Ex, a, h), t, Con{11, acc})
+
+def dmp2(pr: Array<T.Ex> & List<&2, U32>, +y: U32) -> Array<T.Ex> & List<&2, U32>:
+  match pr:
+    case Tuple{a, acc}:
+      dmp(400n, Array.get(T.Ex, a, y), Nil{}, Con{4294966001, acc})
+
+def dump_fin(pr: Array<T.Ex> & List<&2, U32>,
+             +nx: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match pr:
+    case Tuple{a, acc}:
+      +n2 : U32 = nx
+      ((a, n2), Con{4294966002, Con{n2, acc}})
+
+# the two terms a probe recorded (keys 4294967288 / 4294967287), reversed
+# token lists after a 4294966000 marker
+def dump_pair(fs: Array<T.Ex> & U32, +x: U32,
+              +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match fs:
+    case Tuple{ex, nx}:
+      dump_fin(dmp2(dmp(400n, Array.get(T.Ex, ex, x), Nil{},
+                        Con{4294966000, Nil{}}), y), nx)
+
+def dump_if(+z: Bool, fs: Array<T.Ex> & U32, +x: U32,
+            +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match z:
+    case True{}:
+      dump_pair(fs, x, y)
+    case False{}:
+      (fs, Nil{})
+
 # typed result code: verdict | 16*incomplete | 32*corrupt (before downgrade)
+def dfold2(r: (Array<T.Ex> & U32) & List<&2, U32>,
+           +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match r:
+    case Tuple{fs, d}:
+      (fs, Con{c, d})
+
 def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
-          +sv: C.V) -> (Array<T.Ex> & U32) & U32:
+          +sv: C.V) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match kr:
     case Tuple{Tuple{fs, v}, Tuple{lt, wm}}:
       +w2 : R.Tr<U32> = wm
@@ -87,18 +179,21 @@ def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       # probe breadcrumb (key 4294967290): its value replaces the code,
       # offset by 512 so it stays readable after the name*1024 packing
       +pr : U32 = R.get(U32, 64n, w2, 4294967290, 4294967295)
-      (fs, S.pick(U32.is_eq(pr, 4294967295),
-                  (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
-                   + cor : U32),
-                  (512 + pr : U32)))
+      +dx : U32 = R.get(U32, 64n, w2, 4294967288, 4294967295)
+      +dy : U32 = R.get(U32, 64n, w2, 4294967287, 4294967295)
+      dfold2(dump_if(Bool.not(U32.is_eq(dx, 4294967295)), fs, dx, dy),
+             S.pick(U32.is_eq(pr, 4294967295),
+                    (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
+                     + cor : U32),
+                    (512 + pr : U32)))
 
-def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & U32:
-  (fs, c)
+def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  (fs, Con{c, Nil{}})
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & U32:
+            fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match d fs:
     case K.DInd{nms, items} Tuple{ex, nx}:
       +its = items
@@ -124,23 +219,30 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                            K.dcl_value(pd), basenx),
                C.self_ref_v(I.is_ex(st), pd))
 
+# a declaration's code (labelled with its name) followed by any probe dump
+def push_codes(+pn: U32, cl: List<&2, U32>,
+               acc: List<&2, U32>) -> List<&2, U32>:
+  match cl:
+    case Nil{}:
+      acc
+    case Con{c, d}:
+      Con{(pn * 1024 + c : U32), List.append(&2, U32, d, acc)}
+
 def fck_all_d(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
             +i: U32, +pn: U32, acc: List<&2, U32>,
-            fr: (Array<T.Ex> & U32) & U32) -> List<&2, U32>:
+            fr: (Array<T.Ex> & U32) & List<&2, U32>) -> List<&2, U32>:
   match ds fr:
     case Nil{} Tuple{fs, c}:
-      +c3 : U32 = c
-      Con{(pn * 1024 + c3 : U32), acc}
+      push_codes(pn, c, acc)
     case Con{head, tail} Tuple{fs, c}:
       +h = head
-      +c2 : U32 = c
       fck_all_d(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, (i + 1 : U32),
               K.dcl_name(h),
               # fr carries the PREVIOUS declaration's code: label it pn
-              Con{(pn * 1024 + c2 : U32), acc},
+              push_codes(pn, c, acc),
               fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt, fs))
 
 def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
@@ -165,11 +267,9 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  natn, qtt, 0, 0, Nil{},
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
-                           Array.new(T.Ex,
-                                     Nat.add(F.fdepth((nx + 2097152 : U32)),
-                                             2n),
+                           Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
-                   (nx + 1048576 : U32)), 0))}
+                   (nx + 1048576 : U32)), Con{0, Nil{}}))}
 
 def show_all(xs: List<&2, U32>) -> String:
   match xs:
