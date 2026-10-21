@@ -4310,7 +4310,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 0))
     case 1n+p KCon{CkT8{False{}, ti1, vi}, k} Tuple{Tuple{fs, msg}, ri}:
       +t2 : U32 = ti1
-      km(p, KCon{DWhd{t2}, KCon{CkV2{vi, 8192}, k}}, lnt, nlx, mt, lp, vt,
+      km(p, KCon{DWhd{t2}, KCon{CkV2{vi, 1048576}, k}}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # ck_value: whd the declared type, then bidirectionally check the value
     case 1n+p KCon{CkV2{vi, fu}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -5099,7 +5099,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 0))
     case 1n+p KCon{CkT8{False{}, ti1, vi}, k} Tuple{Tuple{fs, msg}, ri}:
       +t2 : U32 = ti1
-      km(p, KCon{DWhd{t2}, KCon{CkV2{vi, 8192}, k}}, lnt, nlx, mt, lp, vt,
+      km(p, KCon{DWhd{t2}, KCon{CkV2{vi, 1048576}, k}}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # ck_value: whd the declared type, then bidirectionally check the value
     case 1n+p KCon{CkV2{vi, fu}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -5574,7 +5574,7 @@ def fck_typed(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
               +vi: U32, +hcb: U32)
     -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +t2 : U32 = ti
-  km(fuel, KCon{DWhd{t2}, KCon{CkT1{isthm, vi, 8192}, KNil{}}}, lnt, nlx,
+  km(fuel, KCon{DWhd{t2}, KCon{CkT1{isthm, vi, 1048576}, KNil{}}}, lnt, nlx,
      mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
 
 def kwhd(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
