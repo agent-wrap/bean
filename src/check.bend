@@ -468,12 +468,11 @@ def occ_go(+fuel: Nat, +skip: Bool, +ex: R.Tr<T.Ex>,
       OM{m, L.TNo{}}
 
 def occurs_tri(+ex: R.Tr<T.Ex>, +names: List<&2, U32>, +x: T.Ex) -> L.Tri:
-  # Fuel 8192, not 512. The walk is memoised, so the bound is a depth
-  # limit rather than a cost -- and the `perf` files reach it easily:
-  # `folded-constant-last` carries 1000-deep numerals, so the self-reference
-  # check answered "cannot decide" and declined the whole file before any
-  # of the interesting work began.
-  om_r(occ_go(8192n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
+  # The walk is memoised, so the fuel bounds DEPTH, not cost -- and the
+  # `perf` files are deep: `folded-constant-last` carries 1000-deep
+  # numerals, `app-lam` 4000 nested binders over a 4000-deep sum. 8192 was
+  # not enough for the latter; the bound only guards the C stack.
+  om_r(occ_go(262144n, False{}, ex, names, R.TNil{}, L.TUnk{}, x))
 
 # A bound variable with the wrong index, or anything else rigid, is a real
 # mismatch; an application or a let might reduce and so declines.
