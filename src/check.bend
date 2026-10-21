@@ -1924,21 +1924,58 @@ def block_ver_v(+items: List<&2, K.IItem>, +mt: R.Tr<I.Meta>) -> V:
   +v : U32 = I.meta_ver(R.get(I.Meta, 64n, mt, ver_key(items), I.MNone{}))
   pick_v(U32.is_eq(v, 0), VAccept{}, VDecline{})
 
+def pick_mt(+z: Bool, +a: R.Tr<I.Meta>, +b: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
+# Every block's recursors go through nested.bend's derivation (it is the
+# cheaper one: structural comparison, no defeq). A mutual/nested block also
+# takes its rule-based iota metadata from it; a single inductive keeps the
+# built-in iota metadata and uses only the verdict (with the older
+# derivation as the fallback when this one cannot say, e.g. Prop).
 def meta_nm(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
-  match nb:
+  +vr = N.verify_block(items, st, itab, ctab, t, lp, vt, ann)
+  R.set(I.Meta, 64n, pick_mt(nb, N.vr_mt(vr), t), ver_key(items),
+        I.MVer{N.vr_v(vr)}, I.MNone{})
+
+def meta_any(+blk: Bool, +nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
+             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  match blk:
+    case True{}:
+      meta_nm(nb, items, st, itab, ctab, t, lp, vt, ann)
     case False{}:
       t
+
+def dov2(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS, +mt: R.Tr<I.Meta>,
+         +vt: R.Tr<U32>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+         +lp: R.Tr<List<&2, U32>>) -> V:
+  match ok:
     case True{}:
-      +vr = N.verify_block(items, st, itab, ctab, t, lp, vt, ann)
-      R.set(I.Meta, 64n, N.vr_mt(vr), ver_key(items), I.MVer{N.vr_v(vr)},
-            I.MNone{})
+      VAccept{}
+    case False{}:
+      block_derive_v(items, st, mt, vt, ln, nt, lp)
 
 # build_meta, plus: the tables of earlier inductives and constructors, and
 # for every mutual/nested block the derivation of its recursors (verdict and
 # rule-based iota metadata)
+# a single inductive: nested.bend's verdict, or the older derivation
+def derive_or_ver(+items: List<&2, K.IItem>, +st: I.IS, +mt: R.Tr<I.Meta>,
+                  +vt: R.Tr<U32>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
+                  +lp: R.Tr<List<&2, U32>>) -> V:
+  +its = items
+  +m2 = mt
+  dov2(U32.is_eq(I.meta_ver(R.get(I.Meta, 64n, m2, ver_key(its),
+                                  I.MNone{})), 0),
+       its, st, m2, vt, ln, nt, lp)
+
 def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
                 +ctab: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                 +vt: R.Tr<U32>, +ann: List<&2, U32>,
@@ -1955,8 +1992,9 @@ def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
       +ct2 = add_ctab(its, ctab)
       +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t)
       build_meta2(tail, st, it2, ct2, lp2, vt2, ann,
-                  meta_nm(is_nm_block(its), its, st, it2, ct2, t1, lp2, vt2,
-                          ann))
+                  meta_any(U32.is_gt(len_items(ind_only(its, Nil{}), 0), 0),
+                           is_nm_block(its), its, st, it2, ct2, t1, lp2, vt2,
+                           ann))
 
 def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
