@@ -94,6 +94,10 @@ type KF is Data:
   KEvS{ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, fu: U32}
   # depth fuel exhausted: keep e untouched (the trie walks' `case 0n`)
   KKp{e: U32}
+  # walk (lift/inst/lsubst) fuel ran out: the subterm is kept UNSHIFTED, so
+  # the result is no longer definitionally equal to the input. Flagged in the
+  # per-declaration memo as CORRUPT (key 4294967291): fcheck declines.
+  KKpF{e: U32}
   # after the bvar-eq sentinel walk: pick the real answer for an inst bvar
   KBvI{iseq: Bool, isgt: Bool, i: U32, e: U32}
   KAp2{wp: WP, e: U32, f0: U32, a0: U32}
@@ -262,9 +266,12 @@ type KF is Data:
   DCgS2{h1: T.Ex, s1: List<&2, U32>, x: U32, y: U32, xt: List<&2, U32>,
         yt: List<&2, U32>, a1: U32, a2: U32, xi: U32, yi: U32,
         ctx: List<&2, U32>, fu: U32}
-  DCgS3{gate: Bool, s1: List<&2, U32>, s2: List<&2, U32>, x: U32, y: U32,
+  DCgS3{gate: Bool, nb: Bool, s1: List<&2, U32>, s2: List<&2, U32>, x: U32,
+        y: U32,
         xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32, xi: U32,
         yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCgS4{bail: Bool, x: U32, y: U32, xt: List<&2, U32>, yt: List<&2, U32>,
+        a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DCgW1{y: U32, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
         xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DCgW2{wx: U32, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
@@ -653,7 +660,7 @@ def pick_kf(+z: Bool, +x: KF, +y: KF) -> KF:
 
 # the eval frame for a walk on target e; depth 0 keeps
 def kev(+wp: WP, +e: U32) -> KF:
-  pick_kf(U32.is_eq(wp_fu(wp), 0), KKp{e},
+  pick_kf(U32.is_eq(wp_fu(wp), 0), KKpF{e},
     pick_kf(U32.is_eq(wp_op(wp), 0), KEvL{wp_c(wp), wp_d(wp), e, wp_fu(wp)},
             pick_kf(U32.is_eq(wp_op(wp), 1),
                     KEvI{wp_c(wp), wp_v(wp), e, wp_fu(wp)},
@@ -1577,8 +1584,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- whnf: rebuild on exhausted fuel ----
+    # whnf fuel ran out: the rebuilt term is only PARTIALLY reduced. It is
+    # still definitionally equal to the input (so YES answers built on it are
+    # sound) but it is not a normal form, so a NO built on it is not. Flag the
+    # declaration INCOMPLETE (memo key 4294967292): fcheck turns a reject into
+    # a decline. This is what made magma-list-deep-n21 reject a true theorem.
     case 1n+p KCon{WRb{e, args}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, krebuild(args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, 4294967292, 1, 4294967295), nt, hcb,
+         krebuild(args, fs, e))
+    case 1n+p KCon{KKpF{e}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, 4294967291, 1, 4294967295), nt, hcb,
+         kkeep(fs, e))
     # ---- whnf: eval (entry-level node dispatch; first match wins) ----
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{f, a}}}, ri}:
@@ -2330,18 +2348,37 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      && U32.is_eq(kcn(ha), kcn(hb))
                      && I.eq_u32s(kcus(ha), kcus(hb))
                      && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
-      km(p, KCon{DCgS3{gate, sa, sb, x, y, xt, yt, a1, a2, xi, yi, ctx, fu},
-                 k},
+      # bail (abandon) when both are applications and NEITHER head is a
+      # constructor: comparing would need unfolding two defined functions
+      +nb : Bool = U32.is_gt(I.len_u(sa, 0), 0) && U32.is_gt(I.len_u(sb, 0), 0)
+                   && Bool.not(I.meta_is_ctor(R.get(I.Meta, 32n, mt, kcn(ha),
+                                                    I.MNone{})))
+                   && Bool.not(I.meta_is_ctor(R.get(I.Meta, 32n, mt, kcn(hb),
+                                                    I.MNone{})))
+      km(p, KCon{DCgS3{gate, nb, sa, sb, x, y, xt, yt, a1, a2, xi, yi, ctx,
+                       fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # same head: expand the argument pairs onto the worklist
-    case 1n+p KCon{DCgS3{True{}, s1, s2, x, y, xt, yt, a1, a2, xi, yi, ctx,
-                         fu}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{DCgS3{True{}, nb, s1, s2, x, y, xt, yt, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DCgL{kapp_u(s1, xt), kapp_u(s2, yt), a1, a2, xi, yi, ctx,
                       fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # different heads. Two APPLICATIONS with different heads would need
+    # unfolding to compare -- possibly evaluating their arguments (e.g.
+    # `P (slow n) =?= Q (slow m)`) -- so abandon the attempt and let the
+    # unchanged path decide. Otherwise it is an atomic-ish leaf.
+    case 1n+p KCon{DCgS3{False{}, nb, s1, s2, x, y, xt, yt, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DCgS4{nb, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCgS4{True{}, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DWhd{a1}, KCon{DAq4{L.TYes{}, a1, a2, xi, yi, ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # leaf: full whnf both sides (defeq's precondition), then defeq
-    case 1n+p KCon{DCgS3{False{}, s1, s2, x, y, xt, yt, a1, a2, xi, yi, ctx,
-                         fu}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{DCgS4{False{}, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       km(p, KCon{DWhd{x2}, KCon{DCgW1{y, xt, yt, a1, a2, xi, yi, ctx, fu},
                                 k}},
