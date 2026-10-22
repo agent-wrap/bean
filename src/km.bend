@@ -413,6 +413,9 @@ type KF is Data:
   DIr2{t: L.Tri, hx: T.Ex, yi: U32, xi: U32, ctx: List<&2, U32>}
   DIrGo{gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
   DIr4{t: L.Tri, yi: U32, ctx: List<&2, U32>}
+  DTyF{x: U32, ctx: List<&2, U32>}
+  DTyF2{none: Bool, x: U32, ctx: List<&2, U32>}
+  DTyF3{old: U32}
   DIr5{t: L.Tri, rx: U32, ctx: List<&2, U32>}
   DIr6{pz: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   # compare the two TYPES with full defeq (whnf'd), not structurally:
@@ -558,6 +561,11 @@ type KF is Data:
       acc: L.Tri, ctx: List<&2, U32>}
   # ---- type inference (infer.bend's infer) ----
   ISub{xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubC{xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubD{ok: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubM{hit: Bool, cl: Bool, t: U32, tok: Bool, xi: U32, h: U32, cid: U32,
+        ctx: List<&2, U32>, fu: U32}
+  IMemo{cl: Bool, xi: U32, h: U32, cid: U32}
   IEvGo{z0: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
   IEv{xi: U32, ctx: List<&2, U32>, fu: U32}
   IAl3b{ty: U32, b: U32, ra: U32, raok: Bool, ctx: List<&2, U32>,
@@ -609,6 +617,8 @@ type KF is Data:
   IAp5{a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32, rfok: Bool,
        ctx: List<&2, U32>, fu: U32}
   IAp5Go{isyes: Bool, a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32,
+         rfok: Bool, ctx: List<&2, U32>, fu: U32}
+  IAp5io{io: Bool, a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32,
          rfok: Bool, ctx: List<&2, U32>, fu: U32}
   IAp5c{a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32, rfok: Bool,
         ctx: List<&2, U32>, fu: U32}
@@ -778,7 +788,7 @@ type KF is Data:
   LDk{x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   LDk1{yes: Bool, nopair: Bool, x: U32, y: U32, ctx: List<&2, U32>,
        fu: U32}
-  LDp{ctx: List<&2, U32>, fu: U32}
+  LDp{x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   LDw{y: U32, ctx: List<&2, U32>, fu: U32}
   LDw2{wx: U32, ctx: List<&2, U32>, fu: U32}
   KRb{mark: U32, snap: R.Tr<U32>}
@@ -1378,6 +1388,12 @@ def klb_unpack(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
 
 def klb_get(a: Array<T.Ex>, +j: U32, +hb: U32) -> Array<T.Ex> & U32:
   klb_unpack(Array.get(T.Ex, a, (j + hb : U32)))
+
+# a node's lbr as the register (0: closed)
+def klb_tin(r: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{a, l}:
+      (((a, nx), MN{}), l)
 
 # under one binder: bvar 0 is bound, the rest shift down; unknown stays
 def klb_dec(+l: U32) -> U32:
@@ -2024,6 +2040,31 @@ def khc(fs: Array<T.Ex> & U32, +node: T.Ex,
 # application in defeq (try_string_lit_expansion).
 # decimal digits (ASCII, most significant first) of n; the fuel bounds the
 # digit count (S.pick evaluates the recursive branch too: 12 levels at most)
+# the first n entries of xs, reversed (a Bool match: S.pick_l would walk
+# the whole context and rebuild the prefix at every step)
+def kpre_rev2(xs: List<&2, U32>, +stop: Bool, +n: U32,
+              acc: List<&2, U32>) -> List<&2, U32>:
+  match xs stop:
+    case _ True{}:
+      acc
+    case Nil{} False{}:
+      acc
+    case Con{h, t} False{}:
+      kpre_rev2(t, U32.is_eq(n, 1), (n - 1 : U32), Con{h, acc})
+
+def kpre_rev(+n: U32, xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  kpre_rev2(xs, U32.is_eq(n, 0), n, acc)
+
+# the canonical node of a context prefix (outermost first): EApp{t, rest}
+# chains over root 0, hash-consed
+def kctxid(xs: List<&2, U32>, r: (Array<T.Ex> & U32) & U32,
+           +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match xs r:
+    case Nil{} _:
+      r
+    case Con{t, rest} Tuple{fs, acc}:
+      kctxid(rest, khc(fs, T.EApp{t, acc}, base), base)
+
 def kdec(fuel: Nat, +n: U32, acc: List<&2, U32>) -> List<&2, U32>:
   match fuel:
     case 0n:
@@ -5131,11 +5172,69 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{KI0{ta, tb, I.tri_and2(d2, acc), ctx}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # ---- type inference ----
-    case 1n+p KCon{ISub{xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+    # Lean caches inferred types per expression (shared subterms of a proof
+    # are checked once; km walked them as a tree). A node's type depends on
+    # the context only through its first lbr(x) entries, so it is memoised
+    # under (x, cid), cid the hash-consed chain of that context prefix, and
+    # both are verified on a hit (keys 0x70000000 + h: type, 0x78000000 + h:
+    # x | ok << 31, 0x90000000 + h: cid). A fuel-out is not memoised.
+    case 1n+p KCon{ISub{xi, ctx, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{ISubC{x2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, klb_tin(klb_get(ex, x2, khalf(hcb)), nx))
+    case 1n+p KCon{ISubC{xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +l : U32 = ri
+      +c2 : List<&2, U32> = ctx
+      +ok : Bool = U32.is_le(l, 48) && U32.is_lt(xi, 134217728)
+      km(p, KCon{ISubD{ok, xi, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb,
+         ktin_of(kctxid(kpre_rev(S.pick(ok, l, 0), c2, Nil{}), (fs, 0), hcb)))
+    case 1n+p KCon{ISubD{ok, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      +cid : U32 = ri
+      +w2 : R.Tr<U32> = wm
+      # infer_only types (argument checks skipped) live in their own key
+      # range (+0x28000000): one there must never vouch for a checked one
+      +io : Bool = U32.is_eq(R.get(U32, 64n, w2, 4294967269, 0), 1)
+      +h : U32 = (U32.and(((x2 * 2654435761 : U32) + (cid * 40503 : U32) : U32),
+                          134217727)
+                  + S.pick(io, 671088640, 0) : U32)
+      +t : U32 = R.get(U32, 64n, w2, (1879048192 + h : U32), 4294967295)
+      +xv : U32 = R.get(U32, 64n, w2, (2013265920 + h : U32), 4294967295)
+      +cv : U32 = R.get(U32, 64n, w2, (2415919104 + h : U32), 4294967295)
+      +hit : Bool = ok && Bool.not(U32.is_eq(t, 4294967295))
+                    && U32.is_eq(U32.and(xv, 2147483647), x2)
+                    && U32.is_eq(cv, cid)
+      km(p, KCon{ISubM{hit, ok, t, U32.is_ge(xv, 2147483648), x2, h, cid,
+                       ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{ISubM{True{}, cl, t, tok, xi, h, cid, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmir(fs, t, tok))
+    case 1n+p KCon{ISubM{False{}, cl, t, tok, xi, h, cid, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +f2 : U32 = fu
       +x2 : U32 = xi
-      km(p, KCon{IEvGo{U32.is_eq(f2, 0), x2, ctx, f2}, k}, lnt, nlx, mt,
+      km(p, KCon{IEvGo{U32.is_eq(f2, 0), x2, ctx, f2},
+                 KCon{IMemo{cl, x2, h, cid}, k}}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{IMemo{cl, xi, h, cid}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
+      +t2 : U32 = t
+      +ok2 : Bool = ok
+      +h2 : U32 = h
+      +st : Bool = cl && Bool.not(U32.is_eq(t2, 4294967295))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         kpick_tr(st,
+                  R.set(U32, 64n,
+                        R.set(U32, 64n,
+                              R.set(U32, 64n, wm, (1879048192 + h2 : U32), t2,
+                                    4294967295),
+                              (2013265920 + h2 : U32),
+                              (xi + S.pick(ok2, 2147483648, 0) : U32),
+                              4294967295),
+                        (2415919104 + h2 : U32), cid, 4294967295), wm),
+         nt, hcb, kmir(fs, t2, ok2))
     case 1n+p KCon{IEvGo{True{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, 4294967295, False{}))
@@ -5396,6 +5495,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
     case 1n+p KCon{IAp5Go{False{}, a, node, ra, raok, rf, rfok, ctx, fu},
                    k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IAp5io{U32.is_eq(R.get(U32, 64n, wm, 4294967269, 0), 1),
+                        a, node, ra, raok, rf, rfok, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # infer_only: the argument is taken at its word
+    case 1n+p KCon{IAp5io{True{}, a, node, ra, raok, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
+    case 1n+p KCon{IAp5io{False{}, a, node, ra, raok, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ra
       km(p, KCon{DWhd{r2}, KCon{IAp5c{a, node, r2, raok, rf, rfok, ctx,
                                       fu}, k}},
@@ -5610,13 +5719,37 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DIr4{t, yi, c2}, k}}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+      km(p, KCon{DTy1{c2}, KCon{DTyF{x2, c2}, KCon{DIr4{t, yi, c2}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kspine_tin(fs, x2, ri))
     case 1n+p KCon{DIr4{t, yi, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = yi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DIr5{t, ri, c2}, k}}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, 0))
+      km(p, KCon{DTy1{c2}, KCon{DTyF{y2, c2}, KCon{DIr5{t, ri, c2}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kspine_tin(fs, y2, 0))
+    # the cheap type oracle could not type x (a projection, a beta redex
+    # head, ..): Lean's proof irrelevance infers the type, so infer it
+    case 1n+p KCon{DTyF{x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DTyF2{U32.is_eq(r2, 4294967295), x, ctx}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DTyF2{False{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, ri))
+    # infer_only (Lean's infer_type in is_def_eq_proof_irrel): key
+    # 4294967269 set while it runs, so argument types are not re-checked
+    case 1n+p KCon{DTyF2{True{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +w2 : R.Tr<U32> = wm
+      km(p, KCon{ISub{x, ctx, 4096},
+                 KCon{DTyF3{R.get(U32, 64n, w2, 4294967269, 0)}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, w2, 4294967269, 1, 4294967295), nt, hcb,
+         knoop(fs, 0))
+    case 1n+p KCon{DTyF3{old}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
+      +t2 : U32 = t
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, 4294967269, old, 4294967295), nt, hcb,
+         kkeep(fs, S.pick(U32.is_ge(t2, 4294967294), 4294967295, t2)))
     case 1n+p KCon{DIr5{t, rx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
       +r2 : U32 = ri
@@ -6111,11 +6244,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{LDk1{False{}, False{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{LDp{ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
-         hcb, kfetch(fs, r2, r2))
-    case 1n+p KCon{LDp{ctx, fu}, k} Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
+      km(p, KCon{LDp{x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+         nt, hcb, kfetch(fs, r2, r2))
+    case 1n+p KCon{LDp{x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
       +a2 : U32 = a
       km(p, KCon{DWhd{a2}, KCon{LDw{b, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # (not a pair node: the originals)
+    case 1n+p KCon{LDp{x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DWhd{x2}, KCon{LDw{y, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LDw{y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = y
