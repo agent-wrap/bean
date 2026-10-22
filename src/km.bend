@@ -144,6 +144,17 @@ type KF is Data:
   # ---- telescope peel (infer.bend's peel_tele), reused by K and iota ----
   # expect MX of the current type node; instantiate its codomain per value
   WPlE{tyi: U32, vals: List<&2, U32>}
+  # iota on a structure-like major that is not a constructor application:
+  # the projections are its fields (WSe receives them as an MSP)
+  WSe{recsl: List<&2, U32>, need: U32, pp: U32, mk: U32, cn: U32,
+      us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+      ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+      fu: U32}
+  WI3c{isct: Bool, se: Bool, fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
+       ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
+       us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, ind: U32}
   # an instantiation finished; fetch the new type node and continue peeling
   WPlC{vals: List<&2, U32>}
   # ---- the EConst reduction pipeline (K-like, unit-eta, delta) ----
@@ -382,15 +393,20 @@ type KF is Data:
        ctx: List<&2, U32>}
   DBv5{a: U32, b: U32, wa: U32, wb: U32, taok: Bool, tbok: Bool,
        ctx: List<&2, U32>}
-  DBv6{a: U32, b: U32, wa: U32, samety: Bool, both: Bool,
+  DBv6{a: U32, b: U32, wa: U32, wb: U32, samety: Bool, both: Bool,
        ctx: List<&2, U32>}
-  DBv7{a: U32, b: U32, wa: U32, samety: Bool, both: Bool, rtok: Bool,
+  DBv7{a: U32, b: U32, wa: U32, wb: U32, samety: Bool, both: Bool, rtok: Bool,
        ctx: List<&2, U32>}
-  DBv8{a: U32, b: U32, wa: U32, samety: Bool, both: Bool, rtok: Bool,
+  DBv8{a: U32, b: U32, wa: U32, wb: U32, samety: Bool, both: Bool, rtok: Bool,
        ctx: List<&2, U32>}
-  DBv9{a: U32, b: U32, wa: U32, samety: Bool, both: Bool, part1: Bool,
+  DBv9{a: U32, b: U32, wa: U32, wb: U32, samety: Bool, both: Bool, part1: Bool,
+       part1n: Bool,
        ctx: List<&2, U32>}
-  DBv10{a: U32, b: U32, samety: Bool, both: Bool, isprop: Bool}
+  DBv10{a: U32, b: U32, wa: U32, wb: U32, samety: Bool, both: Bool,
+        isprop: Bool, notprop: Bool, ctx: List<&2, U32>}
+  DBvGo{deep: Bool, yes: Bool, t: L.Tri, wa: U32, wb: U32,
+        ctx: List<&2, U32>}
+  DBvT{}
   # function eta, lambda left / lambda right
   DEtL1{t1: U32, b1: U32, ctx: List<&2, U32>, fu: U32}
   DEtL2{ly: U32, t1: U32, b1: U32, ctx: List<&2, U32>, fu: U32}
@@ -1486,6 +1502,37 @@ def kstrip(t: ((Array<T.Ex> & U32) & MG) & U32) -> (Array<T.Ex> & U32) & U32:
 def khc(fs: Array<T.Ex> & U32, +node: T.Ex,
         +base: U32) -> (Array<T.Ex> & U32) & U32:
   kstrip(kalloc(fs, node, base))
+
+# structure eta for iota (Lean's to_cnstr_when_structure): the fields of a
+# major premise x of a structure-like inductive are its projections
+# x.0 .. x.(nf-1), returned as an MSP's argument list
+def kprojs_cons(r: (Array<T.Ex> & U32) & U32,
+                acc: List<&2, U32>) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match r:
+    case Tuple{fs, j}:
+      (fs, Con{j, acc})
+
+def kprojs_go(fuel: Nat, +i: U32, +ind: U32, +maj: U32, +base: U32,
+              r: (Array<T.Ex> & U32) & List<&2, U32>)
+              -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match fuel r:
+    case 0n Tuple{fs, acc}:
+      (fs, acc)
+    case 1n+p Tuple{fs, acc}:
+      kprojs_go(p, (i + 1 : U32), ind, maj, base,
+                kprojs_cons(khc(fs, T.EProj{ind, i, maj}, base), acc))
+
+def kprojs_tin(r: (Array<T.Ex> & U32) & List<&2, U32>)
+               -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{fs, acc}:
+      ((fs, MSP{T.EBad{}, I.rev_u(acc, Nil{})}), 0)
+
+# struct eta is allowed for `ind` (check.bend records it under ind + 2^30:
+# structure-like, not recursive, definitely not a Prop)
+def kse_ok(+mt: R.Tr<I.Meta>, +ind: U32) -> Bool:
+  U32.is_eq(I.meta_ver(R.get(I.Meta, 64n, mt, (ind + 1073741824 : U32),
+                             I.MNone{})), 1)
 
 # wrap a body in lambdas; doms arrive INNERMOST FIRST (the raw collection
 # order), which is exactly the allocation order wrap_lams uses
@@ -2866,12 +2913,48 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +wm2 : R.Tr<U32> = kpick_tr(other,
                                   R.set(U32, 64n, wm, 4294967292, 1,
                                         4294967295), wm)
-      km(p, KCon{WIGo{I.meta_is_ctor(cmi)
-                      && U32.is_eq(I.meta_ind(cmi), i2),
+      # 0: a constructor application of the inductive (iota); 1: not one,
+      # but the inductive admits structure eta (iota on the projections);
+      # 2: stuck
+      +isct : Bool = I.meta_is_ctor(cmi) && U32.is_eq(I.meta_ind(cmi), i2)
+      +m2 : R.Tr<I.Meta> = mt
+      km(p, KCon{WI3c{isct,
+                      Bool.not(I.meta_is_ctor(cmi)) && kse_ok(m2, i2),
                       I.skip_u(sargs, p2), I.meta_recs(cmi),
                       I.meta_ci(cmi), I.meta_ccty(cmi), need, p2, mk, cn,
-                      us, can, delta, vi, ps, qs, e, args, fu}, k},
+                      us, can, delta, vi, ps, qs, e, args, fu, i2}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm2, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WI3c{True{}, se, fields, recsl, ci, ccty, need, pp, mk,
+                        cn, us, can, delta, vi, ps, qs, e, args, fu, ind}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WIGo{True{}, fields, recsl, ci, ccty, need, pp, mk, cn,
+                      us, can, delta, vi, ps, qs, e, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WI3c{False{}, True{}, fields, recsl, ci, ccty, need, pp,
+                        mk, cn, us, can, delta, vi, ps, qs, e, args, fu,
+                        ind}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : List<&2, U32> = args
+      +n2 : U32 = need
+      +i2 : U32 = ind
+      +m2 : R.Tr<I.Meta> = mt
+      km(p, KCon{WSe{Nil{}, n2, pp, mk, cn, us, can, delta, vi, ps, qs,
+                     e, a2, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kprojs_tin(kprojs_go(U32.to_nat(I.meta_nf(R.get(I.Meta, 64n, m2,
+                                                          i2, I.MNone{}))),
+                              0, i2, I.nth_u(a2, n2, 4294967295), hcb,
+                              (fs, Nil{}))))
+    case 1n+p KCon{WI3c{False{}, False{}, fields, recsl, ci, ccty, need, pp,
+                        mk, cn, us, can, delta, vi, ps, qs, e, args, fu,
+                        ind}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WIGo{False{}, fields, recsl, ci, ccty, need, pp, mk, cn,
+                      us, can, delta, vi, ps, qs, e, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSe{recsl, need, pp, mk, cn, us, can, delta, vi, ps, qs,
+                       e, args, fu}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      km(p, KCon{WIGo{True{}, sargs, recsl, 0, 4294967295, need, pp, mk, cn,
+                      us, can, delta, vi, ps, qs, e, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{WIGo{True{}, fields, recsl, ci, ccty, need, pp, mk, cn,
                         us, can, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -2987,51 +3070,84 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, MTri{t}}, ri}:
       +w2 : U32 = wa
       +c2 : List<&2, U32> = ctx
+      +wb2 : U32 = wb
       km(p, KCon{DTy1{c2},
-                 KCon{DBv6{a, b, w2, L.tri_is_yes(t),
+                 KCon{DBv6{a, b, w2, wb2, L.tri_is_yes(t),
                            Bool.and(taok, tbok), c2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, w2, ri))
-    case 1n+p KCon{DBv6{a, b, wa, samety, both, ctx}, k}
+    case 1n+p KCon{DBv6{a, b, wa, wb, samety, both, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{DWhd{r2}, KCon{DBv7{a, b, wa, samety, both,
+      km(p, KCon{DWhd{r2}, KCon{DBv7{a, b, wa, wb, samety, both,
                                      Bool.not(U32.is_eq(r2, 4294967295)),
                                      ctx}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DBv7{a, b, wa, samety, both, rtok, ctx}, k}
+    case 1n+p KCon{DBv7{a, b, wa, wb, samety, both, rtok, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
-      km(p, KCon{DBv8{a, b, wa, samety, both, rtok, ctx}, k}, lnt, nlx,
+      km(p, KCon{DBv8{a, b, wa, wb, samety, both, rtok, ctx}, k}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{DBv8{a, b, wa, samety, both, rtok, ctx}, k}
+    case 1n+p KCon{DBv8{a, b, wa, wb, samety, both, rtok, ctx}, k}
          Tuple{Tuple{fs, MX{node}}, ri}:
       +ks : T.Ex = node
       +w2 : U32 = wa
+      +rk : Bool = rtok && I.is_sortx(ks)
+      +lz : L.Tri = L.ln_is_zero(R.get(L.LN, 64n, lnt, I.sort_lvl_of(ks),
+                                       L.LNun{}))
       km(p, KCon{kslev(w2, ctx, 2000000),
-                 KCon{DBv9{a, b, w2, samety, both,
-                           rtok && I.is_sortx(ks)
-                           && L.tri_is_yes(L.ln_is_zero(
-                                R.get(L.LN, 64n, lnt, I.sort_lvl_of(ks),
-                                      L.LNun{}))), ctx}, k}},
+                 KCon{DBv9{a, b, w2, wb, samety, both,
+                           rk && L.tri_is_yes(lz), rk && L.tri_is_no(lz),
+                           ctx}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, w2, ri))
-    case 1n+p KCon{DBv9{a, b, wa, samety, both, part1, ctx}, k}
+    case 1n+p KCon{DBv9{a, b, wa, wb, samety, both, part1, part1n, ctx}, k}
          Tuple{Tuple{fs, MLn{u}}, ri}:
       +w2 : U32 = wa
-      km(p, KCon{DBv10{a, b, samety, both,
-                       Bool.or(part1,
-                               L.tri_is_yes(L.ln_is_zero(u)))}, k},
+      +u2 : L.LN = u
+      km(p, KCon{DBv10{a, b, w2, wb, samety, both,
+                       Bool.or(part1, L.tri_is_yes(L.ln_is_zero(u2))),
+                       Bool.or(part1n, L.tri_is_no(L.ln_is_zero(u2))),
+                       ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, w2, ri))
-    case 1n+p KCon{DBv10{a, b, samety, both, isprop}, k}
+    # two distinct bound variables: equal only by proof irrelevance (their
+    # types are Props and DEFINITIONALLY equal -- `samety` is merely the
+    # structural test after whnf, so a Prop pair it misses is compared in
+    # full) or unit eta; two non-proofs are never equal. A Prop pair whose
+    # types are not shown equal is UNKNOWN, never NO
+    case 1n+p KCon{DBv10{a, b, wa, wb, samety, both, isprop, notprop, ctx}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +smi : I.Meta = R.get(I.Meta, 64n, mt, I.const_nm2(hd), I.MNone{})
       +isunit : Bool = I.meta_is_ind(smi)
                        && U32.is_eq(I.meta_nf(smi), 0)
       +b3 : Bool = both
+      +sm : Bool = samety
+      +ip : Bool = isprop
+      +same : Bool = U32.is_eq(a, b)
+      +yes : Bool = same || (b3 && sm && (ip || isunit))
+      +deep : Bool = Bool.not(yes) && b3 && ip
+      +wa2 : U32 = wa
+      +wb2 : U32 = wb
+      km(p, KCon{DBvGo{deep, yes,
+                       L.pick_tri(yes, L.TYes{},
+                                  # NO only for types KNOWN not to be
+                                  # Props, and not unit-like
+                                  L.pick_tri(b3 && notprop
+                                             && Bool.not(isunit),
+                                             L.TNo{}, L.TUnk{})),
+                       wa2, wb2, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DBvGo{False{}, yes, t, wa, wb, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    case 1n+p KCon{DBvGo{True{}, yes, t, wa, wb, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +w1 : U32 = wa
+      +w2 : U32 = wb
+      km(p, KCon{DSub{False{}, U32.is_eq(w1, w2), w1, w2, ctx, 4096},
+                 KCon{DBvT{}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DBvT{}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmtri(fs, L.pick_tri(U32.is_eq(a, b), L.TYes{},
-                    L.pick_tri(b3 && samety && (isprop || isunit),
-                               L.TYes{},
-                               L.pick_tri(b3, L.TNo{}, L.TUnk{})))))
+         kmtri(fs, L.pick_tri(L.tri_is_yes(t), L.TYes{}, L.TUnk{})))
     # -- Const/Const --
     case 1n+p KCon{DEy{T.EConst{a, us}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EConst{b, vs}}}, ri}:

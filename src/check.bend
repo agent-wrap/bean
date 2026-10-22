@@ -1223,6 +1223,13 @@ def field_is_rec_syn(+ex: R.Tr<T.Ex>, +names: List<&2, U32>,
   is_constx(spine_head(256n, ex, fr))
   && mem(const_name_of(spine_head(256n, ex, fr)), names)
 
+def any_field_rec(fs: List<&2, U32>, +ex: R.Tr<T.Ex>, +nm: U32) -> Bool:
+  match fs:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      field_is_rec_syn(ex, [nm], head) || any_field_rec(tail, ex, nm)
+
 def rec_positions_syn(fs: List<&2, U32>, +ex: R.Tr<T.Ex>,
                       +names: List<&2, U32>, +i: U32,
                       acc: List<&2, U32>) -> List<&2, U32>:
@@ -1843,7 +1850,19 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
       # an entry under its own name, so projection typing can find the
       # constructor's field types.
       +nc = count_ctors(its, pnm, 0)
+      # structure eta for iota (km's WI3c): structure-like, not recursive,
+      # definitely not a Prop -- recorded under the name + 2^30
+      +cty0 : U32 = ctor_ty_by_cidx(its, pnm, 0, 4294967295)
+      +se : Bool = U32.is_eq(nc, 1) && U32.is_eq(ni, 0) && U32.is_eq(nn, 0)
+                   && L.tri_is_no(L.ln_is_zero(R.get(L.LN, 64n, ln,
+                        I.sort_lvl_of(tele_res(256n, ex, U.ex_at(ex, ty))),
+                        L.LNun{})))
+                   && Bool.not(any_field_rec(
+                        skip_n(D.rev_u32(tele_doms(256n, ex,
+                                                   U.ex_at(ex, cty0), Nil{}),
+                                         Nil{}), np), ex, pnm))
       meta_items(its, its, ex, pnm, np, ni, nc,
+                 R.set_if(I.Meta, se,
                  R.sub(I.Meta,
                        U32.is_eq(nc, 1) && U32.is_eq(ni, 0)
                        && U32.is_eq(nn, 0),
@@ -1872,7 +1891,8 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                       np,
                                       ctor_nf_by_cidx(its, pnm, 0, 0))},
                              I.MNone{}),
-                       t))
+                       t),
+                 (pnm + 1073741824 : U32), I.MVer{1}, I.MNone{}))
     case _:
       t
 
