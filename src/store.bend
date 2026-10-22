@@ -544,7 +544,9 @@ def set_keys(ks: List<&2, U32>, vs: List<&2, U32>,
 # operations Lean's kernel computes directly); 16..19 optParam, autoParam,
 # outParam, semiOutParam -- the type annotations Lean's
 # consume_type_annotations drops from the binder types of an inductive's
-# params, indices and fields when it derives the recursor; 20 Nat
+# params, indices and fields when it derives the recursor; 20 Nat;
+# 21..24 String.ofList, List.nil, List.cons, Char.ofNat and 25 Char (a
+# string literal's constructor form)
 def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +roots : List<&2, U32> =
     find_many(rs, [[81, 117, 111, 116], [78, 97, 116], [66, 111, 111, 108],
@@ -552,8 +554,9 @@ def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                    [111, 112, 116, 80, 97, 114, 97, 109],
                    [97, 117, 116, 111, 80, 97, 114, 97, 109],
                    [111, 117, 116, 80, 97, 114, 97, 109],
-                   [115, 101, 109, 105, 79, 117, 116, 80, 97, 114, 97, 109]],
-              [0, 0, 0, 0, 0, 0, 0, 0], nones(8n))
+                   [115, 101, 109, 105, 79, 117, 116, 80, 97, 114, 97, 109],
+                   [76, 105, 115, 116], [67, 104, 97, 114]],
+              [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], nones(10n))
   +q : U32 = nth_or(roots, 0)
   +n : U32 = nth_or(roots, 1)
   +b : U32 = nth_or(roots, 2)
@@ -565,10 +568,19 @@ def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                    [109, 117, 108], [112, 111, 119], [100, 105, 118],
                    [109, 111, 100], [98, 101, 113]],
               [q, q, q, n, n, n, n, n, b, b, n, n, n, n, n], nones(15n))
+  # string literals (Lean's string_lit_to_constructor): String.ofList,
+  # List.nil, List.cons, Char.ofNat (keys 21-24), Char (25)
+  +sl : List<&2, U32> =
+    find_many(rs, [[111, 102, 76, 105, 115, 116], [110, 105, 108],
+                   [99, 111, 110, 115], [111, 102, 78, 97, 116]],
+              [nth_or(roots, 3), nth_or(roots, 8), nth_or(roots, 8),
+               nth_or(roots, 9)], nones(4n))
+  set_keys([21, 22, 23, 24, 25], [nth_or(sl, 0), nth_or(sl, 1), nth_or(sl, 2),
+                                  nth_or(sl, 3), nth_or(roots, 9)],
   set_keys([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15], un,
     set_keys([10, 16, 17, 18, 19, 20],
              [nth_or(roots, 3), nth_or(roots, 4), nth_or(roots, 5),
-              nth_or(roots, 6), nth_or(roots, 7), n], t))
+              nth_or(roots, 6), nth_or(roots, 7), n], t)))
 
 def decls_of(rs: List<&2, D.Rec>, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match rs:

@@ -144,6 +144,10 @@ type KF is Data:
   # the struct of a projection finished reducing; collect its spine
   WPrj{delta: Bool, e: U32, tn: U32, idx: U32, args: List<&2, U32>, fu: U32}
   # spine collected; decide whether the head is the matching constructor
+  WPrjSx{delta: Bool, e: U32, tn: U32, idx: U32, args: List<&2, U32>,
+         fu: U32}
+  WPrjS2{str: Bool, hd: T.Ex, sargs: List<&2, U32>, delta: Bool, e: U32,
+         tn: U32, idx: U32, args: List<&2, U32>, fu: U32}
   WPrjS{delta: Bool, e: U32, tn: U32, idx: U32, args: List<&2, U32>,
         fu: U32}
   # branch point for projection reduction: take the field or rebuild
@@ -346,12 +350,26 @@ type KF is Data:
   DLz2b{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, f1: U32,
         f2: U32, a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
         fu: U32}
+  DStr0{ok: Bool, left: Bool, d: List<&2, U32>, other: U32,
+        ctx: List<&2, U32>, fu: U32}
+  DStr1{left: Bool, other: U32, ctx: List<&2, U32>, fu: U32}
+  DStr2{left: Bool, other: U32, ctx: List<&2, U32>, fu: U32}
+  DStr3{}
   DLzD{f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
        ctx: List<&2, U32>, fu: U32}
   DLzD2{yes: Bool, f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
         ctx: List<&2, U32>, fu: U32}
   DLzA{xs: List<&2, U32>, ys: List<&2, U32>, f1: U32, f2: U32, a1: U32,
        a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DLzA0{same: Bool, xh: U32, yh: U32, xt: List<&2, U32>, yt: List<&2, U32>,
+        f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
+  DLzAp{xh: U32, yh: U32, xt: List<&2, U32>, yt: List<&2, U32>,
+        f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
+  DLzAq{yes: Bool, xh: U32, yh: U32, xt: List<&2, U32>, yt: List<&2, U32>,
+        f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
   DLzAx{xt: List<&2, U32>, yt: List<&2, U32>, yh: U32, f1: U32, f2: U32,
         a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DLzAy{xt: List<&2, U32>, yt: List<&2, U32>, wx: U32, f1: U32, f2: U32,
@@ -1987,6 +2005,177 @@ def khc(fs: Array<T.Ex> & U32, +node: T.Ex,
 # structure eta for iota (Lean's to_cnstr_when_structure): the fields of a
 # major premise x of a structure-like inductive are its projections
 # x.0 .. x.(nf-1), returned as an MSP's argument list
+# --- string literals (Lean's string_lit_to_constructor) ---------------
+# A literal is its UTF-8 bytes; its constructor form is
+#   String.ofList [Char.ofNat c0, .., Char.ofNat cn]
+# over the code points (List.{0} Char). Lean expands a literal only where a
+# projection meets one (reduce_proj_core) and against a String.ofList
+# application in defeq (try_string_lit_expansion).
+# decimal digits (ASCII, most significant first) of n; the fuel bounds the
+# digit count (S.pick evaluates the recursive branch too: 12 levels at most)
+def kdec(fuel: Nat, +n: U32, acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel:
+    case 0n:
+      acc
+    case 1n+p:
+      +d : U32 = (48 + (n % 10 : U32) : U32)
+      +a2 : List<&2, U32> = Con{d, acc}
+      S.pick_l(U32.is_lt(n, 10), a2, kdec(p, (n / 10 : U32), a2))
+
+def kpush_if(+go: Bool, +x: U32, xs: List<&2, U32>) -> List<&2, U32>:
+  match go:
+    case True{}:
+      Con{x, xs}
+    case False{}:
+      xs
+
+# UTF-8 bytes -> code points, reversed (need: continuation bytes pending)
+def kutf8(xs: List<&2, U32>, +cp: U32, +need: U32,
+          acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{b, t}:
+      +b2 : U32 = b
+      +lead : Bool = U32.is_eq(need, 0)
+      +cp1 : U32 = S.pick(U32.is_lt(b2, 128), b2,
+                     S.pick(U32.is_lt(b2, 224), U32.and(b2, 31),
+                       S.pick(U32.is_lt(b2, 240), U32.and(b2, 15),
+                              U32.and(b2, 7))))
+      +nd1 : U32 = S.pick(U32.is_lt(b2, 128), 0,
+                     S.pick(U32.is_lt(b2, 224), 1,
+                       S.pick(U32.is_lt(b2, 240), 2, 3)))
+      +cp2 : U32 = ((cp * 64 : U32) + U32.and(b2, 63) : U32)
+      +cpn : U32 = S.pick(lead, cp1, cp2)
+      +ndn : U32 = S.pick(lead, nd1, (need - 1 : U32))
+      kutf8(t, cpn, ndn, kpush_if(U32.is_eq(ndn, 0), cpn, acc))
+
+def kstr_cons2(r: (Array<T.Ex> & U32) & U32, +rest: U32,
+               +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, hd}:
+      khc(fs, T.EApp{hd, rest}, base)
+
+
+def kstr_cons(r: (Array<T.Ex> & U32) & U32, +lit: U32, +rest: U32,
+              +consc: U32, +ofn: U32,
+              +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, chv}:
+      kstr_cons2(khc(fs, T.EApp{consc, chv}, base), rest, base)
+
+def kstr_lit(r: (Array<T.Ex> & U32) & U32, +ofn: U32,
+             +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, li}:
+      khc(fs, T.EApp{ofn, li}, base)
+
+# fold the reversed code points onto `rest` (the list built so far)
+def kstr_go(cps: List<&2, U32>, r: (Array<T.Ex> & U32) & U32, +consc: U32,
+            +ofn: U32, +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match cps r:
+    case Nil{} _:
+      r
+    case Con{c, t} Tuple{fs, rest}:
+      +rs2 : U32 = rest
+      kstr_go(t,
+              kstr_cons(kstr_lit(khc(fs, T.ENat{kdec(12n, c, Nil{})}, base),
+                                 ofn, base),
+                        0, rs2, consc, ofn, base),
+              consc, ofn, base)
+
+def kstr_fin(r: (Array<T.Ex> & U32) & U32, +ofl: U32,
+             +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, li}:
+      khc(fs, T.EApp{ofl, li}, base)
+
+def kstr_nil(r: (Array<T.Ex> & U32) & U32, +ch: U32,
+             +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, nl}:
+      khc(fs, T.EApp{nl, ch}, base)
+
+
+def kstr_b3(r: (Array<T.Ex> & U32) & U32, +ch: U32, +cps: List<&2, U32>,
+            +ofn: U32, +ofl: U32, +niln: U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, consc}:
+      +cc : U32 = consc
+      kstr_fin(kstr_go(cps, kstr_nil(khc(fs, T.EConst{niln, [0]}, base), ch,
+                                     base), cc, ofn, base), ofl, base)
+
+def kstr_b2(r: (Array<T.Ex> & U32) & U32, +ch: U32, +cps: List<&2, U32>,
+            +ofn: U32, +ofl: U32, +niln: U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, cons0}:
+      kstr_b3(khc(fs, T.EApp{cons0, ch}, base), ch, cps, ofn, ofl, niln, base)
+
+def kstr_b1(r: (Array<T.Ex> & U32) & U32, +cps: List<&2, U32>,
+            +ofn: U32, +ofl: U32, +niln: U32, +consn: U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, ch}:
+      +c2 : U32 = ch
+      kstr_b2(khc(fs, T.EConst{consn, [0]}, base), c2, cps, ofn, ofl, niln,
+              base)
+
+def kstr_b0(r: (Array<T.Ex> & U32) & U32, +cps: List<&2, U32>,
+            +ofl: U32, +niln: U32, +consn: U32, +charn: U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, ofn}:
+      +o2 : U32 = ofn
+      kstr_b1(khc(fs, T.EConst{charn, Nil{}}, base), cps, o2, ofl, niln,
+              consn, base)
+
+# the constructor form of a string literal with bytes d (none of the names
+# missing: the caller checks qtt keys 21..25)
+def kstr_b0b(r: (Array<T.Ex> & U32) & U32, +d: List<&2, U32>,
+             +qtt: R.Tr<U32>, +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match r:
+    case Tuple{fs, ofl}:
+      +q : R.Tr<U32> = qtt
+      +o2 : U32 = ofl
+      kstr_b0(khc(fs, T.EConst{R.get(U32, 64n, q, 24, 4294967295), Nil{}},
+                  base),
+              kutf8(d, 0, 0, Nil{}), o2, R.get(U32, 64n, q, 22, 4294967295),
+              R.get(U32, 64n, q, 23, 4294967295),
+              R.get(U32, 64n, q, 25, 4294967295), base)
+
+# all five names known (an export without them has no string literals
+# worth expanding)
+
+def kstrexp(fs: Array<T.Ex> & U32, +d: List<&2, U32>, +qtt: R.Tr<U32>,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  +q : R.Tr<U32> = qtt
+  +ofl0 : U32 = R.get(U32, 64n, q, 21, 4294967295)
+  kstr_b0b(khc(fs, T.EConst{ofl0, Nil{}}, base), d, q, base)
+
+def kstr_ok(+qtt: R.Tr<U32>) -> Bool:
+  +q : R.Tr<U32> = qtt
+  Bool.not(U32.is_eq(R.get(U32, 64n, q, 21, 4294967295), 4294967295))
+  && Bool.not(U32.is_eq(R.get(U32, 64n, q, 22, 4294967295), 4294967295))
+  && Bool.not(U32.is_eq(R.get(U32, 64n, q, 23, 4294967295), 4294967295))
+  && Bool.not(U32.is_eq(R.get(U32, 64n, q, 24, 4294967295), 4294967295))
+  && Bool.not(U32.is_eq(R.get(U32, 64n, q, 25, 4294967295), 4294967295))
+
+def kis_str(+x: T.Ex) -> Bool:
+  match x:
+    case T.EStr{d}:
+      True{}
+    case _:
+      False{}
+
+def kstr_bytes(+x: T.Ex) -> List<&2, U32>:
+  match x:
+    case T.EStr{d}:
+      d
+    case _:
+      Nil{}
+
 def kprojs_cons(r: (Array<T.Ex> & U32) & U32,
                 acc: List<&2, U32>) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match r:
@@ -2281,6 +2470,13 @@ def kprojb(+base: U32, n: Nat, +i: U32, +tn: U32, +yi: U32,
     case 1n+q Tuple{fs, acc}:
       kprojb(base, q, (i + 1 : U32), tn, yi,
              kpjapp(khc(fs, T.EProj{tn, i, yi}, base), acc, base))
+
+def kis_nil_u(xs: List<&2, U32>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case _:
+      False{}
 
 def kpick_tr(+z: Bool, +x: R.Tr<U32>, +y: R.Tr<U32>) -> R.Tr<U32>:
   match z:
@@ -3420,16 +3616,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WDelGo{True{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       # keyed by the node e AND checked against the body vi (rule-based
-      # iota unfolds a different rhs under the same recursor head)
-      +e2 : U32 = e
+      # iota unfolds a different rhs under the same recursor head); a
+      # constant without level parameters is keyed by its body alone, so
+      # every unfold of it shares one copy whatever node named it
+      +ps2 : List<&2, U32> = ps
       +v2 : U32 = vi
+      +e2 : U32 = S.pick(kis_nil_u(ps2), v2, e)
       +w2 : R.Tr<U32> = wm
       +h : U32 = R.get(U32, 64n, w2, (1073741824 + e2 : U32), 4294967295)
       +h2 : U32 = h
       +hv : Bool = U32.is_lt(e2, 268435456)
                    && U32.is_eq(R.get(U32, 64n, w2, (1610612736 + e2 : U32),
                                       4294967295), v2)
-      km(p, KCon{WDelH{U32.is_ne(h2, 4294967295) && hv, h2, delta, v2, ps,
+      km(p, KCon{WDelH{U32.is_ne(h2, 4294967295) && hv, h2, delta, v2, ps2,
                        qs, e2, args, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{WDelH{True{}, h, delta, vi, ps, qs, e, args, fu}, k}
@@ -3465,6 +3664,25 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # ---- whnf: projection, spine collected -> constructor? ----
     case 1n+p KCon{WPrjS{delta, e, tn, idx, args, fu}, k}
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +hd2 : T.Ex = hd
+      km(p, KCon{WPrjS2{kis_str(hd2) && kstr_ok(qtt), hd2, sargs, delta, e,
+                        tn, idx, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # a string literal: its constructor form, reduced (reduce_proj_core),
+    # then the projection again
+    case 1n+p KCon{WPrjS2{True{}, hd, sargs, delta, e, tn, idx, args, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WPrjSx{delta, e, tn, idx, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         ktin_of(kstrexp(fs, kstr_bytes(hd), qtt, hcb)))
+    case 1n+p KCon{WPrjSx{delta, e, tn, idx, args, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{kwev(True{}, r2, Nil{}, fu),
+                 KCon{WPrj{delta, e, tn, idx, args, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, r2))
+    case 1n+p KCon{WPrjS2{False{}, hd, sargs, delta, e, tn, idx, args, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
       +cmi : I.Meta = R.get(I.Meta, 64n, mt, I.const_nm2(hd), I.MNone{})
       km(p, KCon{WPrjGo{I.meta_is_ctor(cmi), delta, e,
                         I.nth_u(sargs, (I.meta_p(cmi) + idx : U32),
@@ -4010,7 +4228,40 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DLzA{Con{xh, xt}, Con{yh, yt}, f1, f2, a1, a2, xi, yi,
                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      # whnf this argument pair (DSub's precondition), then defeq it
+      +xh2 : U32 = xh
+      +yh2 : U32 = yh
+      km(p, KCon{DLzA0{U32.is_eq(xh2, yh2), xh2, yh2, xt, yt, f1, f2, a1, a2,
+                       xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # the same node: equal (Lean's quick_is_def_eq), nothing to evaluate
+    case 1n+p KCon{DLzA0{True{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLzA{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # Lean compares an argument pair lazily (is_def_eq: whnf_core, then
+    # lazy delta); the yes-only probe does that first, and only a pair it
+    # cannot settle is evaluated (DSub's precondition) and compared
+    case 1n+p KCon{DLzA0{False{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +n2 : U32 = nx
+      +xh2 : U32 = xh
+      +yh2 : U32 = yh
+      km(p, KCon{LZ0{xh2, yh2, 256},
+                 KCon{KRb{n2, wm},
+                      KCon{DLzAp{xh2, yh2, xt, yt, f1, f2, a1, a2, xi, yi,
+                                 ctx, fu}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
+    case 1n+p KCon{DLzAp{xh, yh, xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{DLzAq{L.tri_is_yes(t), xh, yh, xt, yt, f1, f2, a1, a2, xi,
+                       yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLzAq{True{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLzA{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLzAq{False{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DWhd{xh},
                  KCon{DLzAx{xt, yt, yh, f1, f2, a1, a2, xi, yi, ctx, fu},
                       k}},
@@ -4251,8 +4502,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                               L.TYes{}, L.TNo{})))
     case 1n+p KCon{DEy{T.EStr{d1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EStr{d2}}}, ri}:
+      # different literals are different strings (Lean's quick_is_def_eq)
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmtri(fs, L.pick_tri(I.eq_u32s(d1, d2), L.TYes{}, L.TUnk{})))
+         kmtri(fs, L.pick_tri(I.eq_u32s(d1, d2), L.TYes{}, L.TNo{})))
     # -- function eta, lambda on the left --
     case 1n+p KCon{DEy{T.ELam{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -4397,6 +4649,43 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       r2, ctx, (f2 - 1 : U32)},
                  KCon{DNtL5{islit}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # -- a string literal against anything else: its constructor form,
+    #    reduced, against the other side (try_string_lit_expansion; the
+    #    other side is already in whnf, so a String.ofList application has
+    #    become a String constructor). YES is trusted; NO stays undecided --
+    case 1n+p KCon{DEy{T.EStr{d}, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DStr0{kstr_ok(qtt), True{}, d, yi, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DEy{xn, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EStr{d}}}, ri}:
+      km(p, KCon{DStr0{kstr_ok(qtt), False{}, d, xi, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DStr0{False{}, left, d, other, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{DStr0{True{}, left, d, other, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DStr1{left, other, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, ktin_of(kstrexp(fs, d, qtt, hcb)))
+    case 1n+p KCon{DStr1{left, other, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DWhd{r2}, KCon{DStr2{left, other, ctx, fu}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DStr2{left, other, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +w : U32 = ri
+      +o2 : U32 = other
+      +f2 : U32 = fu
+      +l2 : Bool = left
+      km(p, KCon{DSub{U32.is_eq((f2 - 1 : U32), 4294967295),
+                      U32.is_eq(w, o2), S.pick(l2, w, o2), S.pick(l2, o2, w),
+                      ctx, (f2 - 1 : U32)},
+                 KCon{DStr3{}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DStr3{}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.pick_tri(L.tri_is_yes(t), L.TYes{}, L.TUnk{})))
     # -- projection/projection: same (type,index) -> compare structures by
     #    defeq (args-first makes same-head structure arguments cheap), YES
     #    answers YES; otherwise fall back to the catch-all below unchanged --

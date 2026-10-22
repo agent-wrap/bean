@@ -9,6 +9,7 @@
 # machine (whnf phases, defeq stages, the lazy probe, inference) the steps go to.
 # ALLOC=1: count store GROWTH (nodes allocated) per frame instead of steps.
 # STACK=1: on SIGTERM print the km frame stack (where a slow run is).
+# CALLERW=1 (with CALLER=1): whnf phases count as callers too.
 # CALLER=1: attribute each step to the nearest infer/defeq/check/probe frame.
 set -euo pipefail
 OUT="$1"
@@ -16,7 +17,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
 "$DIR/bend.sh" "$DIR/../src/fmain.bend" -o "$TMP/gen.c"
 python3 - "$TMP/gen.c" <<'PY'
-import re, sys
+import re, sys, os
 p = sys.argv[1]; s = open(p).read()
 cids = re.findall(r"#define (CID_[A-Z0-9_]+) (\d+)", s)
 mx = max(int(v) for _, v in cids) + 1
@@ -36,7 +37,7 @@ static const unsigned char prof_sub[%d] = {%s};
 static const unsigned char prof_act[%d] = {%s};
 ''' % (mx, mx, ",".join('"%s"' % n for n in names), mx, mx, mx, mx, mx,
        ",".join('1' if (n.startswith('KM_K') and n not in ('KM_KCON','KM_KNIL')) else '0' for n in names),
-       mx, ",".join('1' if (n[3:4] in ('I','D','C','L') and not n.startswith('KM_DWHD')) else '0' for n in names))
+       mx, ",".join('1' if ((n[3:4] in ('I','D','C','L') and not n.startswith('KM_DWHD')) if not os.environ.get('CALLERW') else (n[3:4] in ('I','D','C','L','W') and n not in ('KM_WEV','KM_WCONT','KM_WRB','KM_WRBP'))) else '0' for n in names))
 i = s.index('static void err_fail'); s = s[:i] + hdr + s[i:]
 s = s.replace("static void err_fail(const char* msg) {\n  fflush(stdout);", "static void err_fail(const char* msg) {\n  prof_dump(); fflush(stdout);", 1)
 a = "  WL_CASE(FID_KM_KM)\n  {\n"
