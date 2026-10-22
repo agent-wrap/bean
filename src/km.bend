@@ -799,12 +799,17 @@ type KF is Data:
   LDw{y: U32, ctx: List<&2, U32>, fu: U32}
   LDw2{wx: U32, ctx: List<&2, U32>, fu: U32}
   KRb{mark: U32, snap: R.Tr<U32>}
+  KRbN{mark: U32, snap: R.Tr<U32>}
+  KRb3{comp: Bool, mark: U32}
   # a yes-only probe's answer without the pair it leaves (register 0)
   KZr{}
   KRb2{comp: Bool, mark: U32}
   DWhdGo{hit: Bool, h: U32, i: U32}
   DWhdSt{i: U32}
   DWhdM{i: U32}
+  DWhdF{i: U32, fu: U32}
+  DWhdFM{i: U32, fu: U32}
+  DWhdFG{hit: Bool, h: U32, i: U32, fu: U32}
   WIhNext{ic: IC}
   WIhPe{h: U32, ic: IC}
   WIhFty{h: U32, ic: IC}
@@ -2072,12 +2077,13 @@ def kcomp_ver(+done: Bool, r: Array<T.Ex> & CVd, +k: U32, +nr: U32,
 def kcomp_fin(st: Array<T.Ex> & CSd, +root: U32, +hb: U32,
               +nx0: U32) -> ((Array<T.Ex> & U32) & U32):
   match st:
-    case Tuple{a, CSd{done, stack, k, m, nx, mark, base}}:
+    case Tuple{a, CSd{done0, stack, k, m, nx, mark, base}}:
+      +done : Bool = done0
       +k2 : U32 = k
       +mk : U32 = mark
       +nr : U32 = kmapc(root, mk, m)
       +n3 : U32 = nx
-      kcomp_ver(done, kcv_loop(U32.to_nat((16 * (n3 - mk) + 64 : U32)),
+      kcomp_ver(done, kcv_loop(U32.to_nat(S.pick(done, (16 * (n3 - mk) + 64 : U32), 0)),
                                (a, CVd{False{}, True{}, [root, nr], R.TNil{}, n3,
                                        mk})),
                 k2, nr, root, nx0, hb)
@@ -2086,6 +2092,15 @@ def kcompact(a: Array<T.Ex>, +nx: U32, +mark: U32, +root: U32,
              +base: U32) -> ((Array<T.Ex> & U32) & U32):
   +n2 : U32 = nx
   kcomp_fin(kcs_loop(U32.to_nat((16 * (n2 - mark) + 64 : U32)),
+                     (a, CSd{False{}, [root], 0, R.TNil{}, n2, mark, base})),
+            root, khalf(base), n2)
+
+# the same with a short scan: a result that is a large part of the region
+# runs it out (not done), and the region stays as it is
+def kcompact_s(a: Array<T.Ex>, +nx: U32, +mark: U32, +root: U32,
+               +base: U32) -> ((Array<T.Ex> & U32) & U32):
+  +n2 : U32 = nx
+  kcomp_fin(kcs_loop(U32.to_nat((2 * (n2 - mark) + 64 : U32)),
                      (a, CSd{False{}, [root], 0, R.TNil{}, n2, mark, base})),
             root, khalf(base), n2)
 
@@ -4070,9 +4085,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +a2 : List<&2, U32> = args
       +nd2 : U32 = need
       +maj : U32 = I.nth_u(a2, nd2, 4294967295)
-      km(p, KCon{kwev(delta, maj, Nil{}, (fu - 1 : U32)),
-                 KCon{WI1{nd2, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
-                          e, a2, fu}, k}},
+      +d2 : Bool = delta
+      +f2 : U32 = fu
+      # on the main path (full delta and fuel) the major's whnf goes through
+      # the memo: the same major is met again at every iota step over it;
+      # the lazy probe's short-fuelled whnf keeps its own (bounded) walk
+      km(p, KCon{pick_kf(d2 && U32.is_gt(f2, 100000), DWhdF{maj, (f2 - 1 : U32)},
+                         kwev(d2, maj, Nil{}, (f2 - 1 : U32))),
+                 KCon{WI1{nd2, ind, pp, mk, cn, us, can, d2, vi, ps, qs,
+                          e, a2, f2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, maj, ri))
     case 1n+p KCon{WPh5{P5{False{}, need, ind, pp, mk, cn, us}, can, delta,
                         vi, ps, qs, e, args, fu}, k}
@@ -6488,6 +6509,27 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DWhdGo{True{}, h, i}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, h))
+    # the memoised whnf at the caller's fuel (an iota major inside a whnf:
+    # the outer fuel keeps bounding the nesting)
+    case 1n+p KCon{DWhdF{i, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +i2 : U32 = i
+      km(p, KCon{DWhdFM{i2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kwm_tin(fs, i2, khalf(hcb)))
+    case 1n+p KCon{DWhdFM{i, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +h2 : U32 = ri
+      +i2 : U32 = i
+      +n2 : U32 = nx
+      km(p, KCon{DWhdFG{U32.is_ne(h2, 4294967295), h2, i2, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), 0))
+    case 1n+p KCon{DWhdFG{True{}, h, i, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, h))
+    case 1n+p KCon{DWhdFG{False{}, h, i, fu}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +i2 : U32 = i
+      +n2 : U32 = nx
+      km(p, KCon{kwev(True{}, i2, Nil{}, fu),
+                 KCon{KRbN{n2, wm}, KCon{DWhdSt{i2}, k}}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch((ex, n2), i2, 0))
     case 1n+p KCon{DWhdGo{False{}, h, i}, k}
          Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
       +i2 : U32 = i
@@ -6574,6 +6616,31 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          krb_wm(roll || comp, ovf, wm, snap),
          nt, hcb, (((kg_bump(roll || comp, kfl_ovf(ovf, ex, hcb), hb),
                      S.pick(roll, m2, n2)), msg), r2))
+    # an iota major's whnf: rolls back an old result, never compacts (moving
+    # a large new normal form loses every memo of it: magma-list-pair-n7
+    # 7 s -> timeout with compaction, at any threshold tried)
+    case 1n+p KCon{KRbN{mark, snap}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +r2 : U32 = ri
+      +n2 : U32 = nx
+      +m2 : U32 = mark
+      +roll : Bool = U32.is_lt(r2, m2)
+      +hb : U32 = khalf(hcb)
+      +ovf : Bool = U32.is_ge(n2, hb)
+      # a large new result keeps its nodes but drops the memo entries made
+      # meanwhile (the snapshot), as a compaction would
+      +comp : Bool = Bool.not(roll) && Bool.not(ovf)
+                     && False{} && U32.is_ge((n2 - m2 : U32), 65536)
+                     && U32.is_lt((n2 + (n2 - m2 : U32) + 16 : U32), hb)
+      km(p, KCon{KRb3{comp, m2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         krb_wm(roll || comp, ovf, wm, snap),
+         nt, hcb, (((kg_bump(roll || comp, kfl_ovf(ovf, ex, hcb), hb),
+                     S.pick(roll, m2, n2)), msg), r2))
+    case 1n+p KCon{KRb3{False{}, mark}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), ri))
+    case 1n+p KCon{KRb3{True{}, mark}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kwith_msg(kcompact_s(ex, nx, mark, ri, hcb), msg))
     # (the region's message -- a Tri, a node -- passes through unchanged)
     case 1n+p KCon{KRb2{False{}, mark}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), ri))

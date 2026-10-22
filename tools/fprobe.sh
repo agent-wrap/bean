@@ -65,9 +65,9 @@ if os.environ.get("LAST") == "1":
 # KEEP=1: rollbacks restore the memo but keep their allocations (no reuse,
 # no compaction), so a pair recorded inside a rolled-back region stays intact
 if os.environ.get("KEEP") == "1":
-    old = "(((kfl_ovf(ovf, ex, hcb), S.pick(roll, m2, n2)), msg), r2))"
+    old = "S.pick(roll, m2, n2)), msg), r2))"
     assert old in s, "KRb changed: update fprobe.sh"
-    s = s.replace(old, "(((kfl_ovf(ovf, ex, hcb), n2), msg), r2))", 1)
+    s = s.replace(old, "n2), msg), r2))", 1)
     s = s.replace("+comp : Bool = Bool.not(roll) && Bool.not(ovf)", "+comp : Bool = False{} && Bool.not(roll) && Bool.not(ovf)", 1)
 open(p, "w").write(s)
 PY
