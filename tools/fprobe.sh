@@ -47,6 +47,13 @@ while not s[i:j].rstrip().endswith(":"):
 s = s[:j] + "      +px9 : U32 = %s\n      +py9 : U32 = %s\n      +pc9 : Bool = %s\n" % (x, y, cond) + s[j:]
 k = s.index("natn, wm, nt", j)
 s = s[:k] + "natn, kpair_if(pc9, wm, px9, py9), nt" + s[k + len("natn, wm, nt"):]
+# keep the probe's keys across KRb rollbacks (a recorded term allocated
+# inside a rolled-back region may since have been overwritten)
+s = s.replace("""  +s1 : R.Tr<U32> = kflag1(c2, 4294967280,
+                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap)))""",
+"""  +s1 : R.Tr<U32> = kflag1(c2, 4294967288, kflag1(c2, 4294967287,
+                     kflag1(c2, 4294967280,
+                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap)))))""")
 open(p, "w").write(s)
 PY
 "$ROOT/tools/fbuild.sh" "$TMP/src/fdbg.bend" "$TMP/fdbg" 2>&1 | grep -v '^$' | head -5 || true

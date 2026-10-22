@@ -643,6 +643,12 @@ type KF is Data:
   # YES is final; anything else answers UNK and the caller falls back to
   # its full-whnf path. Fuel bounds the waste.
   LZ0{x: U32, y: U32, fu: U32}
+  # Lean's failure cache for lazy delta: a pair the probe could not settle
+  # is recorded (hashed key, fingerprint value) and answers UNK at once the
+  # next time. A collision can only cost a YES (an UNK), never invent one
+  LZ0g{hit: Bool, x: U32, y: U32, fu: U32}
+  LZC{key: U32, fp: U32}
+  LZC2{yes: Bool, key: U32, fp: U32, t: L.Tri}
   LZ0b{stop: Bool, same: Bool, x: U32, y: U32, fu: U32}
   LZ1{y: U32, fu: U32}
   LZ2{x: U32, fu: U32}
@@ -1517,6 +1523,15 @@ def klitop(+n: U32, +la: U32, +q: R.Tr<U32>) -> Bool:
       || U32.is_eq(n, R.get(U32, 64n, q, 14, 4294967295))
       || U32.is_eq(n, R.get(U32, 64n, q, 15, 4294967295)))
 
+# the probe failure cache's key (0xC0000000..0xFFFFFF00: clear of node
+# indices, the x + 2^31 YES cache and the flags) and fingerprint
+def klzkey(+x: U32, +y: U32) -> U32:
+  (3221225472 + U32.and(((x * 2654435761 : U32) + (y * 40503 : U32) : U32),
+                        1073741568) : U32)
+
+def klzfp(+x: U32, +y: U32) -> U32:
+  (((x * 65599 : U32) + y : U32) + 1 : U32)
+
 def kbv(+h: T.Ex) -> U32:
   match h:
     case T.EBVar{i}:
@@ -1982,9 +1997,30 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{LZ0{x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
+      +w2 : R.Tr<U32> = wm
+      km(p, KCon{LZ0g{U32.is_eq(R.get(U32, 64n, w2, klzkey(x2, y2),
+                                      4294967295), klzfp(x2, y2)),
+                      x2, y2, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZ0g{True{}, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{LZ0g{False{}, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
       +f2 : U32 = fu
-      km(p, KCon{LZ0b{U32.is_eq(f2, 0), U32.is_eq(x2, y2), x2, y2, f2}, k},
+      km(p, KCon{LZ0b{U32.is_eq(f2, 0), U32.is_eq(x2, y2), x2, y2, f2},
+                 KCon{LZC{klzkey(x2, y2), klzfp(x2, y2)}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZC{key, fp}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      km(p, KCon{LZC2{L.tri_is_yes(t2), key, fp, t2}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZC2{True{}, key, fp, t}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    case 1n+p KCon{LZC2{False{}, key, fp, t}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, key, fp, 4294967295), nt, hcb, kmtri(fs, t))
     # fuel out: the same node is still equal
     case 1n+p KCon{LZ0b{True{}, same, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -2132,7 +2168,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{LZA{Con{a, at}, Con{b, bt}, ux, uy, x, y, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +f2 : U32 = fu
-      km(p, KCon{LZ0{a, b, (f2 / 4 : U32)}, KCon{LZA3{at, bt, ux, uy, x, y,
+      km(p, KCon{LZ0{a, b, (f2 / 2 : U32)}, KCon{LZA3{at, bt, ux, uy, x, y,
                                                      f2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{LZA{xs, ys, ux, uy, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -3243,7 +3279,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # the functions agree, the last arguments differ in head: try the
       # lazy delta probe before evaluating both
       +n2 : U32 = nx
-      km(p, KCon{LZ0{a1, a2, 64}, KCon{DAqLz{a1, a2, xi, yi, ctx, fu}, k}},
+      km(p, KCon{LZ0{a1, a2, 256},
+                 KCon{KRb{n2, wm}, KCon{DAqLz{a1, a2, xi, yi, ctx, fu}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
     # congruence worklist
     case 1n+p KCon{DCgL{Nil{}, Nil{}, a1, a2, xi, yi, ctx, fu}, k}
@@ -3303,7 +3340,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # two applications with different non-constructor heads: the lazy
       # delta probe first, the full path if it does not settle
       +n2 : U32 = nx
-      km(p, KCon{LZ0{x, y, 64}, KCon{DCgLz{xt, yt, a1, a2, xi, yi, ctx, fu}, k}},
+      km(p, KCon{LZ0{x, y, 256},
+                 KCon{KRb{n2, wm}, KCon{DCgLz{xt, yt, a1, a2, xi, yi, ctx, fu},
+                                        k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
     # leaf: full whnf both sides (defeq's precondition), then defeq
     case 1n+p KCon{DCgS4{False{}, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
