@@ -245,6 +245,15 @@ type KF is Data:
   DSc0{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DSc1{hit: Bool, cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DSRec{cl: Bool, xi: U32, yi: U32}
+  # Lean's proof-by-reflection path (is_def_eq_core): a closed `t =?= true`
+  # first evaluates t fully -- `Eq.refl true : decide p = true`, the shape
+  # of every omega/decide certificate. YES if it reaches `true`, else the
+  # ordinary comparison
+  DDc0{cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc1{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc2{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc3{tru: Bool, cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc3x{tru: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEx{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEy{xn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # Pi/Pi: domains then bodies under the binder
@@ -3005,10 +3014,52 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DSc1{False{}, cl, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = yi
+      km(p, KCon{DDc0{cl, xi, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfetch(fs, y2, 0))
+    case 1n+p KCon{DDc0{cl, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{node}}, ri}:
+      +q2 : R.Tr<U32> = qtt
+      +nd : T.Ex = node
+      km(p, KCon{DDc3{cl && U32.is_eq(I.const_nm2(nd),
+                                      R.get(U32, 64n, q2, 8, 4294967295))
+                         && Bool.not(U32.is_eq(I.const_nm2(nd), 4294967295)),
+                      cl, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DDc3{False{}, cl, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{cl, x2, y2}, k}}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
+    case 1n+p KCon{DDc3{True{}, cl, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{DWhd{x2}, KCon{DDc1{x2, yi, ctx, fu}, k}}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DDc1{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DDc2{xi, yi, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kfetch(fs, r2, 0))
+    case 1n+p KCon{DDc2{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +q2 : R.Tr<U32> = qtt
+      +nd : T.Ex = node
+      +tru : Bool = U32.is_eq(I.const_nm2(nd),
+                              R.get(U32, 64n, q2, 8, 4294967295))
+      +x2 : U32 = xi
+      +y2 : U32 = yi
+      km(p, KCon{DDc3x{tru, x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DDc3x{True{}, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DDc3x{False{}, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      +y2 : U32 = yi
+      km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{True{}, x2, y2}, k}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DSRec{cl, xi, yi}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       +t2 : L.Tri = t
       +w0 : R.Tr<U32> = wm
