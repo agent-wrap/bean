@@ -346,6 +346,10 @@ type KF is Data:
   DLz2b{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, f1: U32,
         f2: U32, a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
         fu: U32}
+  DLzD{f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+       ctx: List<&2, U32>, fu: U32}
+  DLzD2{yes: Bool, f1: U32, f2: U32, a1: U32, a2: U32, xi: U32, yi: U32,
+        ctx: List<&2, U32>, fu: U32}
   DLzA{xs: List<&2, U32>, ys: List<&2, U32>, f1: U32, f2: U32, a1: U32,
        a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DLzAx{xt: List<&2, U32>, yt: List<&2, U32>, yh: U32, f1: U32, f2: U32,
@@ -3975,8 +3979,28 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DLzA{sx, sy, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DLz2b{False{}, sx, sy, f1, f2, a1, a2, xi, yi, ctx, fu},
-                   k} Tuple{Tuple{fs, msg}, ri}:
-      # not the same spine head -> unchanged "whnf the functions" path
+                   k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      # not the same spine head: Lean's lazy_delta_reduction unfolds the
+      # taller definition one step at a time (cancel p q vs cancelAux fuel
+      # p q [] [] is one unfold of cancel); the yes-only probe does that
+      # before both sides are evaluated
+      +n2 : U32 = nx
+      +x2 : U32 = xi
+      +y2 : U32 = yi
+      km(p, KCon{LZ0{x2, y2, 256},
+                 KCon{KRb{n2, wm},
+                      KCon{DLzD{f1, f2, a1, a2, x2, y2, ctx, fu}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
+    case 1n+p KCon{DLzD{f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{DLzD2{L.tri_is_yes(t), f1, f2, a1, a2, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLzD2{True{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DLzD2{False{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # args-first loop: walk both argument lists, defeq each pair
