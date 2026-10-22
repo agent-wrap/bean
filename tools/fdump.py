@@ -43,4 +43,4 @@ def parse(t,i,depth=0):
 x,i=parse(toks,0)
 if i<len(toks) and toks[i]==4294966001: i+=1
 y,_=parse(toks,i)
-print("X =",x[:3000]); print("Y =",y[:3000])
+import os; L=int(os.environ.get("FDUMP_MAX","3000")); print("X =",x[:L]); print("Y =",y[:L])
