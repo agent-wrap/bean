@@ -186,19 +186,18 @@ def dfold3(+pb: U32, r: (Array<T.Ex> & U32) & List<&2, U32>,
     case Tuple{fs, d}:
       (fs, Con{c, kpb(pb, d)})
 
-def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
-          +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
-  match kr:
-    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
+def dfoldF(pr: Array<T.Ex> & U32, +nx: U32, +v: U32, +wm: R.Tr<U32>,
+           +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match pr:
+    case Tuple{ex, fl}:
       +w2 : R.Tr<U32> = wm
-      +cor : U32 = S.pick(U32.is_eq(R.get(U32, 64n, w2, 4294967291,
-                                          4294967295), 4294967295), 0, 32)
-      +inc : U32 = S.pick(U32.is_eq(R.get(U32, 64n, w2, 4294967292,
-                                          4294967295), 4294967295), 0, 16)
+      +f2 : U32 = fl
+      +cor : U32 = S.pick(U32.is_eq(U32.and(f2, 2), 0), 0, 32)
+      +inc : U32 = S.pick(U32.is_eq(U32.and(f2, 4), 0), 0, 16)
       +v2 : U32 = v
       # probe breadcrumb (key 4294967290): its value replaces the code,
       # offset by 512 so it stays readable after the name*1024 packing
-      +pr : U32 = R.get(U32, 64n, w2, 4294967290, 4294967295)
+      +pr2 : U32 = R.get(U32, 64n, w2, 4294967290, 4294967295)
       +nxf : U32 = nx
       +ovf : Bool = U32.is_ge(nxf, M.khalf(base))
       +dx : U32 = R.get(U32, 64n, w2, 4294967288, 4294967295)
@@ -206,10 +205,16 @@ def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
       +pb : U32 = R.get(U32, 64n, w2, 4294967286, 4294967295)
       dfold3(pb, dump_if(Bool.not(U32.is_eq(dx, 4294967295)), (ex, nxf),
                          dx, dy),
-             S.pick(U32.is_eq(pr, 4294967295),
+             S.pick(U32.is_eq(pr2, 4294967295),
                     (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
                      + cor + S.pick(ovf, 256, 0) : U32),
-                    (512 + pr : U32)))
+                    (512 + pr2 : U32)))
+
+def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+          +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match kr:
+    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
+      dfoldF(M.kfl_flags(ex, base), nx, v, wm, sv, base)
 
 def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   (fs, Con{c, Nil{}})

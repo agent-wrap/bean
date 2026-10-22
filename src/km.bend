@@ -106,7 +106,7 @@ type KF is Data:
   KKp{e: U32}
   # walk (lift/inst/lsubst) fuel ran out: the subterm is kept UNSHIFTED, so
   # the result is no longer definitionally equal to the input. Flagged in the
-  # per-declaration memo as CORRUPT (key 4294967291): fcheck declines.
+  # declaration CORRUPT (store flag 2): fcheck declines.
   KKpF{e: U32}
   # after the bvar-eq sentinel walk: pick the real answer for an inst bvar
   KBvI{iseq: Bool, isgt: Bool, i: U32, e: U32}
@@ -416,6 +416,7 @@ type KF is Data:
   DTyF{x: U32, ctx: List<&2, U32>}
   DTyF2{none: Bool, x: U32, ctx: List<&2, U32>}
   DTyF3{old: U32}
+  DTyFs{x: U32, ctx: List<&2, U32>}
   DIr5{t: L.Tri, rx: U32, ctx: List<&2, U32>}
   DIr6{pz: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   # compare the two TYPES with full defeq (whnf'd), not structurally:
@@ -563,6 +564,7 @@ type KF is Data:
   ISub{xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubC{xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubD{ok: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubE{ok: Bool, xi: U32, cid: U32, ctx: List<&2, U32>, fu: U32}
   ISubM{hit: Bool, cl: Bool, t: U32, tok: Bool, xi: U32, h: U32, cid: U32,
         ctx: List<&2, U32>, fu: U32}
   IMemo{cl: Bool, xi: U32, h: U32, cid: U32}
@@ -618,6 +620,8 @@ type KF is Data:
        ctx: List<&2, U32>, fu: U32}
   IAp5Go{isyes: Bool, a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32,
          rfok: Bool, ctx: List<&2, U32>, fu: U32}
+  IAp5iq{a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32, rfok: Bool,
+         ctx: List<&2, U32>, fu: U32}
   IAp5io{io: Bool, a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32,
          rfok: Bool, ctx: List<&2, U32>, fu: U32}
   IAp5c{a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32, rfok: Bool,
@@ -722,6 +726,7 @@ type KF is Data:
   # Lean's failure cache for lazy delta: a pair the probe could not settle
   # is recorded (hashed key, fingerprint value) and answers UNK at once the
   # next time. A collision can only cost a YES (an UNK), never invent one
+  LZ0u{x: U32, y: U32, fu: U32}
   LZ0g{hit: Bool, x: U32, y: U32, fu: U32}
   LZC{key: U32, fp: U32, x: U32, y: U32}
   LZC2{yes: Bool, key: U32, fp: U32, t: L.Tri, x: U32, y: U32}
@@ -744,6 +749,7 @@ type KF is Data:
   # compared by DSub; only a YES is used, failures are cached, and the
   # per-declaration probe budget bounds the recursion
   LZF{a: U32, b: U32}
+  LZF2u{a: U32, b: U32}
   LZF2{yes: Bool, a: U32, b: U32}
   LZF3{b: U32}
   LZF4{wa: U32}
@@ -988,6 +994,14 @@ def klv_add(+lnt: R.Tr<L.LN>, +nlx: U32, +i: U32, +u: L.LN) -> R.Tr<L.LN>:
   R.set_if(L.LN, U32.is_eq(i, nlx),
            R.set_if(L.LN, U32.is_eq(i, nlx), lnt, i, u2, L.LNun{}),
            klv_key(u2), L.LNimax{L.LNun{}, L.LNun{}, i}, L.LNun{})
+
+def kpick_lta(+same: Bool, +lnt: R.Tr<L.LN>, +nl: U32, +i: U32,
+              +u: L.LN) -> R.Tr<L.LN>:
+  match same:
+    case True{}:
+      lnt
+    case False{}:
+      klv_add(lnt, nl, i, u)
 
 # substitute every level in `us`, interning each normal form (head first)
 def klsub_lvls(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +nlx: U32,
@@ -1378,6 +1392,86 @@ def sdepth(+base: U32) -> Nat:
 
 def khalf(+base: U32) -> U32:
   U32.shln(1, sdepth(base))
+
+
+# --- per-declaration flags in the store --------------------------------
+# Kept out of the memo trie: a trie set copies a path (and a rollback
+# region's snapshot keeps the old one alive until it is freed), and these
+# are written constantly and must survive rollbacks anyway. They live in
+# the hash table's unused loose-bvar shadow, slot base + hb + k, as
+# EBVar{v} (an unwritten slot reads 0); kbump clears them per declaration.
+#   0 lazy-probe budget used, 1 OVF, 2 CORRUPT, 3 INCOMPLETE, 4 infer_only
+def kfl_slot(+base: U32, +k: U32) -> U32:
+  ((base + khalf(base) : U32) + k : U32)
+
+def kfl_v(+e: T.Ex) -> U32:
+  match e:
+    case T.EBVar{i}:
+      i
+    case _:
+      0
+
+def kfl_tin2(pr: Array<T.Ex> & T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, e}:
+      (((a, nx), MN{}), kfl_v(e))
+
+# flag k as the register
+def kfl_tin(fs: Array<T.Ex> & U32, +base: U32,
+            +k: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      kfl_tin2(Array.get(T.Ex, ex, kfl_slot(base, k)), nx)
+
+def kfl_set(fs: Array<T.Ex> & U32, +base: U32, +k: U32,
+            +v: U32) -> Array<T.Ex> & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      (Array.set(T.Ex, ex, kfl_slot(base, k), T.EBVar{v}), nx)
+
+def kfl_set_if(+go: Bool, fs: Array<T.Ex> & U32, +base: U32, +k: U32,
+               +v: U32) -> Array<T.Ex> & U32:
+  match go:
+    case True{}:
+      kfl_set(fs, base, k, v)
+    case False{}:
+      fs
+
+# an overflow inside a region: OVF and CORRUPT
+def kfl_ovf(+ovf: Bool, a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
+  match ovf:
+    case True{}:
+      Array.set(T.Ex, Array.set(T.Ex, a, kfl_slot(base, 1), T.EBVar{1}),
+                kfl_slot(base, 2), T.EBVar{1})
+    case False{}:
+      a
+
+# OVF | CORRUPT << 1 | INCOMPLETE << 2, for the verdict
+def kfl_fl3(pr: Array<T.Ex> & T.Ex, +acc: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      (a, (acc + S.pick(U32.is_eq(kfl_v(e), 0), 0, 4) : U32))
+
+def kfl_fl2(pr: Array<T.Ex> & T.Ex, +base: U32, +acc: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      kfl_fl3(Array.get(T.Ex, a, kfl_slot(base, 3)),
+              (acc + S.pick(U32.is_eq(kfl_v(e), 0), 0, 2) : U32))
+
+def kfl_fl1(pr: Array<T.Ex> & T.Ex, +base: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      kfl_fl2(Array.get(T.Ex, a, kfl_slot(base, 2)), base,
+              S.pick(U32.is_eq(kfl_v(e), 0), 0, 1))
+
+def kfl_flags(a: Array<T.Ex>, +base: U32) -> Array<T.Ex> & U32:
+  kfl_fl1(Array.get(T.Ex, a, kfl_slot(base, 1)), base)
+
+def kfl_clear(a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
+  Array.set(T.Ex, Array.set(T.Ex, Array.set(T.Ex, Array.set(T.Ex,
+    Array.set(T.Ex, a, kfl_slot(base, 0), T.EBVar{0}),
+    kfl_slot(base, 1), T.EBVar{0}), kfl_slot(base, 2), T.EBVar{0}),
+    kfl_slot(base, 3), T.EBVar{0}), kfl_slot(base, 4), T.EBVar{0})
 
 def klb_unpack(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
   match pr:
@@ -1873,7 +1967,7 @@ def kbump2(pr: Array<T.Ex> & T.Ex, +base: U32) -> Array<T.Ex>:
       Array.set(T.Ex, a, kep_slot(base), T.EBVar{(kep_of(e) + 1 : U32)})
 
 def kbump(a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
-  kbump2(Array.get(T.Ex, a, kep_slot(base)), base)
+  kfl_clear(kbump2(Array.get(T.Ex, a, kep_slot(base)), base), base)
 
 def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
            +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -2559,20 +2653,29 @@ def kpick_tr(+z: Bool, +x: R.Tr<U32>, +y: R.Tr<U32>) -> R.Tr<U32>:
 def kflag1(+cur: R.Tr<U32>, +k: U32, +snap: R.Tr<U32>) -> R.Tr<U32>:
   +c2 : R.Tr<U32> = cur
   +v : U32 = R.get(U32, 64n, c2, k, 4294967295)
-  kpick_tr(U32.is_eq(v, 4294967295), snap, R.set(U32, 64n, snap, k, v,
-                                                 4294967295))
+  # (set_if, a match: S.pick-style picks evaluate BOTH sides, and the
+  # trie version not taken is built and then freed -- most of the
+  # runtime's time went to that)
+  R.set_if(U32, Bool.not(U32.is_eq(v, 4294967295)), snap, k, v, 4294967295)
 
 def kflags_into(+cur: R.Tr<U32>, +snap: R.Tr<U32>, +ovf: Bool) -> R.Tr<U32>:
   +c2 : R.Tr<U32> = cur
-  # (the debug probe keys are not carried: a probe recorded inside a
-  # rollback region that rolls back is lost)
-  +s1 : R.Tr<U32> = kflag1(c2, 4294967270, kflag1(c2, 4294967280,
-                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap))))
-  kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, s1, 4294967291, 1,
-                                      4294967295), 4294967280, 1, 4294967295),
-           s1)
+  # the run's flags live in the store (kfl_*); only debug probe keys, when
+  # tools/fprobe.sh splices them in here, are carried in the memo
+  +s1 : R.Tr<U32> = snap
+  s1
 
-# a definition's height (the export's ReducibilityHints), or none
+# a rollback region's memo afterwards: the snapshot plus the run's flags
+# when it is released, else the current memo (CORRUPT on overflow) --
+# a match, so only the chosen one is built
+def krb_wm(+go: Bool, +ovf: Bool, +wm: R.Tr<U32>,
+           +snap: R.Tr<U32>) -> R.Tr<U32>:
+  match go:
+    case True{}:
+      kflags_into(wm, snap, ovf)
+    case False{}:
+      wm
+
 def khgt(+qtt: R.Tr<U32>, +n: U32) -> U32:
   R.get(U32, 64n, qtt, (n + 2147483648 : U32), 0)
 
@@ -2787,21 +2890,23 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{KKp{e}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- lazy delta probe (see LZ0) ----
-    # one probe budget per DECLARATION (memo key 4294967270, steps used,
-    # carried across rollbacks): nested probes never restart their fuel, so
+    # one probe budget per DECLARATION (store flag 0, steps used, not rolled
+    # back): nested probes never restart their fuel, so
     # a probe that recurses through the full defeq stays bounded
     case 1n+p KCon{LZ0{x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{LZ0u{x, y, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+         nt, hcb, kfl_tin(fs, hcb, 0))
+    case 1n+p KCon{LZ0u{x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
       +w2 : R.Tr<U32> = wm
-      +used : U32 = R.get(U32, 64n, w2, 4294967270, 0)
+      +used : U32 = ri
       km(p, KCon{LZ0g{U32.is_eq(R.get(U32, 64n, w2, klzkey(x2, y2),
                                       4294967295), klzfp(x2, y2))
                       || U32.is_ge(used, 200000),
                       x2, y2, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, w2, 4294967270, (used + 1 : U32), 4294967295), nt,
-         hcb, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb,
+         knoop(kfl_set(fs, hcb, 0, (used + 1 : U32)), 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TUnk{}))
@@ -2990,14 +3095,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{LZF2{False{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{LZF2u{a, b}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kfl_tin(fs, hcb, 0))
+    case 1n+p KCon{LZF2u{a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +used : U32 = ri
       +a2 : U32 = a
       +b2 : U32 = b
       +w2 : R.Tr<U32> = wm
       +seen : Bool = U32.is_eq(R.get(U32, 64n, w2, klzkey(b2, a2), 4294967295),
                                klzfp(b2, a2))
-                     || U32.is_ge(R.get(U32, 64n, w2, 4294967270, 0), 200000)
+                     || U32.is_ge(used, 200000)
       km(p, KCon{LZF6{seen, a2, b2}, k}, lnt, nlx, mt, lp, vt, qtt, natn, w2,
-         nt, hcb, knoop(fs, ri))
+         nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZF6{True{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TUnk{}))
@@ -3022,9 +3131,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +a2 : U32 = a
       +b2 : U32 = b
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(L.tri_is_yes(t2), wm,
-                  R.set(U32, 64n, wm, klzkey(b2, a2), klzfp(b2, a2),
-                        4294967295)),
+         R.set_if(U32, Bool.not(L.tri_is_yes(t2)), wm, klzkey(b2, a2),
+                  klzfp(b2, a2), 4294967295),
          nt, hcb, kmtri(fs, t2))
     case 1n+p KCon{LZA3{xs, ys, ux, uy, x, y, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
@@ -3281,7 +3389,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           +i : U32 = klv_find(lnt, nl, u)
           +fresh : Bool = Bool.not(same) && U32.is_eq(i, nl)
           km(p, k,
-             kpick_lt(same, lnt, klv_add(lnt, nl, i, u)),
+             kpick_lta(same, lnt, nl, i, u),
              S.pick(fresh, (nl + 1 : U32), nl), mt, lp, vt, qtt, natn, wm, nt,
              hcb, ksort3(same, fs, i, e, hcb))
         case T.EConst{n, us}:
@@ -3319,19 +3427,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # whnf fuel ran out: the rebuilt term is only PARTIALLY reduced. It is
     # still definitionally equal to the input (so YES answers built on it are
     # sound) but it is not a normal form, so a NO built on it is not. Flag the
-    # declaration INCOMPLETE (memo key 4294967292): fcheck turns a reject into
+    # declaration INCOMPLETE (store flag 3): fcheck turns a reject into
     # a decline. This is what made magma-list-deep-n21 reject a true theorem.
     case 1n+p KCon{WRbP{e, args}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          krebuild(hcb, args, fs, e))
     case 1n+p KCon{WRb{e, args}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, wm, 4294967292, 1, 4294967295), nt, hcb,
-         krebuild(hcb, args, fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         krebuild(hcb, args, kfl_set(fs, hcb, 3, 1), e))
     case 1n+p KCon{KKpF{e}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, wm, 4294967291, 1, 4294967295), nt, hcb,
-         kkeep(fs, e))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kkeep(kfl_set(fs, hcb, 2, 1), e))
     # ---- whnf: eval (entry-level node dispatch; first match wins) ----
     case 1n+p KCon{WEv{delta, e, args, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{f, a}}}, ri}:
@@ -3722,11 +3828,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(U32.is_lt(e2, 268435456),
-                  R.set(U32, 64n,
-                        R.set(U32, 64n, wm, (1073741824 + e2 : U32), r2,
-                              4294967295),
-                        (1610612736 + e2 : U32), vi, 4294967295), wm),
+         R.set_if(U32, U32.is_lt(e2, 268435456),
+                  R.set_if(U32, U32.is_lt(e2, 268435456), wm,
+                           (1073741824 + e2 : U32), r2, 4294967295),
+                  (1610612736 + e2 : U32), vi, 4294967295),
          nt, hcb, knoop(fs, r2))
     case 1n+p KCon{WDelGo{False{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -3837,9 +3942,6 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # the declaration INCOMPLETE so a reject becomes a decline.
       +other : Bool = I.meta_is_ctor(cmi)
                       && Bool.not(U32.is_eq(I.meta_ind(cmi), i2))
-      +wm2 : R.Tr<U32> = kpick_tr(other,
-                                  R.set(U32, 64n, wm, 4294967292, 1,
-                                        4294967295), wm)
       # 0: a constructor application of the inductive (iota); 1: not one,
       # but the inductive admits structure eta (iota on the projections);
       # 2: stuck
@@ -3850,7 +3952,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       I.skip_u(sargs, p2), I.meta_recs(cmi),
                       I.meta_ci(cmi), I.meta_ccty(cmi), need, p2, mk, cn,
                       us, can, delta, vi, ps, qs, e, args, fu, i2}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm2, nt, hcb, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         knoop(kfl_set_if(other, fs, hcb, 3, 1), ri))
     case 1n+p KCon{WI3c{True{}, se, fields, recsl, ci, ccty, need, pp, mk,
                         cn, us, can, delta, vi, ps, qs, e, args, fu, ind}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -3982,9 +4085,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +t2 : L.Tri = t
       +w0 : R.Tr<U32> = wm
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(cl && L.tri_is_yes(t2),
-                  R.set(U32, 64n, w0, (xi + 2147483648 : U32), yi,
-                        4294967295), w0),
+         R.set_if(U32, cl && L.tri_is_yes(t2), w0, (xi + 2147483648 : U32),
+                  yi, 4294967295),
          nt, hcb, kmtri(fs, t2))
     case 1n+p KCon{DEx{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +y2 : U32 = yi
@@ -5190,12 +5292,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          wm, nt, hcb,
          ktin_of(kctxid(kpre_rev(S.pick(ok, l, 0), c2, Nil{}), (fs, 0), hcb)))
     case 1n+p KCon{ISubD{ok, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{ISubE{ok, xi, ri, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfl_tin(fs, hcb, 4))
+    case 1n+p KCon{ISubE{ok, xi, cid, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
-      +cid : U32 = ri
       +w2 : R.Tr<U32> = wm
       # infer_only types (argument checks skipped) live in their own key
       # range (+0x28000000): one there must never vouch for a checked one
-      +io : Bool = U32.is_eq(R.get(U32, 64n, w2, 4294967269, 0), 1)
+      +io : Bool = U32.is_eq(ri, 1)
       +h : U32 = (U32.and(((x2 * 2654435761 : U32) + (cid * 40503 : U32) : U32),
                           134217727)
                   + S.pick(io, 671088640, 0) : U32)
@@ -5225,15 +5329,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +h2 : U32 = h
       +st : Bool = cl && Bool.not(U32.is_eq(t2, 4294967295))
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(st,
-                  R.set(U32, 64n,
-                        R.set(U32, 64n,
-                              R.set(U32, 64n, wm, (1879048192 + h2 : U32), t2,
+         R.set_if(U32, st,
+                  R.set_if(U32, st,
+                           R.set_if(U32, st, wm, (1879048192 + h2 : U32), t2,
                                     4294967295),
-                              (2013265920 + h2 : U32),
-                              (xi + S.pick(ok2, 2147483648, 0) : U32),
-                              4294967295),
-                        (2415919104 + h2 : U32), cid, 4294967295), wm),
+                           (2013265920 + h2 : U32),
+                           (xi + S.pick(ok2, 2147483648, 0) : U32),
+                           4294967295),
+                  (2415919104 + h2 : U32), cid, 4294967295),
          nt, hcb, kmir(fs, t2, ok2))
     case 1n+p KCon{IEvGo{True{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -5495,9 +5598,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
     case 1n+p KCon{IAp5Go{False{}, a, node, ra, raok, rf, rfok, ctx, fu},
                    k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IAp5io{U32.is_eq(R.get(U32, 64n, wm, 4294967269, 0), 1),
-                        a, node, ra, raok, rf, rfok, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      km(p, KCon{IAp5iq{a, node, ra, raok, rf, rfok, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfl_tin(fs, hcb, 4))
+    case 1n+p KCon{IAp5iq{a, node, ra, raok, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{IAp5io{U32.is_eq(ri, 1), a, node, ra, raok, rf, rfok, ctx,
+                        fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     # infer_only: the argument is taken at its word
     case 1n+p KCon{IAp5io{True{}, a, node, ra, raok, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -5736,20 +5843,20 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
     case 1n+p KCon{DTyF2{False{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, ri))
-    # infer_only (Lean's infer_type in is_def_eq_proof_irrel): key
-    # 4294967269 set while it runs, so argument types are not re-checked
+    # infer_only (Lean's infer_type in is_def_eq_proof_irrel): store flag 4
+    # set while it runs, so argument types are not re-checked
     case 1n+p KCon{DTyF2{True{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
-      +w2 : R.Tr<U32> = wm
-      km(p, KCon{ISub{x, ctx, 4096},
-                 KCon{DTyF3{R.get(U32, 64n, w2, 4294967269, 0)}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, w2, 4294967269, 1, 4294967295), nt, hcb,
-         knoop(fs, 0))
+      km(p, KCon{DTyFs{x, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kfl_tin(fs, hcb, 4))
+    case 1n+p KCon{DTyFs{x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{ISub{x, ctx, 4096}, KCon{DTyF3{ri}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         knoop(kfl_set(fs, hcb, 4, 1), 0))
     case 1n+p KCon{DTyF3{old}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
       +t2 : U32 = t
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, wm, 4294967269, old, 4294967295), nt, hcb,
-         kkeep(fs, S.pick(U32.is_ge(t2, 4294967294), 4294967295, t2)))
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kkeep(kfl_set(fs, hcb, 4, old),
+               S.pick(U32.is_ge(t2, 4294967294), 4294967295, t2)))
     case 1n+p KCon{DIr5{t, rx, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +rx2 : U32 = rx
       +r2 : U32 = ri
@@ -6281,12 +6388,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      && U32.is_ge((n2 - m2 : U32), 4096)
                      && U32.is_lt((n2 + (n2 - m2 : U32) + 16 : U32), hb)
       km(p, KCon{KRb2{comp, m2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(roll || comp, kflags_into(wm, snap, ovf),
-                  kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, wm,
-                                                      4294967291, 1,
-                                                      4294967295),
-                                      4294967280, 1, 4294967295), wm)),
-         nt, hcb, (((ex, S.pick(roll, m2, n2)), msg), r2))
+         krb_wm(roll || comp, ovf, wm, snap),
+         nt, hcb, (((kfl_ovf(ovf, ex, hcb), S.pick(roll, m2, n2)), msg), r2))
     # (the region's message -- a Tri, a node -- passes through unchanged)
     case 1n+p KCon{KRb2{False{}, mark}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), ri))

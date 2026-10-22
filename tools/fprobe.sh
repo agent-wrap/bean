@@ -56,19 +56,18 @@ k = s.index("natn, wm, nt", j)
 s = s[:k] + "natn, kpair_if(pc9, wm, px9, py9), nt" + s[k + len("natn, wm, nt"):]
 # keep the probe's keys across KRb rollbacks (a recorded term allocated
 # inside a rolled-back region may since have been overwritten)
-old = "+s1 : R.Tr<U32> = kflag1(c2, 4294967270,"
-assert old in s and "snap))))" in s, "kflags_into changed: update fprobe.sh"
-s = s.replace(old, "+s1 : R.Tr<U32> = kflag1(c2, 4294967288, kflag1(c2, 4294967287, kflag1(c2, 4294967270,")
-s = s.replace("snap))))", "snap))))))", 1)
+old = "+s1 : R.Tr<U32> = snap"
+assert old in s, "kflags_into changed: update fprobe.sh"
+s = s.replace(old, "+s1 : R.Tr<U32> = kflag1(c2, 4294967288, kflag1(c2, 4294967287, snap))", 1)
 # LAST=1 records the last pair the condition holds for, not the first
 if os.environ.get("LAST") == "1":
     s = s.replace("+keep : Bool = had || Bool.not(c)", "+keep : Bool = Bool.not(c) && (had || True{})", 1)
 # KEEP=1: rollbacks restore the memo but keep their allocations (no reuse,
 # no compaction), so a pair recorded inside a rolled-back region stays intact
 if os.environ.get("KEEP") == "1":
-    old = "(((ex, S.pick(roll, m2, n2)), msg), r2))"
+    old = "(((kfl_ovf(ovf, ex, hcb), S.pick(roll, m2, n2)), msg), r2))"
     assert old in s, "KRb changed: update fprobe.sh"
-    s = s.replace(old, "(((ex, n2), msg), r2))", 1)
+    s = s.replace(old, "(((kfl_ovf(ovf, ex, hcb), n2), msg), r2))", 1)
     s = s.replace("+comp : Bool = Bool.not(roll) && Bool.not(ovf)", "+comp : Bool = False{} && Bool.not(roll) && Bool.not(ovf)", 1)
 open(p, "w").write(s)
 PY

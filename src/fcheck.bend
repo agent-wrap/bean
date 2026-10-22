@@ -42,26 +42,30 @@ def fs_ovf(+o: Bool, fs: Array<T.Ex> & U32) -> Array<T.Ex> & U32:
     case Tuple{ex, nx}:
       (ex, S.pick(o, 4294967295, nx))
 
-def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
-             +sv: C.V) -> (Array<T.Ex> & U32) & C.V:
-  match kr:
-    case Tuple{Tuple{fs, v}, Tuple{lt, wm}}:
-      # fuel-exhaustion flags set by the machine (see km.bend WRb / KKpF):
-      # CORRUPT (walk fuel) -> decline regardless; INCOMPLETE (whnf fuel) ->
-      # a reject is not trustworthy -> decline. Accepts stay valid.
-      +w2 : R.Tr<U32> = wm
-      +cor : Bool = Bool.not(U32.is_eq(R.get(U32, 64n, w2, 4294967291,
-                                             4294967295), 4294967295))
-      +inc : Bool = Bool.not(U32.is_eq(R.get(U32, 64n, w2, 4294967292,
-                                             4294967295), 4294967295))
+def fck_fold2(pr: Array<T.Ex> & U32, +nx: U32, +v: U32,
+              +sv: C.V) -> (Array<T.Ex> & U32) & C.V:
+  match pr:
+    case Tuple{ex, fl}:
+      # flags set by the machine in the store (km.bend kfl_*): CORRUPT
+      # (walk fuel, overflow) -> decline regardless; INCOMPLETE (whnf fuel,
+      # an iota beyond us) -> a reject is not trustworthy -> decline.
+      # Accepts stay valid. OVF: the store overflowed somewhere inside (a
+      # rollback may have hidden the peak) -- reported as an allocation
+      # pointer past capacity, so fck_all declines this and every later
+      # declaration
+      +f2 : U32 = fl
+      +cor : Bool = Bool.not(U32.is_eq(U32.and(f2, 2), 0))
+      +inc : Bool = Bool.not(U32.is_eq(U32.and(f2, 4), 0))
+      +ovf : Bool = Bool.not(U32.is_eq(U32.and(f2, 1), 0))
       +v2 : U32 = v
-      # OVF: the store overflowed somewhere inside (a rollback may have
-      # hidden the peak) -- reported as an allocation pointer past
-      # capacity, so fck_all declines this and every later declaration
-      +ovf : Bool = Bool.not(U32.is_eq(R.get(U32, 64n, w2, 4294967280,
-                                             4294967295), 4294967295))
-      (fs_ovf(ovf, fs), C.comb(sv, fv_of(S.pick(cor || (inc && U32.is_eq(v2, 1)), 2,
-                                   v2))))
+      (fs_ovf(ovf, (ex, nx)),
+       C.comb(sv, fv_of(S.pick(cor || (inc && U32.is_eq(v2, 1)), 2, v2))))
+
+def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+             +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & C.V:
+  match kr:
+    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
+      fck_fold2(M.kfl_flags(ex, base), nx, v, sv)
 
 # one declaration: structural checks on the trie, the typed check on the
 # machine; the machine state re-enters with the base nx (slot recycling)
@@ -105,7 +109,7 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
                            K.dcl_value(pd), basenx),
-               C.self_ref_v(I.is_ex(st), pd))
+               C.self_ref_v(I.is_ex(st), pd), basenx)
 
 # each declaration is checked against the environment built from the ones
 # before it, then added -- exactly check.bend's ck_all, with the flat store
