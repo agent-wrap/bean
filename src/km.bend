@@ -876,21 +876,90 @@ def klns_of(us: List<&2, U32>, +lnt: R.Tr<L.LN>) -> List<&2, L.LN>:
     case Con{head, tail}:
       Con{R.get(L.LN, 64n, lnt, head, L.LNun{}), klns_of(tail, lnt)}
 
-# substitute every level in `us`, allocating each normal form into the level
-# trie (infer.bend's lsub_lvls, same allocation order: head first)
+# --- level interning ----------------------------------------------------
+# Lean hash-conses levels; km names a level by an index into lnt. lsubst
+# used to mint a fresh index for every level it produced, so two copies of
+# the same body over the same levels were different nodes (the pointer
+# table could not share them), and every index-keyed cache saw them as
+# different terms. Each produced level now goes through a one-slot table in
+# lnt itself, at key 2^31 + hash: the slot names an earlier index (encoded
+# as LNimax{LNun, LNun, index}), reused when its level is the same normal
+# form (ln_cmp YES), else a fresh index takes the slot.
+def kat_hash(xs: List<&2, L.Atom>, +h: U32) -> U32:
+  match xs:
+    case Nil{}:
+      h
+    case Con{head, tail}:
+      match head:
+        case L.At{b, o}:
+          kat_hash(tail, (((h * 31 : U32) + (b * 2654435761 : U32) : U32)
+                          + (o * 40503 : U32) : U32))
+
+def kln_hash(a: L.LN) -> U32:
+  match a:
+    case L.LNun{}:
+      1
+    case L.LNsym{}:
+      2
+    case L.LNmax{xs}:
+      kat_hash(xs, 3)
+    case L.LNimax{x, y, off}:
+      ((((kln_hash(x) * 31 : U32) + kln_hash(y) : U32) * 31 : U32)
+       + (off + 4 : U32) : U32)
+    case L.LNmx{xs, y, r}:
+      kat_hash(xs, ((kln_hash(y) * 31 : U32) + kln_hash(r) : U32))
+
+def kpick_lt(+z: Bool, +x: R.Tr<L.LN>, +y: R.Tr<L.LN>) -> R.Tr<L.LN>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def klv_ptr(+a: L.LN) -> U32:
+  match a:
+    case L.LNimax{x, y, off}:
+      match x y:
+        case L.LNun{} L.LNun{}:
+          off
+        case _ _:
+          4294967295
+    case _:
+      4294967295
+
+def klv_key(+u: L.LN) -> U32:
+  (2147483648 + U32.and(kln_hash(u), 2147483647) : U32)
+
+# the index naming level u: an interned one, or nlx (then interned)
+def klv_find(+lnt: R.Tr<L.LN>, +nlx: U32, +u: L.LN) -> U32:
+  +t : R.Tr<L.LN> = lnt
+  +u2 : L.LN = u
+  +c : U32 = klv_ptr(R.get(L.LN, 64n, t, klv_key(u2), L.LNun{}))
+  +hit : Bool = U32.is_lt(c, nlx)
+                && L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, t, c, L.LNun{}), u2))
+  S.pick(hit, c, nlx)
+
+# record u at index i when i is fresh (i == nlx): lnt and the slot
+def klv_add(+lnt: R.Tr<L.LN>, +nlx: U32, +i: U32, +u: L.LN) -> R.Tr<L.LN>:
+  +u2 : L.LN = u
+  R.set_if(L.LN, U32.is_eq(i, nlx),
+           R.set_if(L.LN, U32.is_eq(i, nlx), lnt, i, u2, L.LNun{}),
+           klv_key(u2), L.LNimax{L.LNun{}, L.LNun{}, i}, L.LNun{})
+
+# substitute every level in `us`, interning each normal form (head first)
 def klsub_lvls(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +nlx: U32,
                +ps: List<&2, U32>, +qs: List<&2, L.LN>) -> LVS:
   match us:
     case Nil{}:
       LVS{lnt, nlx, Nil{}}
     case Con{head, tail}:
-      +r : LVS = klsub_lvls(tail,
-                            R.set(L.LN, 64n, lnt, nlx,
-                                  L.ln_subst(R.get(L.LN, 64n, lnt, head,
-                                                   L.LNun{}), ps, qs),
-                                  L.LNun{}),
-                            (nlx + 1 : U32), ps, qs)
-      LVS{lvs_t(r), lvs_nx(r), Con{nlx, lvs_xs(r)}}
+      +t : R.Tr<L.LN> = lnt
+      +u : L.LN = L.ln_subst(R.get(L.LN, 64n, t, head, L.LNun{}), ps, qs)
+      +i : U32 = klv_find(t, nlx, u)
+      +r : LVS = klsub_lvls(tail, klv_add(t, nlx, i, u),
+                            S.pick(U32.is_eq(i, nlx), (nlx + 1 : U32), nlx),
+                            ps, qs)
+      LVS{lvs_t(r), lvs_nx(r), Con{i, lvs_xs(r)}}
 
 # --- structural equality over the flat store (infer.bend's eq_ex) ----------
 # A worklist walker: each pair carries its remaining DEPTH budget (the trie
@@ -1155,27 +1224,62 @@ def kpn2(pr: Array<T.Ex> & T.Ex, +ent: T.Ex,
     case Tuple{a, cand}:
       (a, (ent, kexeq(cand, node)))
 
-def kpn3(+cmp: Bool, a: Array<T.Ex>, +j: U32, +h: U32,
+# A table entry is EProj{epoch, index, fingerprint}. The epoch (slot
+# base + 2^20 + 1, bumped per declaration by kbump) retires every pointer an
+# earlier declaration left: allocation restarts per declaration, so such a
+# pointer would otherwise come back to life once allocation passed it --
+# never matching (the slot holds another node), never free, and the 24-probe
+# clusters filled until new nodes could not be entered at all (two copies of
+# one term, which every index-keyed cache then told apart). An entry of
+# another epoch reads as a tombstone (EBVar{0}: not EBad, pointer unknown).
+def kep_of(+e: T.Ex) -> U32:
+  match e:
+    case T.EBVar{i}:
+      i
+    case _:
+      0
+
+def kep_slot(+base: U32) -> U32:
+  (base + 1048577 : U32)
+
+def kep2(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      (a, kep_of(e))
+
+def kpn3(+cmp: Bool, +live: Bool, a: Array<T.Ex>, +j: U32, +h: U32,
          +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
   match cmp:
     case True{}:
       kpn2(Array.get(T.Ex, a, j), T.EApp{j, h}, node)
     case False{}:
-      (a, (T.EApp{j, h}, False{}))
+      match live:
+        case True{}:
+          (a, (T.EApp{j, h}, False{}))
+        case False{}:
+          (a, (T.EBVar{0}, False{}))
 
-def kpn1(pr: Array<T.Ex> & T.Ex, +nx: U32, +fp: U32, +look: Bool,
+def kpn1(pr: Array<T.Ex> & T.Ex, +nx: U32, +fp: U32, +ep: U32, +look: Bool,
          +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
   match pr:
-    case Tuple{a, T.EApp{j, h}}:
+    case Tuple{a, T.EProj{e0, j, h}}:
       +j2 : U32 = j
       +h2 : U32 = h
-      kpn3(look && U32.is_lt(j2, nx) && U32.is_eq(h2, fp), a, j2, h2, node)
+      +live : Bool = U32.is_eq(e0, ep)
+      kpn3(look && live && U32.is_lt(j2, nx) && U32.is_eq(h2, fp), live, a,
+           j2, h2, node)
     case Tuple{a, ent}:
       (a, (ent, False{}))
 
+def kps2(pr: Array<T.Ex> & U32, +s: U32, +nx: U32, +fp: U32, +look: Bool,
+         +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
+  match pr:
+    case Tuple{a, ep}:
+      kpn1(Array.get(T.Ex, a, s), nx, fp, ep, look, node)
+
 def kprobe_slot(a: Array<T.Ex>, +s: U32, +nx: U32, +fp: U32, +look: Bool,
-                +node: T.Ex) -> Array<T.Ex> & (T.Ex & Bool):
-  kpn1(Array.get(T.Ex, a, s), nx, fp, look, node)
+                +node: T.Ex, +base: U32) -> Array<T.Ex> & (T.Ex & Bool):
+  kps2(kep2(Array.get(T.Ex, a, kep_slot(base))), s, nx, fp, look, node)
 
 def kptr_of(+x: T.Ex) -> U32:
   match x:
@@ -1210,7 +1314,7 @@ def kscan(k: Nat, +done: Bool, +base: U32, +node: T.Ex, +slot: U32,
       +f3 : U32 = f2
       +dn : Bool = st2 || U32.is_ne(f3, 4294967295)
       kscan(p, dn, base, node, slot2, f3, fe2, st2, nx, fp,
-            kprobe_slot(ex, slot2, nx, fp, Bool.not(dn), node))
+            kprobe_slot(ex, slot2, nx, fp, Bool.not(dn), node, base))
 
 # --- loose-bvar ranges in the store --------------------------------------
 # Every node written to slot i also records lbr(node) -- one more than its
@@ -1429,11 +1533,17 @@ def kreloc(+x: T.Ex, +mark: U32, +m: R.Tr<U32>) -> T.Ex:
 # hash table is reused; otherwise it takes the next final slot, written to
 # scratch, and its pointer goes into the table (pointers at or above mark
 # are tombstones here, so such a slot is reused)
+def kcs8b(pr: Array<T.Ex> & U32, +fe: U32, +fin: U32,
+          +rn: T.Ex) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, ep}:
+      Array.set(T.Ex, a, fe, T.EProj{ep, fin, kfp(rn)})
+
 def kcs8(+haveslot: Bool, +fe: U32, a: Array<T.Ex>, +fin: U32,
-         +rn: T.Ex) -> Array<T.Ex>:
+         +rn: T.Ex, +base: U32) -> Array<T.Ex>:
   match haveslot:
     case True{}:
-      Array.set(T.Ex, a, fe, T.EApp{fin, kfp(rn)})
+      kcs8b(kep2(Array.get(T.Ex, a, kep_slot(base))), fe, fin, rn)
     case False{}:
       a
 
@@ -1443,7 +1553,7 @@ def kcs7(+miss: Bool, +haveslot: Bool, +found: U32, +fe: U32, a: Array<T.Ex>,
   match miss:
     case True{}:
       +fin : U32 = (mark + k : U32)
-      (Array.set(T.Ex, kcs8(haveslot, fe, a, fin, rn), (nx + k : U32), rn),
+      (Array.set(T.Ex, kcs8(haveslot, fe, a, fin, rn, base), (nx + k : U32), rn),
        CSd{False{}, rest, (k + 1 : U32),
            R.set(U32, 64n, m, top, fin, 4294967295), nx, mark, base})
     case False{}:
@@ -1470,7 +1580,7 @@ def kcs4(+leaf: Bool, +c: U32, +top: U32, +rest: List<&2, U32>, +nd: T.Ex,
       +fp : U32 = kfp(rn)
       +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
       kcs6(kscan(24n, False{}, base, rn, s0, 4294967295, 4294967295, False{}, mark, fp,
-                 kprobe_slot(a, s0, mark, fp, True{}, rn)),
+                 kprobe_slot(a, s0, mark, fp, True{}, rn, base)),
            top, rest, rn, k, m, nx, mark, base)
     case False{}:
       (a, CSd{False{}, Con{c, Con{top, rest}}, k, m, nx, mark, base})
@@ -1673,31 +1783,48 @@ def klb_init(n: Nat, +i: U32, +hb: U32, a: Array<T.Ex>) -> Array<T.Ex>:
 
 # a miss: append the node at nx and point the free slot (if any) at it
 def kfin2b(+hb: U32, +haveslot: Bool, +fempty: U32, ex: Array<T.Ex>,
-           +node: T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+           +node: T.Ex, +nx: U32, +ep: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match haveslot:
     case True{}:
       +n : U32 = nx
       +nd : T.Ex = node
-      (((Array.set(T.Ex, kput(hb, ex, n, nd), fempty, T.EApp{n, kfp(nd)}),
+      (((Array.set(T.Ex, kput(hb, ex, n, nd), fempty, T.EProj{ep, n, kfp(nd)}),
          (n + 1 : U32)), MN{}), n)
     case False{}:
       +n : U32 = nx
       (((kput(hb, ex, n, node), (n + 1 : U32)), MN{}), n)
 
 def kfin1b(+hb: U32, +miss: Bool, +found: U32, +fempty: U32, ex: Array<T.Ex>,
-           +node: T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+           +node: T.Ex, +nx: U32, +ep: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match miss:
     case False{}:
       (((ex, nx), MN{}), found)
     case True{}:
-      kfin2b(hb, U32.is_ne(fempty, 4294967295), fempty, ex, node, nx)
+      kfin2b(hb, U32.is_ne(fempty, 4294967295), fempty, ex, node, nx, ep)
+
+def kfinE(pr: Array<T.Ex> & U32, +found: U32, +fempty: U32, +node: T.Ex,
+          +nx: U32, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{ex, ep}:
+      +fd : U32 = found
+      kfin1b(khalf(base), U32.is_eq(fd, 4294967295), fd, fempty, ex, node, nx,
+             ep)
 
 def kfin(r: Array<T.Ex> & (U32 & U32), +node: T.Ex, +nx: U32,
          +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match r:
     case Tuple{ex, Tuple{found, fempty}}:
-      +fd : U32 = found
-      kfin1b(khalf(base), U32.is_eq(fd, 4294967295), fd, fempty, ex, node, nx)
+      kfinE(kep2(Array.get(T.Ex, ex, kep_slot(base))), found, fempty, node,
+            nx, base)
+
+# a new declaration: retire every table pointer the previous ones left
+def kbump2(pr: Array<T.Ex> & T.Ex, +base: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, e}:
+      Array.set(T.Ex, a, kep_slot(base), T.EBVar{(kep_of(e) + 1 : U32)})
+
+def kbump(a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
+  kbump2(Array.get(T.Ex, a, kep_slot(base)), base)
 
 def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
            +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -1708,7 +1835,7 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
       +fp : U32 = kfp(nd)
       +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
       kfin(kscan(24n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
-                 kprobe_slot(ex, s0, n2, fp, True{}, nd)),
+                 kprobe_slot(ex, s0, n2, fp, True{}, nd, base)),
            nd, n2, base)
 
 # no allocation, result register = existing index
@@ -2875,10 +3002,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           +u : L.LN = L.ln_subst(old, ps, qs)
           +same : Bool = L.tri_is_yes(L.ln_cmp(old, u))
           +nl : U32 = nlx
+          +i : U32 = klv_find(lnt, nl, u)
+          +fresh : Bool = Bool.not(same) && U32.is_eq(i, nl)
           km(p, k,
-             R.set_if(L.LN, Bool.not(same), lnt, nl, u, L.LNun{}),
-             S.pick(same, nl, (nl + 1 : U32)), mt, lp, vt, qtt, natn, wm, nt, hcb,
-             ksort3(same, fs, nl, e, hcb))
+             kpick_lt(same, lnt, klv_add(lnt, nl, i, u)),
+             S.pick(fresh, (nl + 1 : U32), nl), mt, lp, vt, qtt, natn, wm, nt,
+             hcb, ksort3(same, fs, i, e, hcb))
         case T.EConst{n, us}:
           +r : LVS = klsub_lvls(us, lnt, nlx, ps, qs)
           km(p, k, lvs_t(r), lvs_nx(r), mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -5527,438 +5656,6 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kkeep(fs, S.pick(L.tri_is_yes(t2), 0,
                           S.pick(L.tri_is_no(t2), 1, 2))))
-    # ---- type inference ----
-    case 1n+p KCon{ISub{xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +f2 : U32 = fu
-      +x2 : U32 = xi
-      km(p, KCon{IEvGo{U32.is_eq(f2, 0), x2, ctx, f2}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IEvGo{True{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    case 1n+p KCon{IEvGo{False{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +x2 : U32 = xi
-      km(p, KCon{IEv{x2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kfetch(fs, x2, ri))
-    # -- Sort --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.ESort{l}}}, ri}:
-      +u : L.LN = L.ln_succ(R.get(L.LN, 64n, lnt, l, L.LNun{}))
-      +u2 : L.LN = u
-      km(p, KCon{ISrtGo{L.is_un(u2), u2}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{ISrtGo{True{}, u}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    case 1n+p KCon{ISrtGo{False{}, u}, k} Tuple{Tuple{fs, msg}, ri}:
-      +nl : U32 = nlx
-      km(p, KCon{IWrap{True{}}, k},
-         R.set(L.LN, 64n, lnt, nl, u, L.LNun{}), (nl + 1 : U32), mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kalloc(fs, T.ESort{nl}, hcb))
-    case 1n+p KCon{IWrap{ok}, k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, r2, ok))
-    # -- Pi --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EAll{n, ty, b, bi}}}, ri}:
-      +t2 : U32 = ty
-      +c2 : List<&2, U32> = ctx
-      +f2 : U32 = fu
-      km(p, KCon{ISub{t2, c2, (f2 - 1 : U32)},
-                 KCon{IAl2{t2, b, c2, f2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAl2{ty, b, ctx, fu}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      +t2 : U32 = t
-      km(p, KCon{DWhd{t2}, KCon{IAl3{ty, b, t2, ok, ctx, fu}, k}}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAl3{ty, b, ra, raok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IAl3b{ty, b, ra, raok, ctx, fu}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{IAl3b{ty, b, ra, raok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{node}}, ri}:
-      +t2 : U32 = ty
-      +b2 : U32 = b
-      +f2 : U32 = fu
-      +c2 : List<&2, U32> = ctx
-      km(p, KCon{ISub{b2, Con{t2, c2}, (f2 - 1 : U32)},
-                 KCon{IAl4{t2, node, ra, raok, c2, f2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAl4{ty, ka, ra, raok, ctx, fu}, k}
-         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      +t2 : U32 = t
-      km(p, KCon{DWhd{t2}, KCon{IAl5{ka, ra, raok, t2, ok, ctx, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAl5{ka, ra, raok, rb, rbok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IAl5b{ka, ra, raok, rb, rbok, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{IAl5b{ka, ra, raok, rb, rbok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{node}}, ri}:
-      +ka2 : T.Ex = ka
-      km(p, KCon{IAl6{ka2, node, ra, raok, rb, rbok}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kspine_head_tin(fs, ka2, ri))
-    case 1n+p KCon{IAl6{ka, kb, ra, raok, rb, rbok}, k}
-         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +ka2 : T.Ex = ka
-      +kb2 : T.Ex = kb
-      km(p, KCon{IAl7{ka2, kb2, knever_sort(ka2, hd, mt, vt, qtt), ra,
-                      raok, rb, rbok}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kspine_head_tin(fs, kb2, ri))
-    case 1n+p KCon{IAl7{ka, kb, nska, ra, raok, rb, rbok}, k}
-         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +ka2 : T.Ex = ka
-      +kb2 : T.Ex = kb
-      +allok : Bool = raok && rbok && I.is_sortx(ka2) && I.is_sortx(kb2)
-      +bad : Bool = (raok && rbok
-                     && (nska || knever_sort(kb2, hd, mt, vt, qtt)))
-                    || U32.is_eq(ra, 4294967294)
-                    || U32.is_eq(rb, 4294967294)
-      km(p, KCon{IAlGo{allok, bad, ka2, kb2}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAlGo{True{}, bad, ka, kb}, k} Tuple{Tuple{fs, msg}, ri}:
-      +u : L.LN = L.ln_imax(R.get(L.LN, 64n, lnt, I.sort_lvl_of(ka),
-                                  L.LNun{}),
-                            R.get(L.LN, 64n, lnt, I.sort_lvl_of(kb),
-                                  L.LNun{}))
-      +u2 : L.LN = u
-      km(p, KCon{ISrtGo{L.is_un(u2), u2}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAlGo{False{}, True{}, ka, kb}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967294, False{}))
-    case 1n+p KCon{IAlGo{False{}, False{}, ka, kb}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    # -- Lam --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.ELam{n, ty, b, bi}}}, ri}:
-      +t2 : U32 = ty
-      +f2 : U32 = fu
-      km(p, KCon{ISub{b, Con{t2, ctx}, (f2 - 1 : U32)},
-                 KCon{ILm2{n, t2, bi}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{ILm2{n, ty, bi}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      km(p, KCon{ILmGo{ok, t, n, ty, bi}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{ILmGo{True{}, bty, n, ty, bi}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kalloc(fs, T.EAll{n, ty, bty, bi}, hcb))
-    case 1n+p KCon{ILmGo{False{}, bty, n, ty, bi}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, S.pick(U32.is_eq(bty, 4294967294), 4294967294,
-                         4294967295), False{}))
-    # -- BVar --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.EBVar{i}}}, ri}:
-      +i2 : U32 = i
-      +ti : U32 = I.nth_u(ctx, i2, 4294967295)
-      +t2 : U32 = ti
-      km(p, KCon{kev(WP{0, 0, (i2 + 1 : U32), 0, Nil{}, Nil{}, 2000000}, t2),
-                 KCon{IBv{Bool.not(U32.is_eq(t2, 4294967295))}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, t2, ri))
-    case 1n+p KCon{IBv{ok}, k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmir(fs, r2, ok))
-    # -- literals --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.ENat{d}}}, ri}:
-      km(p, KCon{INatGo{U32.is_eq(natn, 4294967295)}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{INatGo{True{}}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    case 1n+p KCon{INatGo{False{}}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kalloc(fs, T.EConst{natn, Nil{}}, hcb))
-    # a string literal has type `String` (qtt key 10), exactly as infer.bend;
-    # this was a stub that always failed, declining every declaration with a
-    # string literal (String.instInhabited, panic messages, ...)
-    case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{T.EStr{d}}}, ri}:
-      +sn : U32 = R.get(U32, 64n, qtt, 10, 4294967295)
-      km(p, KCon{IStrGo{U32.is_eq(sn, 4294967295), sn}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IStrGo{True{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    case 1n+p KCon{IStrGo{False{}, sn}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IWrap{True{}}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
-         hcb, kalloc(fs, T.EConst{sn, Nil{}}, hcb))
-    # -- Const --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EConst{n, us}}}, ri}:
-      +n2 : U32 = n
-      +ti : U32 = R.get(U32, 64n, nt, n2, 4294967295)
-      +t2 : U32 = ti
-      km(p, KCon{ICnGo{U32.is_eq(t2, 4294967295), t2,
-                       R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
-                       klns_of(us, lnt)}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{ICnGo{True{}, ti, ps, qs}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    case 1n+p KCon{ICnGo{False{}, ti, ps, qs}, k} Tuple{Tuple{fs, msg}, ri}:
-      +t2 : U32 = ti
-      km(p, KCon{kev(WP{2, 0, 0, 0, ps, qs, 2000000}, t2),
-                 KCon{IWrap{True{}}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, t2, ri))
-    # -- Let --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.ELet{n, ty, v, b}}}, ri}:
-      +b2 : U32 = b
-      +f2 : U32 = fu
-      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, b2),
-                 KCon{ILt2{ctx, (f2 - 1 : U32)}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
-    case 1n+p KCon{ILt2{ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{ISub{r2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, knoop(fs, 0))
-    # -- App --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EApp{f, a}}}, ri}:
-      +f3 : U32 = f
-      +fu2 : U32 = fu
-      km(p, KCon{ISub{f3, ctx, (fu2 - 1 : U32)},
-                 KCon{IAp2{a, f3, ctx, fu2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp2{a, f, ctx, fu}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      +t2 : U32 = t
-      km(p, KCon{kwev(True{}, t2, Nil{}, 2000000),
-                 KCon{IAp3{a, f, t2, ok, ctx, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, t2, ri))
-    case 1n+p KCon{IAp3{a, f, rf, rfok, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IAp3b{a, f, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{IAp3b{a, f, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{node}}, ri}:
-      km(p, KCon{IApR{a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, wm, nt, hcb, kfetch(fs, f, ri))
-    case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EApp{g, a0}}}, ri}:
-      km(p, KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kfetch(fs, krec_slot(hcb), ri))
-    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EApp{ra, rt}}}, ri}:
-      +a2 : U32 = a
-      +hit : Bool = U32.is_eq(a0, a2) && U32.is_eq(ra, a2)
-      +rt2 : U32 = rt
-      km(p, KCon{IApR2{hit, a2, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, U32.and(rt2, 2147483647), U32.is_ge(rt2, 2147483648)))
-    case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IApR2{True{}, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      km(p, KCon{IAp4{a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, wm, nt, hcb, kmir(fs, t, ok))
-    case 1n+p KCon{IApR2{False{}, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +a2 : U32 = a
-      +c2 : List<&2, U32> = ctx
-      +fu2 : U32 = fu
-      km(p, KCon{ISub{a2, c2, (fu2 - 1 : U32)},
-                 KCon{IAp4{a2, node, rf, rfok, c2, fu2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp4{a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      +t2 : U32 = t
-      +nd2 : T.Ex = node
-      +ok2 : Bool = ok
-      +a2 : U32 = a
-      # record this argument check for an enclosing `f a` (see IApR)
-      km(p, KCon{IAp5{a2, nd2, t2, ok2, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb,
-         keq_lists_tin(krec_write(fs, krec_slot(hcb), a2, t2, ok2),
-                       Con{t2, Nil{}},
-                       Con{I.all_dom(nd2), Nil{}}, lnt))
-    case 1n+p KCon{IAp5{a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MTri{t}}, ri}:
-      km(p, KCon{IAp5Go{L.tri_is_yes(t), a, node, ra, raok, rf, rfok, ctx,
-                        fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp5Go{True{}, a, node, ra, raok, rf, rfok, ctx, fu},
-                   k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
-    case 1n+p KCon{IAp5Go{False{}, a, node, ra, raok, rf, rfok, ctx, fu},
-                   k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ra
-      km(p, KCon{DWhd{r2}, KCon{IAp5c{a, node, r2, raok, rf, rfok, ctx,
-                                      fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp5c{a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +nd2 : T.Ex = node
-      km(p, KCon{DWhd{I.all_dom(nd2)},
-                 KCon{IAp5d{ri, a, nd2, ra, raok, rf, rfok, ctx, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{IAp5d{w1, a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +w12 : U32 = w1
-      +r2 : U32 = ri
-      km(p, KCon{IAp6{w12, r2, a, node, ra, raok, rf, rfok, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         keq_lists_tin(fs, Con{w12, Nil{}}, Con{r2, Nil{}}, lnt))
-    case 1n+p KCon{IAp6{w1, w2, a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MTri{t}}, ri}:
-      km(p, KCon{IAp6Go{L.tri_is_yes(t), w1, w2, a, node, ra, raok, rf,
-                        rfok, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp6Go{True{}, w1, w2, a, node, ra, raok, rf, rfok,
-                          ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
-    case 1n+p KCon{IAp6Go{False{}, w1, w2, a, node, ra, raok, rf, rfok,
-                          ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +w12 : U32 = w1
-      +w22 : U32 = w2
-      km(p, KCon{DSub{False{}, U32.is_eq(w12, w22), w12, w22, ctx, 24},
-                 KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IAp7{a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MTri{t}}, ri}:
-      +r2 : U32 = ra
-      km(p, KCon{IAp8{t, a, node, r2, raok, rf, rfok, ctx, fu}, k}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, ri))
-    case 1n+p KCon{IAp8{dq, a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +nd2 : T.Ex = node
-      km(p, KCon{IAp9{hd, dq, a, nd2, ra, raok, rf, rfok, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kspine_tin(fs, I.all_dom(nd2), ri))
-    case 1n+p KCon{IAp9{hx, dq, a, node, ra, raok, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +hx2 : T.Ex = hx
-      +hy2 : T.Ex = hd
-      +dq2 : L.Tri = dq
-      +nd2 : T.Ex = node
-      +ra2 : U32 = ra
-      +rf2 : U32 = rf
-      +ok2 : Bool = rfok && raok && I.is_all(nd2)
-      +dd : Bool = kno_value(hx2, mt, vt, qtt)
-                   && kno_value(hy2, mt, vt, qtt)
-                   && Bool.not(U32.is_eq(I.const_nm2(hx2),
-                                         I.const_nm2(hy2)))
-      +a2 : U32 = a
-      km(p, KCon{kev(WP{1, 0, 0, a2, Nil{}, Nil{}, 2000000},
-                     I.all_cod(nd2)),
-                 KCon{IAp10{(ok2
-                             && (L.tri_is_no(dq2)
-                                 || (Bool.not(L.tri_is_yes(dq2)) && dd)))
-                            || U32.is_eq(rf2, 4294967294)
-                            || U32.is_eq(ra2, 4294967294),
-                            Bool.and(ok2, L.tri_is_yes(dq2))}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kfetch(fs, I.all_cod(nd2), ri))
-    case 1n+p KCon{IAp10{bad, ok}, k} Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, S.pick(bad, 4294967294, r2), ok))
-    # -- Proj --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EProj{tn, idx, sx}}}, ri}:
-      +s2 : U32 = sx
-      +fu2 : U32 = fu
-      km(p, KCon{ISub{s2, ctx, (fu2 - 1 : U32)},
-                 KCon{IPj2{tn, idx, s2, ctx, fu2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IPj2{tn, idx, sx, ctx, fu}, k}
-         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
-      +t2 : U32 = t
-      km(p, KCon{DWhd{t2}, KCon{IPj3{tn, idx, sx, t2, ok, ctx, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IPj3{tn, idx, sx, rs, rsok, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IPj4{tn, idx, sx, rs, rsok, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{IPj4{tn, idx, sx, rs, rsok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{node}}, ri}:
-      +nd2 : T.Ex = node
-      km(p, KCon{IPj5{tn, idx, sx, nd2, rs, rsok, ctx, fu}, k}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_head_tin(fs, nd2, ri))
-    case 1n+p KCon{IPj5{tn, idx, sx, sty, rs, rsok, ctx, fu}, k}
-         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
-      +tn2 : U32 = tn
-      +i2 : U32 = idx
-      +h2 : T.Ex = hd
-      +mi : I.Meta = R.get(I.Meta, 64n, mt, tn2, I.MNone{})
-      +cty : U32 = I.meta_cty(mi)
-      km(p, KCon{kev(WP{2, 0, 0, 0,
-                        R.get(List<&2, U32>, 64n, lp, tn2, Nil{}),
-                        klns_of(I.sl_const_us(h2), lnt), 2000000}, cty),
-                 KCon{IPj6{rsok && I.meta_is_ind(mi)
-                           && U32.is_lt(i2, I.meta_nf(mi))
-                           && U32.is_eq(I.const_nm2(h2), tn2),
-                           I.meta_ppx(mi), I.meta_pr(mi), tn2, i2, sx,
-                           sargs, rs, ctx}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, cty, ri))
-    case 1n+p KCon{IPj6{ok, ppx, pr, tn, idx, sx, sargs, rs, ctx}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IPj7{r2, ok, ppx, pr, tn, idx, sargs, rs, ctx}, k}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kprojn_tin(hcb, fs, idx, tn, sx))
-    case 1n+p KCon{IPj7{lsr, ok, ppx, pr, tn, idx, sargs, rs, ctx}, k}
-         Tuple{Tuple{fs, MSP{hd, pns}}, ri}:
-      +l2 : U32 = lsr
-      km(p, KCon{WPlE{l2, List.append(&2, U32, sargs, pns)},
-                 KCon{IPj8{ok, ppx, pr, idx, rs, ctx}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, l2, ri))
-    case 1n+p KCon{IPj8{ok, ppx, pr, idx, rs, ctx}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{IPj9{r2, ok, ppx, pr, idx, rs, ctx}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
-    case 1n+p KCon{IPj9{pt, ok, ppx, pr, idx, rs, ctx}, k}
-         Tuple{Tuple{fs, MX{node}}, ri}:
-      +nd2 : T.Ex = node
-      +p2 : U32 = pt
-      +fldty : U32 = I.all_dom(nd2)
-      +f2 : U32 = fldty
-      km(p, KCon{kslev(f2, ctx, 2000000),
-                 KCon{IPj10{ok, U32.is_ne(p2, 4294967295),
-                            I.is_all(nd2), ppx, pr, idx, rs, f2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, f2, ri))
-    case 1n+p KCon{IPj10{ok, ptok, isall, ppx, pr, idx, rs, fldty}, k}
-         Tuple{Tuple{fs, MLn{u}}, ri}:
-      +fldprop : Bool = L.tri_is_yes(L.ln_is_zero(u))
-      +i2 : U32 = idx
-      +px2 : U32 = ppx
-      +defprop : Bool = U32.is_ne(px2, 4294967295)
-      +violates : Bool = defprop
-                         && Bool.not(fldprop && U32.is_lt(i2, px2))
-      +rity : U32 = S.pick(U32.is_eq(rs, 4294967294), 4294967294,
-                           S.pick(violates, 4294967294, fldty))
-      +ri2 : U32 = rity
-      +ok2 : Bool = ptok && isall
-                    && (U32.is_eq(pr, 0)
-                        || (fldprop && U32.is_lt(i2, px2)))
-      km(p, KCon{IPjOut{ok, ri2, ok2}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IPjOut{True{}, rity, ok2}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, rity, ok2))
-    case 1n+p KCon{IPjOut{False{}, rity, ok2}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, S.pick(U32.is_eq(rity, 4294967294), 4294967294,
-                         4294967295), False{}))
-    # -- fallthrough: EBad and anything unknown --
-    case 1n+p KCon{IEv{xi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmir(fs, 4294967295, False{}))
-    # ---- dq_or_irrel: the proof-irrelevance fallback ----
     # ---- the universe oracle ----
     case 1n+p KCon{SLEv{e, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:

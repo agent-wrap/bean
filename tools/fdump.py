@@ -35,6 +35,7 @@ def parse(t,i,depth=0):
     if k==6: return nm(t[i+1]),i+2
     if k==7: return "#%d"%t[i+1],i+2
     if k==8: return "Sort",i+1
+    if k==12: return "Sort@%d"%t[i+1],i+2
     if k==9: return "%d"%t[i+1],i+2
     if k==10: return "\"str\"",i+1
     if k==11: return "BAD",i+1

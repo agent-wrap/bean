@@ -109,9 +109,9 @@ def dmp(fuel: Nat, pr: Array<T.Ex> & T.Ex, work: List<&2, U32>,
         case T.ESort{l}:
           match work:
             case Nil{}:
-              (a, Con{8, acc})
+              (a, Con{l, Con{12, acc}})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{8, acc})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{l, Con{12, acc}})
         case T.ENat{d}:
           match work:
             case Nil{}:
@@ -217,7 +217,7 @@ def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
 def krestart(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (ex, (basenx + 1048578 : U32))
+      (M.kbump(ex, basenx), (basenx + 1048578 : U32))
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,

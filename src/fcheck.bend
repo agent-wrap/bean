@@ -151,10 +151,10 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
               C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cap, v)),
               # every declaration allocates from the region base again:
               # nothing a finished declaration allocated is referenced
-              # later (its memo dies with it, the hash table's pointers
-              # into the reused range become tombstones)
+              # later (its memo dies with it; kbump moves the hash table to
+              # a new epoch, which retires every pointer it left)
               fck_one(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                      (ex, (basenx + 1048578 : U32))))
+                      (M.kbump(ex, basenx), (basenx + 1048578 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:

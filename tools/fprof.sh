@@ -8,6 +8,7 @@
 # The C-level sampler only ever shows `km`; this shows which part of the
 # machine (whnf phases, defeq stages, the lazy probe, inference) the steps go to.
 # ALLOC=1: count store GROWTH (nodes allocated) per frame instead of steps.
+# STACK=1: on SIGTERM print the km frame stack (where a slow run is).
 # CALLER=1: attribute each step to the nearest infer/defeq/check/probe frame.
 set -euo pipefail
 OUT="$1"
@@ -51,6 +52,22 @@ if os.environ.get('ALLOC'):
       while (term_aux(_ps) == CID_KM_KCON && _pd < 64) { u64 _pl = term_peek(e.mem, _ps); Term _pf = e.mem[_pl]; u64 _pc = term_aux(_pf);
         if (_pc < %d && !prof_sub[_pc]) { _plast_c = _pc; break; } _ps = e.mem[_pl + 1]; _pd++; } }
 ''' % (mx, mx, mx)
+elif os.environ.get('STACK'):
+    # remember the stack each step; SIGTERM prints it (top first, runs of
+    # the same frame collapsed) -- where a slow run is stuck
+    hit = '''    if(!prof_init){prof_init=1; signal(SIGTERM, prof_stk_sig);}
+    prof_mem = (u64*)e.mem; prof_stk = r1;
+'''
+    s = s.replace("static void prof_sig(int sg){ prof_dump(); _exit(3); }", '''static void prof_sig(int sg){ prof_dump(); _exit(3); }
+static u64* prof_mem; static Term prof_stk; static void prof_stk_sig(int sg);''', 1)
+    s += '''
+static void prof_stk_sig(int sg){ Term _ps = prof_stk; int _pd = 0; u64 last = (u64)-1; int run = 0;
+  while (term_aux(_ps) == CID_KM_KCON && _pd < 200000) { u64 _pl = term_peek(prof_mem, _ps); Term _pf = (Term)prof_mem[_pl]; u64 _pc = term_aux(_pf);
+    if (_pc == last) run++; else { if (last != (u64)-1) fprintf(stderr, "STK %s x%d\\n", last < sizeof(prof_nm)/sizeof(prof_nm[0]) ? prof_nm[last] : "?", run); last = _pc; run = 1; }
+    _ps = (Term)prof_mem[_pl + 1]; _pd++; }
+  if (last != (u64)-1) fprintf(stderr, "STK %s x%d\\n", last < sizeof(prof_nm)/sizeof(prof_nm[0]) ? prof_nm[last] : "?", run);
+  fprintf(stderr, "STK depth %d\\n", _pd); _exit(3); }
+'''
 elif os.environ.get('CALLER'):
     # attribute each step to the nearest inference / defeq / check / probe
     # frame on the stack (skipping whnf, substitution and memo machinery)
