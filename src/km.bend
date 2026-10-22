@@ -688,6 +688,16 @@ type KF is Data:
        x: U32, y: U32, fu: U32}
   LZA3{xs: List<&2, U32>, ys: List<&2, U32>, ux: Bool, uy: Bool, x: U32,
        y: U32, fu: U32}
+  # Lean's is_def_eq_args compares the arguments with the full defeq: an
+  # argument pair the probe does not settle is whnf_core'd (no delta) and
+  # compared by DSub; only a YES is used, failures are cached, and the
+  # per-declaration probe budget bounds the recursion
+  LZF{a: U32, b: U32}
+  LZF2{yes: Bool, a: U32, b: U32}
+  LZF3{b: U32}
+  LZF4{wa: U32}
+  LZF5{a: U32, b: U32}
+  LZF6{seen: Bool, a: U32, b: U32}
   LZU{ux: Bool, uy: Bool, x: U32, y: U32, fu: U32}
   # neither head unfolds, but a side headed by a projection `s.i` still
   # reduces in Lean's whnf_core: its structure is whnf'd WITH delta
@@ -1829,8 +1839,8 @@ def kflags_into(+cur: R.Tr<U32>, +snap: R.Tr<U32>, +ovf: Bool) -> R.Tr<U32>:
   +c2 : R.Tr<U32> = cur
   # (the debug probe keys are not carried: a probe recorded inside a
   # rollback region that rolls back is lost)
-  +s1 : R.Tr<U32> = kflag1(c2, 4294967280,
-                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap)))
+  +s1 : R.Tr<U32> = kflag1(c2, 4294967270, kflag1(c2, 4294967280,
+                     kflag1(c2, 4294967292, kflag1(c2, 4294967291, snap))))
   kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, s1, 4294967291, 1,
                                       4294967295), 4294967280, 1, 4294967295),
            s1)
@@ -2050,14 +2060,21 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{KKp{e}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- lazy delta probe (see LZ0) ----
+    # one probe budget per DECLARATION (memo key 4294967270, steps used,
+    # carried across rollbacks): nested probes never restart their fuel, so
+    # a probe that recurses through the full defeq stays bounded
     case 1n+p KCon{LZ0{x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
       +w2 : R.Tr<U32> = wm
+      +used : U32 = R.get(U32, 64n, w2, 4294967270, 0)
       km(p, KCon{LZ0g{U32.is_eq(R.get(U32, 64n, w2, klzkey(x2, y2),
-                                      4294967295), klzfp(x2, y2)),
+                                      4294967295), klzfp(x2, y2))
+                      || U32.is_ge(used, 200000),
                       x2, y2, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, w2, 4294967270, (used + 1 : U32), 4294967295), nt,
+         hcb, knoop(fs, ri))
     case 1n+p KCon{LZ0g{True{}, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TUnk{}))
@@ -2224,12 +2241,57 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{LZA{Con{a, at}, Con{b, bt}, ux, uy, x, y, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +f2 : U32 = fu
-      km(p, KCon{LZ0{a, b, (f2 / 2 : U32)}, KCon{LZA3{at, bt, ux, uy, x, y,
-                                                     f2}, k}},
+      +a2 : U32 = a
+      +b2 : U32 = b
+      km(p, KCon{LZ0{a2, b2, (f2 / 2 : U32)},
+                 KCon{LZF{a2, b2}, KCon{LZA3{at, bt, ux, uy, x, y, f2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{LZA{xs, ys, ux, uy, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{LZU{ux, uy, x, y, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZF{a, b}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{LZF2{L.tri_is_yes(t), a, b}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZF2{True{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{LZF2{False{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      +w2 : R.Tr<U32> = wm
+      +seen : Bool = U32.is_eq(R.get(U32, 64n, w2, klzkey(b2, a2), 4294967295),
+                               klzfp(b2, a2))
+                     || U32.is_ge(R.get(U32, 64n, w2, 4294967270, 0), 200000)
+      km(p, KCon{LZF6{seen, a2, b2}, k}, lnt, nlx, mt, lp, vt, qtt, natn, w2,
+         nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZF6{True{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{LZF6{False{}, a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      km(p, KCon{kwev(False{}, a2, Nil{}, 256),
+                 KCon{LZF3{b2}, KCon{LZF5{a2, b2}, k}}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, a2, 0))
+    case 1n+p KCon{LZF3{b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +b2 : U32 = b
+      +wa : U32 = ri
+      km(p, KCon{kwev(False{}, b2, Nil{}, 256), KCon{LZF4{wa}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, wa))
+    case 1n+p KCon{LZF4{wa}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wb : U32 = ri
+      +wa2 : U32 = wa
+      km(p, KCon{DSub{False{}, U32.is_eq(wa2, wb), wa2, wb, Nil{}, 4096}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{LZF5{a, b}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      +a2 : U32 = a
+      +b2 : U32 = b
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         kpick_tr(L.tri_is_yes(t2), wm,
+                  R.set(U32, 64n, wm, klzkey(b2, a2), klzfp(b2, a2),
+                        4294967295)),
+         nt, hcb, kmtri(fs, t2))
     case 1n+p KCon{LZA3{xs, ys, ux, uy, x, y, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
       km(p, KCon{LZA2{L.tri_is_yes(t), xs, ys, ux, uy, x, y, fu}, k}, lnt,
