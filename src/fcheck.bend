@@ -158,7 +158,7 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
               # later (its memo dies with it; kbump moves the hash table to
               # a new epoch, which retires every pointer it left)
               fck_one(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                      (M.kbump(ex, basenx), (basenx + 1048578 : U32))))
+                      (M.kbump(ex, basenx), (basenx + M.ktbl() + 2 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:
@@ -191,4 +191,4 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
-                   (nx + 1048578 : U32)), C.VAccept{})))
+                   (nx + M.ktbl() + 2 : U32)), C.VAccept{})))

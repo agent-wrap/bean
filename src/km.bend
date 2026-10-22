@@ -565,9 +565,10 @@ type KF is Data:
   ISubC{xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubD{ok: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubE{ok: Bool, xi: U32, cid: U32, ctx: List<&2, U32>, fu: U32}
-  ISubM{hit: Bool, cl: Bool, t: U32, tok: Bool, xi: U32, h: U32, cid: U32,
+  ISubF{ok: Bool, io: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubM{hit: Bool, cl: Bool, t: U32, tok: Bool, xi: U32, key: U32,
         ctx: List<&2, U32>, fu: U32}
-  IMemo{cl: Bool, xi: U32, h: U32, cid: U32}
+  IMemo{cl: Bool, key: U32}
   IEvGo{z0: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
   IEv{xi: U32, ctx: List<&2, U32>, fu: U32}
   IAl3b{ty: U32, b: U32, ra: U32, raok: Bool, ctx: List<&2, U32>,
@@ -1180,8 +1181,16 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
 # hash-consed, so structural equality is tag + field-index equality (no
 # recursion). This restores the export's DAG sharing through reduction, so
 # the whnf memo hits and reduction stays linear.
+# the pointer table's size: slots [base, base + ktbl), then the shared-
+# argument record (base + ktbl), the epoch (base + ktbl + 1), and the
+# allocation region from base + ktbl + 2. 2^22: a large declaration
+# allocates past a million nodes, and a full table stops entering new ones
+# (the store stops being canonical)
+def ktbl() -> U32:
+  4194304
+
 def kmask() -> U32:
-  1048575
+  4194303
 
 def kmix(+h: U32, +x: U32) -> U32:
   (U32.xor(h, x) * 16777619 : U32)
@@ -1297,7 +1306,7 @@ def kep_of(+e: T.Ex) -> U32:
       0
 
 def kep_slot(+base: U32) -> U32:
-  (base + 1048577 : U32)
+  (base + ktbl() + 1 : U32)
 
 def kep2(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
   match pr:
@@ -1388,7 +1397,7 @@ def kscan(k: Nat, +done: Bool, +base: U32, +node: T.Ex, +slot: U32,
 # ~64 bytes, all initialised) and perf/magma-list-pair-n7 still overflows --
 # the store never frees a slot, which is the real limit there.
 def sdepth(+base: U32) -> Nat:
-  Nat.add(U32.log2((base + 2097152 : U32)), 2n)
+  Nat.add(U32.log2(((base + ktbl() : U32) + 2097152 : U32)), 2n)
 
 def khalf(+base: U32) -> U32:
   U32.shln(1, sdepth(base))
@@ -2717,7 +2726,7 @@ def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
 # the shared-argument record (IApR): a reserved store slot right below the
 # allocation region, EApp{argument, type | ok << 31}
 def krec_slot(+hcb: U32) -> U32:
-  (hcb + 1048576 : U32)
+  (hcb + ktbl() : U32)
 
 def krec_write(fs: Array<T.Ex> & U32, +slot: U32, +a: U32, +t: U32,
                +ok: Bool) -> Array<T.Ex> & U32:
@@ -5294,49 +5303,46 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{ISubD{ok, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{ISubE{ok, xi, ri, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, kfl_tin(fs, hcb, 4))
+    # the pair (x, cid) as one hash-consed node: its index names the pair
+    # exactly (the store is canonical), so the memo is one entry, at
+    # 0x70000000 + pair (infer_only: 0x98000000 + pair, its own range -- a
+    # type that skipped the argument checks must never vouch for a checked
+    # one); value: type | ok << 31 (0x7FFFFFFE: ill-typed)
     case 1n+p KCon{ISubE{ok, xi, cid, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +x2 : U32 = xi
-      +w2 : R.Tr<U32> = wm
-      # infer_only types (argument checks skipped) live in their own key
-      # range (+0x28000000): one there must never vouch for a checked one
-      +io : Bool = U32.is_eq(ri, 1)
-      +h : U32 = (U32.and(((x2 * 2654435761 : U32) + (cid * 40503 : U32) : U32),
-                          134217727)
-                  + S.pick(io, 671088640, 0) : U32)
-      +t : U32 = R.get(U32, 64n, w2, (1879048192 + h : U32), 4294967295)
-      +xv : U32 = R.get(U32, 64n, w2, (2013265920 + h : U32), 4294967295)
-      +cv : U32 = R.get(U32, 64n, w2, (2415919104 + h : U32), 4294967295)
-      +hit : Bool = ok && Bool.not(U32.is_eq(t, 4294967295))
-                    && U32.is_eq(U32.and(xv, 2147483647), x2)
-                    && U32.is_eq(cv, cid)
-      km(p, KCon{ISubM{hit, ok, t, U32.is_ge(xv, 2147483648), x2, h, cid,
-                       ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{ISubM{True{}, cl, t, tok, xi, h, cid, ctx, fu}, k}
+      +c2 : U32 = cid
+      km(p, KCon{ISubF{ok, U32.is_eq(ri, 1), xi, ctx, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb,
+         ktin_of(khc(fs, T.EApp{xi, c2}, hcb)))
+    case 1n+p KCon{ISubF{ok, io, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +pk : U32 = ri
+      +ok2 : Bool = ok && U32.is_lt(pk, 134217728)
+      +key : U32 = (S.pick(io, 2550136832, 1879048192) + pk : U32)
+      +v : U32 = R.get(U32, 64n, wm, key, 4294967295)
+      +v2 : U32 = U32.and(v, 2147483647)
+      km(p, KCon{ISubM{ok2 && Bool.not(U32.is_eq(v, 4294967295)), ok2,
+                       S.pick(U32.is_eq(v2, 2147483646), 4294967294, v2),
+                       U32.is_ge(v, 2147483648), xi, key, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{ISubM{True{}, cl, t, tok, xi, key, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, t, tok))
-    case 1n+p KCon{ISubM{False{}, cl, t, tok, xi, h, cid, ctx, fu}, k}
+    case 1n+p KCon{ISubM{False{}, cl, t, tok, xi, key, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +f2 : U32 = fu
       +x2 : U32 = xi
       km(p, KCon{IEvGo{U32.is_eq(f2, 0), x2, ctx, f2},
-                 KCon{IMemo{cl, x2, h, cid}, k}}, lnt, nlx, mt,
+                 KCon{IMemo{cl, key}, k}}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{IMemo{cl, xi, h, cid}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
+    case 1n+p KCon{IMemo{cl, key}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
       +t2 : U32 = t
       +ok2 : Bool = ok
-      +h2 : U32 = h
-      +st : Bool = cl && Bool.not(U32.is_eq(t2, 4294967295))
+      +st : Bool = cl && (U32.is_lt(t2, 2147483646)
+                          || U32.is_eq(t2, 4294967294))
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set_if(U32, st,
-                  R.set_if(U32, st,
-                           R.set_if(U32, st, wm, (1879048192 + h2 : U32), t2,
-                                    4294967295),
-                           (2013265920 + h2 : U32),
-                           (xi + S.pick(ok2, 2147483648, 0) : U32),
-                           4294967295),
-                  (2415919104 + h2 : U32), cid, 4294967295),
+         R.set_if(U32, st, wm, key,
+                  (S.pick(U32.is_eq(t2, 4294967294), 2147483646, t2)
+                   + S.pick(ok2, 2147483648, 0) : U32), 4294967295),
          nt, hcb, kmir(fs, t2, ok2))
     case 1n+p KCon{IEvGo{True{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,

@@ -30,7 +30,7 @@ static unsigned long long prof_cnt[%d];
 static const char* prof_nm[%d] = {%s};
 static int prof_cmp(const void* a, const void* b){ unsigned long long x=prof_cnt[*(int*)a], y=prof_cnt[*(int*)b]; return x<y?1:(x>y?-1:0); }
 static void prof_dump(void){ int ix[%d]; for(int i=0;i<%d;i++) ix[i]=i; qsort(ix,%d,sizeof(int),prof_cmp);
-  for(int j=0;j<40&&j<%d;j++){ if(!prof_cnt[ix[j]]) break; fprintf(stderr,"PROF %%12llu %%s\n",prof_cnt[ix[j]],prof_nm[ix[j]]); } }
+  for(int j=0;j<(getenv("PROFN")?atoi(getenv("PROFN")):40)&&j<%d;j++){ if(!prof_cnt[ix[j]]) break; fprintf(stderr,"PROF %%12llu %%s\n",prof_cnt[ix[j]],prof_nm[ix[j]]); } }
 static void prof_sig(int sg){ prof_dump(); _exit(3); }
 static int prof_init=0;
 static const unsigned char prof_sub[%d] = {%s};

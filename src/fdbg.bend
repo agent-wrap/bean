@@ -222,7 +222,7 @@ def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
 def krestart(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (M.kbump(ex, basenx), (basenx + 1048578 : U32))
+      (M.kbump(ex, basenx), (basenx + M.ktbl() + 2 : U32))
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
@@ -299,7 +299,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
-                   (nx + 1048578 : U32)), Con{0, Nil{}}))}
+                   (nx + M.ktbl() + 2 : U32)), Con{0, Nil{}}))}
 
 def show_all(xs: List<&2, U32>) -> String:
   match xs:
