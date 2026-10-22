@@ -313,20 +313,31 @@ def sort_lvl_of(+x: T.Ex) -> U32:
     case _:
       4294967295
 
-def nth_u(xs: List<&2, U32>, +i: U32, +dflt: U32) -> U32:
-  match xs:
-    case Nil{}:
+# (the stop test is a matched parameter: S.pick evaluates both sides, so a
+# pick over the recursive call walked the WHOLE list on every lookup)
+def nth_u_go(xs: List<&2, U32>, +stop: Bool, +i: U32, +dflt: U32) -> U32:
+  match xs stop:
+    case Nil{} _:
       dflt
-    case Con{head, tail}:
-      S.pick(U32.is_eq(i, 0), head, nth_u(tail, (i - 1 : U32), dflt))
+    case Con{head, tail} True{}:
+      head
+    case Con{head, tail} False{}:
+      nth_u_go(tail, U32.is_eq(i, 1), (i - 1 : U32), dflt)
+
+def nth_u(xs: List<&2, U32>, +i: U32, +dflt: U32) -> U32:
+  nth_u_go(xs, U32.is_eq(i, 0), i, dflt)
+
+def drop_u_go(xs: List<&2, U32>, +stop: Bool, +i: U32) -> List<&2, U32>:
+  match xs stop:
+    case Nil{} _:
+      Nil{}
+    case Con{head, tail} True{}:
+      tail
+    case Con{head, tail} False{}:
+      drop_u_go(tail, U32.is_eq(i, 1), (i - 1 : U32))
 
 def drop_u(xs: List<&2, U32>, +i: U32) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{head, tail}:
-      +pt = tail
-      S.pick_l(U32.is_eq(i, 0), pt, drop_u(pt, (i - 1 : U32)))
+  drop_u_go(xs, U32.is_eq(i, 0), i)
 
 def lns_of(us: List<&2, U32>, +ln: R.Tr<L.LN>) -> List<&2, L.LN>:
   match us:
@@ -798,21 +809,30 @@ def rev_u(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
     case Con{head, tail}:
       rev_u(tail, Con{head, acc})
 
-def take_u(xs: List<&2, U32>, +n: U32, +acc: List<&2, U32>) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
+def take_u_go(xs: List<&2, U32>, +stop: Bool, +n: U32,
+              +acc: List<&2, U32>) -> List<&2, U32>:
+  match xs stop:
+    case Nil{} _:
       rev_u(acc, Nil{})
-    case Con{head, tail}:
-      S.pick_l(U32.is_eq(n, 0), rev_u(acc, Nil{}),
-               take_u(tail, (n - 1 : U32), Con{head, acc}))
+    case Con{head, tail} True{}:
+      rev_u(acc, Nil{})
+    case Con{head, tail} False{}:
+      take_u_go(tail, U32.is_eq(n, 1), (n - 1 : U32), Con{head, acc})
+
+def take_u(xs: List<&2, U32>, +n: U32, +acc: List<&2, U32>) -> List<&2, U32>:
+  take_u_go(xs, U32.is_eq(n, 0), n, acc)
+
+def skip_u_go(xs: List<&2, U32>, +stop: Bool, +n: U32) -> List<&2, U32>:
+  match xs stop:
+    case Nil{} _:
+      Nil{}
+    case Con{head, tail} True{}:
+      Con{head, tail}
+    case Con{head, tail} False{}:
+      skip_u_go(tail, U32.is_eq(n, 1), (n - 1 : U32))
 
 def skip_u(xs: List<&2, U32>, +n: U32) -> List<&2, U32>:
-  match xs:
-    case Nil{}:
-      Nil{}
-    case Con{head, tail}:
-      +pt = tail
-      S.pick_l(U32.is_eq(n, 0), Con{head, pt}, skip_u(pt, (n - 1 : U32)))
+  skip_u_go(xs, U32.is_eq(n, 0), n)
 
 def len_u(xs: List<&2, U32>, +acc: U32) -> U32:
   match xs:

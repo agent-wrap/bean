@@ -443,19 +443,30 @@ def ln_is_zero(+a: LN) -> Tri:
 # --- substituting a declaration's level parameters -----------------------
 # A `const` carries one level argument per parameter of the declaration it
 # names, and the declaration's type is read under that substitution.
-def find_pos(+v: U32, ps: List<&2, U32>, +i: U32, +miss: U32) -> U32:
-  match ps:
-    case Nil{}:
+def find_pos_go(ps: List<&2, U32>, +v: U32, +hit: Bool, +i: U32,
+                +miss: U32) -> U32:
+  match ps hit:
+    case _ True{}:
+      (i - 1 : U32)
+    case Nil{} False{}:
       miss
-    case Con{head, tail}:
-      S.pick(U32.is_eq(head, v), i, find_pos(v, tail, (i + 1 : U32), miss))
+    case Con{head, tail} False{}:
+      find_pos_go(tail, v, U32.is_eq(head, v), (i + 1 : U32), miss)
+
+def find_pos(+v: U32, ps: List<&2, U32>, +i: U32, +miss: U32) -> U32:
+  find_pos_go(ps, v, False{}, i, miss)
+
+def nth_ln_go(qs: List<&2, LN>, +stop: Bool, +i: U32) -> LN:
+  match qs stop:
+    case Nil{} _:
+      LNun{}
+    case Con{head, tail} True{}:
+      head
+    case Con{head, tail} False{}:
+      nth_ln_go(tail, U32.is_eq(i, 1), (i - 1 : U32))
 
 def nth_ln(qs: List<&2, LN>, +i: U32) -> LN:
-  match qs:
-    case Nil{}:
-      LNun{}
-    case Con{head, tail}:
-      pick_ln(U32.is_eq(i, 0), head, nth_ln(tail, (i - 1 : U32)))
+  nth_ln_go(qs, U32.is_eq(i, 0), i)
 
 # A parameter not in the declaration's list stays free: that is not an error
 # here, only something the caller may reject on.

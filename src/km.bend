@@ -900,23 +900,51 @@ def pick_kf(+z: Bool, +x: KF, +y: KF) -> KF:
       y
 
 # the eval frame for a walk on target e; depth 0 keeps
+# (matches, not pick_kf: a strict pick built all five frames -- lists and
+# all -- on every subterm a walk entered, and freed four)
+def kev3(+op: U32, +c: U32, +d: U32, +v: U32, ps: List<&2, U32>,
+         qs: List<&2, L.LN>, +fu: U32, +e: U32) -> KF:
+  match op:
+    case 0:
+      KEvL{c, d, e, fu}
+    case 1:
+      KEvI{c, v, e, fu}
+    case 3:
+      KEvM{c, ps, e, fu}
+    case _:
+      KEvS{ps, qs, e, fu}
+
+def kev2(+out: Bool, +op: U32, +c: U32, +d: U32, +v: U32,
+         ps: List<&2, U32>, qs: List<&2, L.LN>, +fu: U32, +e: U32) -> KF:
+  match out:
+    case True{}:
+      KKpF{e}
+    case False{}:
+      kev3(op, c, d, v, ps, qs, fu, e)
+
 def kev(+wp: WP, +e: U32) -> KF:
-  pick_kf(U32.is_eq(wp_fu(wp), 0), KKpF{e},
-    pick_kf(U32.is_eq(wp_op(wp), 0), KEvL{wp_c(wp), wp_d(wp), e, wp_fu(wp)},
-            pick_kf(U32.is_eq(wp_op(wp), 1),
-                    KEvI{wp_c(wp), wp_v(wp), e, wp_fu(wp)},
-                    pick_kf(U32.is_eq(wp_op(wp), 3),
-                            KEvM{wp_c(wp), wp_ps(wp), e, wp_fu(wp)},
-                            KEvS{wp_ps(wp), wp_qs(wp), e, wp_fu(wp)}))))
+  match wp:
+    case WP{op, c, d, v, ps, qs, fu}:
+      +f2 : U32 = fu
+      kev2(U32.is_eq(f2, 0), op, c, d, v, ps, qs, f2, e)
 
 # the whnf frame for e under args; fuel 0 rebuilds (the old `case 0n`)
 # out of whnf fuel: rebuild and flag INCOMPLETE (a reject is no longer
 # trustworthy). Without delta (only the lazy delta probe whnf's that way, and
 # only its YES is used) the cut-short term is still a sound reduct: no flag.
+def kwev2(+out: Bool, +delta: Bool, +e: U32, args: List<&2, U32>,
+          +fu: U32) -> KF:
+  match out delta:
+    case True{} True{}:
+      WRb{e, args}
+    case True{} False{}:
+      WRbP{e, args}
+    case False{} _:
+      WEv{delta, e, args, fu}
+
 def kwev(+delta: Bool, +e: U32, +args: List<&2, U32>, +fu: U32) -> KF:
-  +d2 : Bool = delta
-  pick_kf(U32.is_eq(fu, 0), pick_kf(d2, WRb{e, args}, WRbP{e, args}),
-          WEv{d2, e, args, fu})
+  +f2 : U32 = fu
+  kwev2(U32.is_eq(f2, 0), delta, e, args, f2)
 
 # level normal forms of use-site level arguments (infer.bend's lns_of)
 def klns_of(us: List<&2, U32>, +lnt: R.Tr<L.LN>) -> List<&2, L.LN>:
@@ -2697,19 +2725,23 @@ def kpick_us(+z: Bool, xs: List<&2, U32>, ys: List<&2, U32>) -> List<&2, U32>:
 
 # the rule for constructor c in a flat [ctor, nfields, rhs, ...] list:
 # (nfields, rhs), or sentinels
-def krule_nf(rs: List<&2, U32>, +c: U32) -> U32:
-  match rs:
-    case Con{ct, Con{nf, Con{rhs, t}}}:
-      S.pick(U32.is_eq(ct, c), nf, krule_nf(t, c))
-    case _:
+def krule_go(rs: List<&2, U32>, +c: U32, +hit: Bool, +want: U32,
+             +res: U32) -> U32:
+  match rs hit:
+    case _ True{}:
+      res
+    case Con{ct, Con{nf, Con{rhs, t}}} False{}:
+      +c2 : U32 = ct
+      krule_go(t, c, U32.is_eq(c2, c), want,
+               S.pick(U32.is_eq(want, 0), nf, rhs))
+    case _ False{}:
       4294967295
 
+def krule_nf(rs: List<&2, U32>, +c: U32) -> U32:
+  krule_go(rs, c, False{}, 0, 4294967295)
+
 def krule_rhs(rs: List<&2, U32>, +c: U32) -> U32:
-  match rs:
-    case Con{ct, Con{nf, Con{rhs, t}}}:
-      S.pick(U32.is_eq(ct, c), rhs, krule_rhs(t, c))
-    case _:
-      4294967295
+  krule_go(rs, c, False{}, 1, 4294967295)
 
 # the rhs's arguments: params, motives, minors (the recursor's first `pre`
 # arguments), the major's last `nf` arguments (its fields), and whatever
