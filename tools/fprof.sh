@@ -8,6 +8,7 @@
 # The C-level sampler only ever shows `km`; this shows which part of the
 # machine (whnf phases, defeq stages, the lazy probe, inference) the steps go to.
 # ALLOC=1: count store GROWTH (nodes allocated) per frame instead of steps.
+# CALLER=1: attribute each step to the nearest infer/defeq/check/probe frame.
 set -euo pipefail
 OUT="$1"
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -31,8 +32,10 @@ static void prof_dump(void){ int ix[%d]; for(int i=0;i<%d;i++) ix[i]=i; qsort(ix
 static void prof_sig(int sg){ prof_dump(); _exit(3); }
 static int prof_init=0;
 static const unsigned char prof_sub[%d] = {%s};
+static const unsigned char prof_act[%d] = {%s};
 ''' % (mx, mx, ",".join('"%s"' % n for n in names), mx, mx, mx, mx, mx,
-       ",".join('1' if (n.startswith('KM_K') and n not in ('KM_KCON','KM_KNIL')) else '0' for n in names))
+       ",".join('1' if (n.startswith('KM_K') and n not in ('KM_KCON','KM_KNIL')) else '0' for n in names),
+       mx, ",".join('1' if (n[3:4] in ('I','D','C','L') and not n.startswith('KM_DWHD')) else '0' for n in names))
 i = s.index('static void err_fail'); s = s[:i] + hdr + s[i:]
 s = s.replace("static void err_fail(const char* msg) {\n  fflush(stdout);", "static void err_fail(const char* msg) {\n  prof_dump(); fflush(stdout);", 1)
 a = "  WL_CASE(FID_KM_KM)\n  {\n"
@@ -48,6 +51,14 @@ if os.environ.get('ALLOC'):
       while (term_aux(_ps) == CID_KM_KCON && _pd < 64) { u64 _pl = term_peek(e.mem, _ps); Term _pf = e.mem[_pl]; u64 _pc = term_aux(_pf);
         if (_pc < %d && !prof_sub[_pc]) { _plast_c = _pc; break; } _ps = e.mem[_pl + 1]; _pd++; } }
 ''' % (mx, mx, mx)
+elif os.environ.get('CALLER'):
+    # attribute each step to the nearest inference / defeq / check / probe
+    # frame on the stack (skipping whnf, substitution and memo machinery)
+    hit = '''    if(!prof_init){prof_init=1; atexit(prof_dump); signal(SIGTERM, prof_sig);}
+    { Term _ps = r1; int _pd = 0;
+      while (term_aux(_ps) == CID_KM_KCON && _pd < 4096) { u64 _pl = term_peek(e.mem, _ps); Term _pf = e.mem[_pl]; u64 _pc = term_aux(_pf);
+        if (_pc < %d && prof_act[_pc]) { prof_cnt[_pc]++; break; } _ps = e.mem[_pl + 1]; _pd++; } }
+''' % mx
 else:
     hit = '''    if(!prof_init){prof_init=1; atexit(prof_dump); signal(SIGTERM, prof_sig);}
     { Term _ps = r1; if (term_aux(_ps) == CID_KM_KCON) { u64 _pl = term_peek(e.mem, _ps); Term _pf = e.mem[_pl]; u64 _pc = term_aux(_pf); if (_pc < %d) prof_cnt[_pc]++; } }
