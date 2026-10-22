@@ -152,6 +152,8 @@ type KF is Data:
   # ---- telescope peel (infer.bend's peel_tele), reused by K and iota ----
   # expect MX of the current type node; instantiate its codomain per value
   WPlE{tyi: U32, vals: List<&2, U32>}
+  # peel: the leading Pis an argument is there for, then ONE instantiation
+  WPlB{taken: List<&2, U32>, rest: List<&2, U32>, cur: U32}
   # iota on a structure-like major that is not a constructor application:
   # the projections are its fields (WSe receives them as an MSP)
   WSe{recsl: List<&2, U32>, need: U32, pp: U32, mk: U32, cn: U32,
@@ -3056,9 +3058,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k}
          Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
       +b2 : U32 = b
-      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, b2),
-                 KCon{WPlC{rest}, k}},
+      km(p, KCon{WPlB{[v], rest, b2}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
+    case 1n+p KCon{WPlB{taken, Con{v, rest}, cur}, k}
+         Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
+      +b2 : U32 = b
+      km(p, KCon{WPlB{Con{v, taken}, rest, b2}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
+    case 1n+p KCon{WPlB{taken, rest, cur}, k} Tuple{Tuple{fs, msg}, ri}:
+      +c2 : U32 = cur
+      km(p, KCon{kev(WP{3, 0, 0, 0, taken, Nil{}, 2000000}, c2),
+                 KCon{WPlC{rest}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, c2, ri))
     case 1n+p KCon{WPlE{tyi, Con{v, rest}}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 4294967295))
     case 1n+p KCon{WPlC{vals}, k} Tuple{Tuple{fs, msg}, ri}:
