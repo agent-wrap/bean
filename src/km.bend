@@ -713,8 +713,8 @@ type KF is Data:
   # is recorded (hashed key, fingerprint value) and answers UNK at once the
   # next time. A collision can only cost a YES (an UNK), never invent one
   LZ0g{hit: Bool, x: U32, y: U32, fu: U32}
-  LZC{key: U32, fp: U32}
-  LZC2{yes: Bool, key: U32, fp: U32, t: L.Tri}
+  LZC{key: U32, fp: U32, x: U32, y: U32}
+  LZC2{yes: Bool, key: U32, fp: U32, t: L.Tri, x: U32, y: U32}
   LZ0b{stop: Bool, same: Bool, x: U32, y: U32, fu: U32}
   LZ1{y: U32, fu: U32}
   LZ2{x: U32, fu: U32}
@@ -772,7 +772,18 @@ type KF is Data:
   DCgLz2{yes: Bool, xt: List<&2, U32>, yt: List<&2, U32>, a1: U32, a2: U32,
          xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # rollback region around a whnf memo miss (see KRb's handler)
+  # decisive lazy defeq: the lazy probe, then (unsettled) an eager
+  # comparison of the probe's furthest-unfolded pair
+  LD{x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  LDk{x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  LDk1{yes: Bool, nopair: Bool, x: U32, y: U32, ctx: List<&2, U32>,
+       fu: U32}
+  LDp{ctx: List<&2, U32>, fu: U32}
+  LDw{y: U32, ctx: List<&2, U32>, fu: U32}
+  LDw2{wx: U32, ctx: List<&2, U32>, fu: U32}
   KRb{mark: U32, snap: R.Tr<U32>}
+  # a yes-only probe's answer without the pair it leaves (register 0)
+  KZr{}
   KRb2{comp: Bool, mark: U32}
   DWhdGo{hit: Bool, h: U32, i: U32}
   DWhdSt{i: U32}
@@ -2176,6 +2187,16 @@ def kstr_bytes(+x: T.Ex) -> List<&2, U32>:
     case _:
       Nil{}
 
+# the lazy probe's last pair, as a node EApp{x, y} (only the innermost
+# unsettled iteration makes one: the register is 0 until then)
+def klzpair(+mk: Bool, fs: Array<T.Ex> & U32, +x: U32, +y: U32, +r: U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match mk:
+    case True{}:
+      khc(fs, T.EApp{x, y}, base)
+    case False{}:
+      (fs, r)
+
 def kprojs_cons(r: (Array<T.Ex> & U32) & U32,
                 acc: List<&2, U32>) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match r:
@@ -2409,6 +2430,13 @@ def kslev(+e: U32, +ctx: List<&2, U32>, +fu: U32) -> KF:
 def kmir(fs: Array<T.Ex> & U32, +ty: U32,
          +ok: Bool) -> ((Array<T.Ex> & U32) & MG) & U32:
   ((fs, MIR{ty, ok}), 0)
+
+# a tri verdict with an explicit register
+def kmtri_r(r: (Array<T.Ex> & U32) & U32,
+            +t: L.Tri) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{fs, i}:
+      ((fs, MTri{t}), i)
 
 # answer a tri verdict
 def kmtri(fs: Array<T.Ex> & U32,
@@ -2741,17 +2769,24 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       +f2 : U32 = fu
       km(p, KCon{LZ0b{U32.is_eq(f2, 0), U32.is_eq(x2, y2), x2, y2, f2},
-                 KCon{LZC{klzkey(x2, y2), klzfp(x2, y2)}, k}},
+                 KCon{LZC{klzkey(x2, y2), klzfp(x2, y2), x2, y2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{LZC{key, fp}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+    case 1n+p KCon{LZC{key, fp, x, y}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       +t2 : L.Tri = t
-      km(p, KCon{LZC2{L.tri_is_yes(t2), key, fp, t2}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{LZC2{True{}, key, fp, t}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{LZC2{L.tri_is_yes(t2), key, fp, t2, x, y}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZC2{True{}, key, fp, t, x, y}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
-    case 1n+p KCon{LZC2{False{}, key, fp, t}, k} Tuple{Tuple{fs, msg}, ri}:
+    # not settled: record the failure; the innermost iteration also leaves
+    # its pair (the furthest-unfolded terms) in the register as a node
+    # EApp{x, y}, from where a decisive caller (LD) continues eagerly
+    case 1n+p KCon{LZC2{False{}, key, fp, t, x, y}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         R.set(U32, 64n, wm, key, fp, 4294967295), nt, hcb, kmtri(fs, t))
+         R.set(U32, 64n, wm, key, fp, 4294967295), nt, hcb,
+         kmtri_r(klzpair(U32.is_eq(r2, 0), fs, x, y, r2, hcb), t))
     # fuel out: the same node is still equal
     case 1n+p KCon{LZ0b{True{}, same, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -4206,8 +4241,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{LZ0{x2, y2, 256},
-                 KCon{KRb{n2, wm},
-                      KCon{DLzD{f1, f2, a1, a2, x2, y2, ctx, fu}, k}}},
+                 KCon{KZr{}, KCon{KRb{n2, wm},
+                      KCon{DLzD{f1, f2, a1, a2, x2, y2, ctx, fu}, k}}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
     case 1n+p KCon{DLzD{f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
@@ -4239,37 +4274,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DLzA{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # Lean compares an argument pair lazily (is_def_eq: whnf_core, then
-    # lazy delta); the yes-only probe does that first, and only a pair it
-    # cannot settle is evaluated (DSub's precondition) and compared
+    # lazy delta): LD, which evaluates only what the lazy steps leave open
     case 1n+p KCon{DLzA0{False{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
-                         ctx, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
-      +n2 : U32 = nx
-      +xh2 : U32 = xh
-      +yh2 : U32 = yh
-      km(p, KCon{LZ0{xh2, yh2, 256},
-                 KCon{KRb{n2, wm},
-                      KCon{DLzAp{xh2, yh2, xt, yt, f1, f2, a1, a2, xi, yi,
-                                 ctx, fu}, k}}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
-    case 1n+p KCon{DLzAp{xh, yh, xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
-         Tuple{Tuple{fs, MTri{t}}, ri}:
-      km(p, KCon{DLzAq{L.tri_is_yes(t), xh, yh, xt, yt, f1, f2, a1, a2, xi,
-                       yi, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{DLzAq{True{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
                          ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{DLzA{xt, yt, f1, f2, a1, a2, xi, yi, ctx, fu}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{DLzAq{False{}, xh, yh, xt, yt, f1, f2, a1, a2, xi, yi,
-                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{DWhd{xh},
-                 KCon{DLzAx{xt, yt, yh, f1, f2, a1, a2, xi, yi, ctx, fu},
-                      k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DLzA{xs, ys, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      # arity disagreed after all -> unchanged "whnf the functions" path
-      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
+      +c2 : List<&2, U32> = ctx
+      +f9 : U32 = fu
+      km(p, KCon{LD{xh, yh, c2, f9},
+                 KCon{DLzAk{xt, yt, f1, f2, a1, a2, xi, yi, c2, f9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DLzAx{xt, yt, yh, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -4337,13 +4348,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DCgL{s1, s2, a1, a2, xi, yi, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAqH3{False{}, s1, s2, a1, a2, xi, yi, ctx, fu}, k}
-         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
-      # the functions agree, the last arguments differ in head: try the
-      # lazy delta probe before evaluating both
-      +n2 : U32 = nx
-      km(p, KCon{LZ0{a1, a2, 256},
-                 KCon{KRb{n2, wm}, KCon{DAqLz{a1, a2, xi, yi, ctx, fu}, k}}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
+         Tuple{Tuple{fs, msg}, ri}:
+      # the functions agree, the last arguments differ in head: compare
+      # them lazily (LD), then as the argument of this application
+      km(p, KCon{LD{a1, a2, ctx, fu}, KCon{DAq6{L.TYes{}, xi, yi, ctx}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # congruence worklist
     case 1n+p KCon{DCgL{Nil{}, Nil{}, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -4403,8 +4412,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # delta probe first, the full path if it does not settle
       +n2 : U32 = nx
       km(p, KCon{LZ0{x, y, 256},
-                 KCon{KRb{n2, wm}, KCon{DCgLz{xt, yt, a1, a2, xi, yi, ctx, fu},
-                                        k}}},
+                 KCon{KZr{}, KCon{KRb{n2, wm},
+                                  KCon{DCgLz{xt, yt, a1, a2, xi, yi, ctx,
+                                             fu}, k}}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
     # leaf: full whnf both sides (defeq's precondition), then defeq
     case 1n+p KCon{DCgS4{False{}, x, y, xt, yt, a1, a2, xi, yi, ctx, fu}, k}
@@ -6078,6 +6088,49 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # memo snapshot restored, so a long evaluation runs in bounded store
     # (Lean frees the intermediate terms by refcounting). An overflow seen
     # here marks the declaration CORRUPT.
+    # ---- LD: decisive lazy defeq of two arbitrary terms ----
+    case 1n+p KCon{LD{x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      km(p, KCon{LZ0{x2, y2, 256}, KCon{LDk{x2, y2, ctx, fu}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LDk{x, y, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{LDk1{L.tri_is_yes(t), U32.is_eq(r2, 0), x, y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{LDk1{True{}, nopair, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    # no pair (the probe stopped before any iteration): the originals
+    case 1n+p KCon{LDk1{False{}, True{}, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DWhd{x2}, KCon{LDw{y, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{LDk1{False{}, False{}, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{LDp{ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kfetch(fs, r2, r2))
+    case 1n+p KCon{LDp{ctx, fu}, k} Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
+      +a2 : U32 = a
+      km(p, KCon{DWhd{a2}, KCon{LDw{b, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{LDw{y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = y
+      +wx : U32 = ri
+      km(p, KCon{DWhd{y2}, KCon{LDw2{wx, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{LDw2{wx, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      +f2 : U32 = fu
+      km(p, KCon{DSub{U32.is_eq((f2 - 1 : U32), 4294967295),
+                      U32.is_eq(wx2, wy), wx2, wy, ctx, (f2 - 1 : U32)}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{KZr{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), 0))
     case 1n+p KCon{KRb{mark, snap}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
       +r2 : U32 = ri
       +n2 : U32 = nx
