@@ -154,6 +154,11 @@ type KF is Data:
   WPlE{tyi: U32, vals: List<&2, U32>}
   # peel: the leading Pis an argument is there for, then ONE instantiation
   WPlB{taken: List<&2, U32>, rest: List<&2, U32>, cur: U32}
+  # Lean's instantiate_value_lparams cache: the level-instantiated body of
+  # a constant node e (name + level indices, exact) under memo key 2^30 + e
+  WDelH{hit: Bool, h: U32, delta: Bool, vi: U32, ps: List<&2, U32>,
+        qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32}
+  WDelSt{e: U32, vi: U32}
   # iota on a structure-like major that is not a constructor application:
   # the projections are its fields (WSe receives them as an MSP)
   WSe{recsl: List<&2, U32>, need: U32, pp: U32, mk: U32, cn: U32,
@@ -3277,10 +3282,40 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # ---- whnf: delta branch ----
     case 1n+p KCon{WDelGo{True{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      # keyed by the node e AND checked against the body vi (rule-based
+      # iota unfolds a different rhs under the same recursor head)
+      +e2 : U32 = e
+      +v2 : U32 = vi
+      +w2 : R.Tr<U32> = wm
+      +h : U32 = R.get(U32, 64n, w2, (1073741824 + e2 : U32), 4294967295)
+      +h2 : U32 = h
+      +hv : Bool = U32.is_lt(e2, 268435456)
+                   && U32.is_eq(R.get(U32, 64n, w2, (1610612736 + e2 : U32),
+                                      4294967295), v2)
+      km(p, KCon{WDelH{U32.is_ne(h2, 4294967295) && hv, h2, delta, v2, ps,
+                       qs, e2, args, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WDelH{True{}, h, delta, vi, ps, qs, e, args, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WCont{delta, args, (fu - 1 : U32)}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, h))
+    case 1n+p KCon{WDelH{False{}, h, delta, vi, ps, qs, e, args, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +v2 : U32 = vi
       km(p, KCon{kev(WP{2, 0, 0, 0, ps, qs, 2000000}, v2),
-                 KCon{WCont{delta, args, (fu - 1 : U32)}, k}},
+                 KCon{WDelSt{e, v2}, KCon{WCont{delta, args, (fu - 1 : U32)},
+                                          k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, v2, ri))
+    case 1n+p KCon{WDelSt{e, vi}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      +e2 : U32 = e
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         kpick_tr(U32.is_lt(e2, 268435456),
+                  R.set(U32, 64n,
+                        R.set(U32, 64n, wm, (1073741824 + e2 : U32), r2,
+                              4294967295),
+                        (1610612736 + e2 : U32), vi, 4294967295), wm),
+         nt, hcb, knoop(fs, r2))
     case 1n+p KCon{WDelGo{False{}, delta, vi, ps, qs, e, args, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, krebuild(hcb, args, fs, e))
