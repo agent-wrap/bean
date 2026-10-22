@@ -732,6 +732,7 @@ type KF is Data:
          xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # rollback region around a whnf memo miss (see KRb's handler)
   KRb{mark: U32, snap: R.Tr<U32>}
+  KRb2{comp: Bool, mark: U32}
   DWhdGo{hit: Bool, h: U32, i: U32}
   DWhdSt{i: U32}
   WIhNext{ic: IC}
@@ -1343,6 +1344,300 @@ def kfetch_w(fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +w: WP,
 
 # record the lbr of every export node, in index order (an export lists a
 # term's children before it; a child not yet recorded reads as unknown)
+# --- compaction at a rollback region's end ------------------------------
+# A whnf region whose result is a NEW node cannot simply drop back to its
+# mark. When it allocated a lot, its result's new part (the nodes at or
+# above the mark reachable from it) is copied down to the mark instead:
+# post-order, each node written to a scratch slot above nx with its
+# children already relocated to their final indices, then the block moved
+# down (kput, so the loose-bvar ranges are recomputed in place). Pointers
+# the hash table holds into the old range are checked structurally on use,
+# so they only cost sharing. A step machine (one non-recursive step, a
+# fuel-driven loop) because Bend forbids mutual recursion.
+type CSd is Data:
+  CSd{done: Bool, stack: List<&2, U32>, k: U32, map: R.Tr<U32>, nx: U32,
+      mark: U32, base: U32}
+
+def kchildren(+x: T.Ex) -> List<&2, U32>:
+  match x:
+    case T.EApp{f, a}:
+      [f, a]
+    case T.ELam{n, t, b, bi}:
+      [t, b]
+    case T.EAll{n, t, b, bi}:
+      [t, b]
+    case T.ELet{n, t, v, b}:
+      [t, v, b]
+    case T.EProj{tn, i, sx}:
+      [sx]
+    case _:
+      []
+
+# first child at/above mark that is not yet mapped (sentinel if none)
+def kunmapped(cs: List<&2, U32>, +mark: U32, +m: R.Tr<U32>) -> U32:
+  match cs:
+    case Nil{}:
+      4294967295
+    case Con{c, t}:
+      +c2 : U32 = c
+      +m2 : R.Tr<U32> = m
+      S.pick(U32.is_ge(c2, mark)
+             && U32.is_eq(R.get(U32, 64n, m2, c2, 4294967295), 4294967295),
+             c2, kunmapped(t, mark, m2))
+
+def kmapc(+c: U32, +mark: U32, +m: R.Tr<U32>) -> U32:
+  S.pick(U32.is_lt(c, mark), c, R.get(U32, 64n, m, c, 4294967295))
+
+def kreloc(+x: T.Ex, +mark: U32, +m: R.Tr<U32>) -> T.Ex:
+  match x:
+    case T.EApp{f, a}:
+      T.EApp{kmapc(f, mark, m), kmapc(a, mark, m)}
+    case T.ELam{n, t, b, bi}:
+      T.ELam{n, kmapc(t, mark, m), kmapc(b, mark, m), bi}
+    case T.EAll{n, t, b, bi}:
+      T.EAll{n, kmapc(t, mark, m), kmapc(b, mark, m), bi}
+    case T.ELet{n, t, v, b}:
+      T.ELet{n, kmapc(t, mark, m), kmapc(v, mark, m), kmapc(b, mark, m)}
+    case T.EProj{tn, i, sx}:
+      T.EProj{tn, i, kmapc(sx, mark, m)}
+    case y:
+      y
+
+# one step on the top of the stack, whose node is `nd`
+# place a relocated node: an equal OLDER node (below mark) found through the
+# hash table is reused; otherwise it takes the next final slot, written to
+# scratch, and its pointer goes into the table (pointers at or above mark
+# are tombstones here, so such a slot is reused)
+def kcs8(+haveslot: Bool, +fe: U32, a: Array<T.Ex>, +fin: U32,
+         +rn: T.Ex) -> Array<T.Ex>:
+  match haveslot:
+    case True{}:
+      Array.set(T.Ex, a, fe, T.EApp{fin, kfp(rn)})
+    case False{}:
+      a
+
+def kcs7(+miss: Bool, +haveslot: Bool, +found: U32, +fe: U32, a: Array<T.Ex>,
+         +top: U32, +rest: List<&2, U32>, +rn: T.Ex, +k: U32, +m: R.Tr<U32>,
+         +nx: U32, +mark: U32, +base: U32) -> Array<T.Ex> & CSd:
+  match miss:
+    case True{}:
+      +fin : U32 = (mark + k : U32)
+      (Array.set(T.Ex, kcs8(haveslot, fe, a, fin, rn), (nx + k : U32), rn),
+       CSd{False{}, rest, (k + 1 : U32),
+           R.set(U32, 64n, m, top, fin, 4294967295), nx, mark, base})
+    case False{}:
+      (a, CSd{False{}, rest, k, R.set(U32, 64n, m, top, found, 4294967295),
+              nx, mark, base})
+
+def kcs6(r: Array<T.Ex> & (U32 & U32), +top: U32, +rest: List<&2, U32>,
+         +rn: T.Ex, +k: U32, +m: R.Tr<U32>, +nx: U32, +mark: U32,
+         +base: U32) -> Array<T.Ex> & CSd:
+  match r:
+    case Tuple{a, Tuple{found, fempty}}:
+      +f2 : U32 = found
+      +fe : U32 = fempty
+      kcs7(U32.is_eq(f2, 4294967295), U32.is_ne(fe, 4294967295), f2, fe, a,
+           top, rest, rn, k, m, nx, mark, base)
+
+def kcs4(+leaf: Bool, +c: U32, +top: U32, +rest: List<&2, U32>, +nd: T.Ex,
+         +k: U32, +m: R.Tr<U32>, a: Array<T.Ex>, +nx: U32,
+         +mark: U32, +base: U32) -> Array<T.Ex> & CSd:
+  match leaf:
+    case True{}:
+      # every child placed: relocate, then share or place it
+      +rn : T.Ex = kreloc(nd, mark, m)
+      +fp : U32 = kfp(rn)
+      +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
+      kcs6(kscan(24n, False{}, base, rn, s0, 4294967295, 4294967295, False{}, mark, fp,
+                 kprobe_slot(a, s0, mark, fp, True{}, rn)),
+           top, rest, rn, k, m, nx, mark, base)
+    case False{}:
+      (a, CSd{False{}, Con{c, Con{top, rest}}, k, m, nx, mark, base})
+
+def kcs3(+top: U32, +rest: List<&2, U32>, +nd: T.Ex, +k: U32,
+         +m: R.Tr<U32>, a: Array<T.Ex>, +nx: U32,
+         +mark: U32, +base: U32) -> Array<T.Ex> & CSd:
+  +n2 : T.Ex = nd
+  +c : U32 = kunmapped(kchildren(n2), mark, m)
+  kcs4(U32.is_eq(c, 4294967295), c, top, rest, n2, k, m, a, nx, mark, base)
+
+def kcs2(pr: Array<T.Ex> & T.Ex, +top: U32, +rest: List<&2, U32>, +k: U32,
+         +m: R.Tr<U32>, +nx: U32, +mark: U32,
+         +base: U32) -> Array<T.Ex> & CSd:
+  match pr:
+    case Tuple{a, nd}:
+      kcs3(top, rest, nd, k, m, a, nx, mark, base)
+
+def kcs_step2(+skip: Bool, +top: U32, +rest: List<&2, U32>, +k: U32,
+              +m: R.Tr<U32>, a: Array<T.Ex>, +nx: U32,
+              +mark: U32, +base: U32) -> Array<T.Ex> & CSd:
+  match skip:
+    case True{}:
+      (a, CSd{False{}, rest, k, m, nx, mark, base})
+    case False{}:
+      kcs2(Array.get(T.Ex, a, top), top, rest, k, m, nx, mark, base)
+
+def kcs_step(a: Array<T.Ex>, st: CSd) -> Array<T.Ex> & CSd:
+  match st:
+    case CSd{done, Nil{}, k, m, nx, mark, base}:
+      (a, CSd{True{}, Nil{}, k, m, nx, mark, base})
+    case CSd{done, Con{top, rest}, k, m, nx, mark, base}:
+      +t2 : U32 = top
+      +m2 : R.Tr<U32> = m
+      +mk : U32 = mark
+      kcs_step2(U32.is_lt(t2, mk)
+                || Bool.not(U32.is_eq(R.get(U32, 64n, m2, t2, 4294967295),
+                                      4294967295)),
+                t2, rest, k, m2, a, nx, mk, base)
+
+def kcs_loop(fuel: Nat, st: Array<T.Ex> & CSd) -> Array<T.Ex> & CSd:
+  match fuel st:
+    case 0n _:
+      st
+    case 1n+p Tuple{a, CSd{True{}, stack, k, m, nx, mark, base}}:
+      (a, CSd{True{}, stack, k, m, nx, mark, base})
+    case 1n+p Tuple{a, CSd{False{}, stack, k, m, nx, mark, base}}:
+      kcs_loop(p, kcs_step(a, CSd{False{}, stack, k, m, nx, mark, base}))
+
+# move the scratch block [nx, nx+k) down to [mark, mark+k)
+def kmove2(pr: Array<T.Ex> & T.Ex, +j: U32, +mark: U32,
+           +hb: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, nd}:
+      kput(hb, a, (mark + j : U32), nd)
+
+def kmove(n: Nat, +j: U32, +nx: U32, +mark: U32, +hb: U32,
+          a: Array<T.Ex>) -> Array<T.Ex>:
+  match n:
+    case 0n:
+      a
+    case 1n+p:
+      kmove(p, (j + 1 : U32), nx, mark, hb,
+            kmove2(Array.get(T.Ex, a, (nx + j : U32)), j, mark, hb))
+
+# --- verification of a compaction copy (before the move) ----------------
+# A pairwise deep comparison of the old subgraph (old indices) with the copy
+# (final indices: below mark the node itself, from mark the scratch slot
+# nx + (i - mark)). Any mismatch keeps the region as it was.
+type CVd is Data:
+  CVd{done: Bool, ok: Bool, stack: List<&2, U32>, seen: R.Tr<U32>, nx: U32,
+      mark: U32}
+
+def kcv_new(+i: U32, +nx: U32, +mark: U32) -> U32:
+  S.pick(U32.is_lt(i, mark), i, (nx + (i - mark : U32) : U32))
+
+# same tag and payload; push the child pairs (old, new) onto the stack
+def kcv_cmp(+x: T.Ex, +y: T.Ex, st: List<&2, U32>) -> Bool & List<&2, U32>:
+  match x y:
+    case T.EApp{f, a} T.EApp{g, b}:
+      (True{}, Con{f, Con{g, Con{a, Con{b, st}}}})
+    case T.ELam{n, t, b, bi} T.ELam{m, u, c, b2}:
+      (True{}, Con{t, Con{u, Con{b, Con{c, st}}}})
+    case T.EAll{n, t, b, bi} T.EAll{m, u, c, b2}:
+      (True{}, Con{t, Con{u, Con{b, Con{c, st}}}})
+    case T.ELet{n, t, v, b} T.ELet{m, u, w, c}:
+      (True{}, Con{t, Con{u, Con{v, Con{w, Con{b, Con{c, st}}}}}})
+    case T.EProj{tn, i, sx} T.EProj{t2, j, s2}:
+      (U32.is_eq(tn, t2) && U32.is_eq(i, j), Con{sx, Con{s2, st}})
+    case xx yy:
+      (kexeq(xx, yy), st)
+
+def kcv4(r: Bool & List<&2, U32>, a: Array<T.Ex>, +sn: R.Tr<U32>,
+         +nx: U32, +mark: U32) -> Array<T.Ex> & CVd:
+  match r:
+    case Tuple{good, st}:
+      (a, CVd{False{}, good, st, sn, nx, mark})
+
+def kcv3(pr: Array<T.Ex> & T.Ex, +x: T.Ex, +rest: List<&2, U32>,
+         +sn: R.Tr<U32>, +nx: U32, +mark: U32) -> Array<T.Ex> & CVd:
+  match pr:
+    case Tuple{a, y}:
+      kcv4(kcv_cmp(x, y, rest), a, sn, nx, mark)
+
+def kcv2(pr: Array<T.Ex> & T.Ex, +nw: U32, +rest: List<&2, U32>,
+         +sn: R.Tr<U32>, +nx: U32, +mark: U32) -> Array<T.Ex> & CVd:
+  match pr:
+    case Tuple{a, x}:
+      kcv3(Array.get(T.Ex, a, kcv_new(nw, nx, mark)), x, rest, sn, nx, mark)
+
+# an old node already compared (the copy maps each old node to one new
+# node, so its subgraph need not be walked again), or unchanged
+def kcv_pair(+skip: Bool, +o: U32, +nw: U32, +rest: List<&2, U32>,
+             +sn: R.Tr<U32>, a: Array<T.Ex>, +nx: U32,
+             +mark: U32) -> Array<T.Ex> & CVd:
+  match skip:
+    case True{}:
+      (a, CVd{False{}, True{}, rest, sn, nx, mark})
+    case False{}:
+      kcv2(Array.get(T.Ex, a, o), nw, rest,
+           R.set(U32, 64n, sn, o, 1, 4294967295), nx, mark)
+
+def kcv_step(a: Array<T.Ex>, st: CVd) -> Array<T.Ex> & CVd:
+  match st:
+    case CVd{done, ok, Con{o, Con{nw, rest}}, sn, nx, mark}:
+      +o2 : U32 = o
+      +n3 : U32 = nw
+      +s2 : R.Tr<U32> = sn
+      kcv_pair(U32.is_eq(o2, n3)
+               || Bool.not(U32.is_eq(R.get(U32, 64n, s2, o2, 4294967295),
+                                     4294967295)),
+               o2, n3, rest, s2, a, nx, mark)
+    case CVd{done, ok, stack, sn, nx, mark}:
+      (a, CVd{True{}, ok, Nil{}, sn, nx, mark})
+
+def kcv_loop(fuel: Nat, st: Array<T.Ex> & CVd) -> Array<T.Ex> & CVd:
+  match fuel st:
+    case 0n Tuple{a, CVd{done, ok, stack, sn, nx, mark}}:
+      (a, CVd{True{}, False{}, stack, sn, nx, mark})
+    case 1n+p Tuple{a, CVd{True{}, ok, stack, sn, nx, mark}}:
+      (a, CVd{True{}, ok, stack, sn, nx, mark})
+    case 1n+p Tuple{a, CVd{False{}, False{}, stack, sn, nx, mark}}:
+      (a, CVd{True{}, False{}, stack, sn, nx, mark})
+    case 1n+p Tuple{a, CVd{False{}, True{}, stack, sn, nx, mark}}:
+      kcv_loop(p, kcv_step(a, CVd{False{}, True{}, stack, sn, nx, mark}))
+
+# copy the result's new part down to mark: (store, new nx, new result);
+# a stack left non-empty (fuel short) keeps the region as it was
+def kcomp_fin2(+ok: Bool, a: Array<T.Ex>, +nnx: U32, +nroot: U32,
+               +root: U32, +nx0: U32) -> ((Array<T.Ex> & U32) & U32):
+  match ok:
+    case True{}:
+      ((a, nnx), nroot)
+    case False{}:
+      ((a, nx0), root)
+
+def kcomp_ver(+done: Bool, r: Array<T.Ex> & CVd, +k: U32, +nr: U32,
+              +root: U32, +nx0: U32, +hb: U32) -> ((Array<T.Ex> & U32) & U32):
+  match r:
+    case Tuple{a, CVd{vdone, ok, stack, sn, nx, mark}}:
+      +good : Bool = done && ok
+      +k2 : U32 = k
+      +mk : U32 = mark
+      kcomp_fin2(good, kmove(U32.to_nat(S.pick(good, k2, 0)), 0, nx, mk, hb, a),
+                 (mk + k2 : U32), nr, root, nx0)
+
+def kcomp_fin(st: Array<T.Ex> & CSd, +root: U32, +hb: U32,
+              +nx0: U32) -> ((Array<T.Ex> & U32) & U32):
+  match st:
+    case Tuple{a, CSd{done, stack, k, m, nx, mark, base}}:
+      +k2 : U32 = k
+      +mk : U32 = mark
+      +nr : U32 = kmapc(root, mk, m)
+      +n3 : U32 = nx
+      kcomp_ver(done, kcv_loop(U32.to_nat((16 * (n3 - mk) + 64 : U32)),
+                               (a, CVd{False{}, True{}, [root, nr], R.TNil{}, n3,
+                                       mk})),
+                k2, nr, root, nx0, hb)
+
+def kcompact(a: Array<T.Ex>, +nx: U32, +mark: U32, +root: U32,
+             +base: U32) -> ((Array<T.Ex> & U32) & U32):
+  +n2 : U32 = nx
+  kcomp_fin(kcs_loop(U32.to_nat((16 * (n2 - mark) + 64 : U32)),
+                     (a, CSd{False{}, [root], 0, R.TNil{}, n2, mark, base})),
+            root, khalf(base), n2)
+
+# record the lbr of every export node, in index order (an export lists a
+# term's children before it; a child not yet recorded reads as unknown)
 def klb_init2(pr: Array<T.Ex> & T.Ex, +i: U32, +hb: U32) -> Array<T.Ex>:
   match pr:
     case Tuple{a, nd}:
@@ -1480,6 +1775,12 @@ def klit(fs: Array<T.Ex> & U32, +aw: U32, +da: List<&2, U32>,
       kalloc(fs, T.EConst{S.pick(I.dec_eq(da, db), tn, fn2), Nil{}}, base)
 
 # --- iota reduct construction (infer.bend's build_ihs tail + nat_expand) ---
+def kwith_msg(r: (Array<T.Ex> & U32) & U32,
+              +m: MG) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{fs, i}:
+      ((fs, m), i)
+
 def ktin_of(r: (Array<T.Ex> & U32) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match r:
     case Tuple{fs, x}:
@@ -5966,19 +6267,37 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # A decide-style evaluation (a closed term to `true`) thus runs in
     # bounded store. An overflow seen here (or at the end, by fcheck)
     # marks the declaration CORRUPT.
+    # a rollback region's end. A result OLDER than the mark: drop back to the
+    # mark (memo snapshot restored, flags carried). A NEW result of a region
+    # that allocated a lot: COMPACT -- its reachable new part is copied down
+    # to the mark (kcompact: post-order, verified, lbr recomputed) and the
+    # memo snapshot restored, so a long evaluation runs in bounded store
+    # (Lean frees the intermediate terms by refcounting). An overflow seen
+    # here marks the declaration CORRUPT.
     case 1n+p KCon{KRb{mark, snap}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
       +r2 : U32 = ri
       +n2 : U32 = nx
       +m2 : U32 = mark
       +roll : Bool = U32.is_lt(r2, m2)
-      +ovf : Bool = U32.is_ge(n2, khalf(hcb))
-      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
-         kpick_tr(roll, kflags_into(wm, snap, ovf),
+      +hb : U32 = khalf(hcb)
+      +ovf : Bool = U32.is_ge(n2, hb)
+      +comp : Bool = Bool.not(roll) && Bool.not(ovf)
+                     && U32.is_ge((n2 - m2 : U32), 4096)
+                     && U32.is_lt((n2 + (n2 - m2 : U32) + 16 : U32), hb)
+      km(p, KCon{KRb2{comp, m2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         kpick_tr(roll || comp, kflags_into(wm, snap, ovf),
                   kpick_tr(ovf, R.set(U32, 64n, R.set(U32, 64n, wm,
                                                       4294967291, 1,
                                                       4294967295),
                                       4294967280, 1, 4294967295), wm)),
          nt, hcb, (((ex, S.pick(roll, m2, n2)), msg), r2))
+    # (the region's message -- a Tri, a node -- passes through unchanged)
+    case 1n+p KCon{KRb2{False{}, mark}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), ri))
+    case 1n+p KCon{KRb2{True{}, mark}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kwith_msg(kcompact(ex, nx, mark, ri, hcb), msg))
     case 1n+p KCon{DWhdSt{i}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
