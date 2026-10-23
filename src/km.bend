@@ -820,9 +820,21 @@ type KF is Data:
   # a literal operation (Nat.add/sub/ble/mul/pow/div/mod/beq on two
   # arguments) is whnf'd -- the machine computes literal arithmetic -- so
   # `Nat.add 123456789 987654321` never unfolds into brecOn
-  LZR0{go: Bool, opx: Bool, opy: Bool, nxt: KF, x: U32, y: U32, fu: U32}
+  LZR0{go: Bool, opx: Bool, opy: Bool, ax1: U32, ax2: U32, ay1: U32,
+       ay2: U32, nxt: KF, x: U32, y: U32, fu: U32}
   LZPj{go: Bool, px: Bool, nxt: KF, x: U32, y: U32, fu: U32}
-  LZR1{opy: Bool, nxt: KF, x: U32, y: U32, fu: U32}
+  LZRg{opy: Bool, ay1: U32, ay2: U32, nxt: KF, x: U32, y: U32, fu: U32}
+  LZRg2{yes: Bool, opy: Bool, ay1: U32, ay2: U32, nxt: KF, x: U32, y: U32,
+        fu: U32}
+  LZR1{opy: Bool, ay1: U32, ay2: U32, nxt: KF, x: U32, y: U32, fu: U32}
+  LZRh{wx: U32, nxt: KF, x: U32, y: U32, fu: U32}
+  LZRh2{yes: Bool, wx: U32, nxt: KF, x: U32, y: U32, fu: U32}
+  # both arguments of a literal operation whnf to literals?
+  KLit2{a: U32, b: U32}
+  KLit2b{b: U32}
+  KLit2c{b: U32}
+  KLit2d{na: T.Ex}
+  KLit2e{na: T.Ex}
   LZR2{wx: U32, nxt: KF, x: U32, y: U32, fu: U32}
   LZR3{same: Bool, wx: U32, wy: U32, nxt: KF, fu: U32}
   LZQ2{left: Bool, tn: U32, i: U32, s: U32, sargs: List<&2, U32>,
@@ -3266,6 +3278,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +py : Bool = kis_proj(hb)
       km(p, KCon{LZPj{px || py, px,
                       LZR0{opx || opy, opx, opy,
+                           I.nth_u(sa, 0, 4294967295), I.nth_u(sa, 1, 4294967295),
+                           I.nth_u(sb, 0, 4294967295), I.nth_u(sb, 1, 4294967295),
                            LZ6{samehd, sa, sb,
                                cx && (Bool.not(cy) || U32.is_ge(hxh, hyh)),
                                cy && (Bool.not(cx) || U32.is_ge(hyh, hxh)),
@@ -3285,30 +3299,85 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       km(p, KCon{LZQ1{False{}, x, y2, fu, nxt}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, kspine_tin(fs, y2, ri))
-    case 1n+p KCon{LZR0{False{}, opx, opy, nxt, x, y, fu}, k}
+    case 1n+p KCon{LZR0{False{}, opx, opy, ax1, ax2, ay1, ay2, nxt, x, y, fu},
+                   k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{nxt, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          knoop(fs, ri))
-    case 1n+p KCon{LZR0{True{}, True{}, opy, nxt, x, y, fu}, k}
+    # Lean's reduce_bin_nat_op: the two ARGUMENTS are whnf'd and the
+    # operation is computed only when both are literals -- never a full
+    # whnf of the operation itself (`a - 2^64` with `a` a variable
+    # descended through the literal by unary recursion until fuel ran out)
+    case 1n+p KCon{LZR0{True{}, True{}, opy, ax1, ax2, ay1, ay2, nxt, x, y,
+                        fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{KLit2{ax1, ax2}, KCon{LZRg{opy, ay1, ay2, nxt, x, y, fu},
+                                       k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZR0{True{}, False{}, opy, ax1, ax2, ay1, ay2, nxt, x, y,
+                        fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
-      km(p, KCon{DWhd{x2}, KCon{LZR1{opy, nxt, x2, y, fu}, k}}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{LZR0{True{}, False{}, opy, nxt, x, y, fu}, k}
+      km(p, KCon{LZR1{opy, ay1, ay2, nxt, x2, y, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, x2))
+    case 1n+p KCon{LZRg{opy, ay1, ay2, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{LZRg2{L.tri_is_yes(t), opy, ay1, ay2, nxt, x, y, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZRg2{True{}, opy, ay1, ay2, nxt, x, y, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
-      km(p, KCon{LZR1{opy, nxt, x2, y, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, wm, nt, hcb, knoop(fs, x2))
-    case 1n+p KCon{LZR1{True{}, nxt, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
-      +y2 : U32 = y
+      km(p, KCon{DWhd{x2}, KCon{LZR1{opy, ay1, ay2, nxt, x2, y, fu}, k}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZRg2{False{}, opy, ay1, ay2, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{LZR1{opy, ay1, ay2, nxt, x2, y, fu}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, x2))
+    case 1n+p KCon{LZR1{True{}, ay1, ay2, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +wx : U32 = ri
-      km(p, KCon{DWhd{y2}, KCon{LZR2{wx, nxt, x, y2, fu}, k}}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, wx))
-    case 1n+p KCon{LZR1{False{}, nxt, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{KLit2{ay1, ay2}, KCon{LZRh{wx, nxt, x, y, fu}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, wx))
+    case 1n+p KCon{LZR1{False{}, ay1, ay2, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = y
       +wx : U32 = ri
       km(p, KCon{LZR2{wx, nxt, x, y2, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, knoop(fs, y2))
+    case 1n+p KCon{LZRh{wx, nxt, x, y, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{LZRh2{L.tri_is_yes(t), wx, nxt, x, y, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZRh2{True{}, wx, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = y
+      km(p, KCon{DWhd{y2}, KCon{LZR2{wx, nxt, x, y2, fu}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZRh2{False{}, wx, nxt, x, y, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = y
+      km(p, KCon{LZR2{wx, nxt, x, y2, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, y2))
+    # KLit2{a, b}: YES iff whnf(a) and whnf(b) are both Nat literals
+    case 1n+p KCon{KLit2{a, b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +a2 : U32 = a
+      km(p, KCon{DWhd{a2}, KCon{KLit2b{b}, k}}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{KLit2b{b}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wa : U32 = ri
+      km(p, KCon{KLit2c{b}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kfetch(fs, wa, 0))
+    case 1n+p KCon{KLit2c{b}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +b2 : U32 = b
+      km(p, KCon{DWhd{b2}, KCon{KLit2d{node}, k}}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{KLit2d{na}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wb : U32 = ri
+      km(p, KCon{KLit2e{na}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kfetch(fs, wb, 0))
+    case 1n+p KCon{KLit2e{na}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.tri_of(I.is_nat_lit(na) && I.is_nat_lit(node))))
     case 1n+p KCon{LZR2{wx, nxt, x, y, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wy : U32 = ri
       +wx2 : U32 = wx
@@ -4658,8 +4727,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # -- Pi/Pi --
     case 1n+p KCon{DEy{T.EAll{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EAll{n2, t2, b2, i2}}}, ri}:
+      # Lean's is_def_eq_binding compares domains and bodies by is_def_eq
+      # (lazy); LD probes lazily first and evaluates only what the probe
+      # leaves open (a body `(fun m => .. modCore (succ n) m ..) 2^64`
+      # whnf'd eagerly descends `succ n - 2^64` by unary recursion)
+      +f2 : U32 = fu
       +t12 : U32 = t1
-      km(p, KCon{DWhd{t12}, KCon{DAl2{0, t12, t2, b1, b2, ctx, fu}, k}},
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{LD{t12, t2, c2, (f2 - 1 : U32)},
+                 KCon{DAl3{b1, b2, t12, c2, f2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAl2{w1, t1, t2, b1, b2, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -4678,9 +4754,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DAl3{b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
-      +b12 : U32 = b1
-      km(p, KCon{DWhd{b12}, KCon{DAl4{t, b12, b2, t1, ctx, fu}, k}}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      +f2 : U32 = fu
+      km(p, KCon{LD{b1, b2, Con{t1, ctx}, (f2 - 1 : U32)}, KCon{DAl6{t}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAl4{d1, b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b22 : U32 = b2
@@ -4702,9 +4778,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # -- Lam/Lam --
     case 1n+p KCon{DEy{T.ELam{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.ELam{n2, t2, b2, i2}}}, ri}:
-      +b12 : U32 = b1
-      km(p, KCon{DWhd{b12}, KCon{DLm3{0, b12, b2, t1, ctx, fu}, k}}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      +f2 : U32 = fu
+      km(p, KCon{LD{b1, b2, Con{t1, ctx}, (f2 - 1 : U32)}, KCon{DLm4{}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DLm3{w3, b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b22 : U32 = b2
@@ -4784,7 +4860,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DLzD2{False{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
+      # Lean's is_def_eq_app: the function parts, then the arguments, each
+      # by is_def_eq -- LD first (lazy), eager only when it cannot settle
+      +f3 : U32 = fu
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{LD{f1, f2, c2, (f3 - 1 : U32)},
+                 KCon{DAq3b{a1, a2, xi, yi, c2, f3}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # args-first loop: walk both argument lists, defeq each pair
     case 1n+p KCon{DLzA{Nil{}, Nil{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
@@ -5009,8 +5090,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DAq3b{a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
-      +a12 : U32 = a1
-      km(p, KCon{DWhd{a12}, KCon{DAq4{t, a12, a2, xi, yi, ctx, fu}, k}},
+      +f2 : U32 = fu
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{LD{a1, a2, c2, (f2 - 1 : U32)}, KCon{DAq6{t, xi, yi, c2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAq4{d1, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
