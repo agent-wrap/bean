@@ -275,17 +275,20 @@ type KF is Data:
   # the closed-pair YES cache (Lean's equivalence manager, restricted to
   # closed terms: an open pair's answer can depend on the binder types)
   DSc0{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
-  DSc0b{hit0: Bool, cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
-  DSc1{hit: Bool, cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DSc0b{hit0: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
+        fu: U32}
+  DSc1{hit: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
+       fu: U32}
   DSRec{cl: Bool, ch: U32, xi: U32, yi: U32}
   # Lean's proof-by-reflection path (is_def_eq_core): a closed `t =?= true`
   # first evaluates t fully -- `Eq.refl true : decide p = true`, the shape
   # of every omega/decide certificate. YES if it reaches `true`, else the
   # ordinary comparison
-  DDc0{cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc0{cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DDc1{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DDc2{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
-  DDc3{tru: Bool, cl: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DDc3{tru: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
+       fu: U32}
   DDc3x{tru: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEx{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEy{xn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
@@ -923,6 +926,7 @@ type KF is Data:
   LZU2{uy: Bool, y: U32, fu: U32, ctx: List<&2, U32>}
   LZU3{x: U32, fu: U32, ctx: List<&2, U32>}
   LZUn{x: U32}
+  LZUn1{go: KF}
   LZUn2{}
   # hooks: the caller's fallback continuations
   DAqLz{a1: U32, a2: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
@@ -2693,6 +2697,38 @@ def kclosed(fs: Array<T.Ex> & U32, +x: U32, +y: U32,
       +hb : U32 = khalf(base)
       kcl2(klb_get(ex, x, hb), y, nx, hb)
 
+# the larger loose-bvar range of two nodes as the register (0: closed): the
+# success cache for open pairs is keyed on the binder context's PREFIX of
+# that length only -- the binders the pair can see -- so a pair met again
+# deeper, under more binders, still hits
+def kcl3m(pr: Array<T.Ex> & U32, +lx: U32,
+          +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, ly}:
+      (((a, nx), MN{}), U32.max(lx, ly))
+
+def kcl2m(pr: Array<T.Ex> & U32, +y: U32, +nx: U32,
+          +hb: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, lx}:
+      kcl3m(klb_get(a, y, hb), lx, nx)
+
+def kclmax(fs: Array<T.Ex> & U32, +x: U32, +y: U32,
+           +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      +hb : U32 = khalf(base)
+      kcl2m(klb_get(ex, x, hb), y, nx, hb)
+
+def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
+  match n xs:
+    case 0n _:
+      h
+    case 1n+p Nil{}:
+      h
+    case 1n+p Con{head, tail}:
+      kctxh_n(p, tail, (((h * 31 : U32) + head : U32) + 1 : U32))
+
 # hash-consed allocation, store and index only
 def kstrip(t: ((Array<T.Ex> & U32) & MG) & U32) -> (Array<T.Ex> & U32) & U32:
   match t:
@@ -3537,8 +3573,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # tail may still prove the pair), and Lean caches only is_def_eq_args
       # failures (LZF5)
       km(p, KCon{LZ0g{U32.is_ge(used, 1000000), x2, y2, fu, ctx}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb,
-         knoop(kfl_set(fs, hcb, 0, (used + 1 : U32)), 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TUnk{}))
@@ -3553,8 +3588,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       +used : U32 = ri
       km(p, KCon{LZ0g{U32.is_ge(used, 1000000), x2, y2, fu, ctx}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         knoop(kfl_set(fs, hcb, 0, (used + 1 : U32)), 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +x2 : U32 = x
@@ -3930,14 +3964,22 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{LZ0{x, r2, (fu - 1 : U32), ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, knoop(fs, r2))
     # one delta step of a constant-headed spine, then whnf_core
+    # the per-declaration budget counts UNFOLD steps (Lean bounds nothing;
+    # the budget exists for runaway delta chains), never defeq entries: the
+    # structural traversal of a huge constructor term (grind-ring-5's
+    # polynomials, 2 real unfolds) must not exhaust it
     case 1n+p KCon{LZUn{x}, k} Tuple{Tuple{fs, MSP{T.EConst{n, us}, sargs}}, ri}:
       +n2 : U32 = n
       +u2 : List<&2, U32> = us
-      km(p, KCon{WDelGo{True{}, False{},
-                        R.get(U32, 64n, vt, n2, 4294967295),
-                        R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
-                        klns_of(u2, lnt), x, sargs, 256}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      km(p, KCon{LZUn1{WDelGo{True{}, False{},
+                              R.get(U32, 64n, vt, n2, 4294967295),
+                              R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
+                              klns_of(u2, lnt), x, sargs, 256}}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfl_tin(fs, hcb, 0))
+    case 1n+p KCon{LZUn1{go}, k} Tuple{Tuple{fs, msg}, ri}:
+      +used : U32 = ri
+      km(p, KCon{go, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         knoop(kfl_set(fs, hcb, 0, (used + 1 : U32)), 0))
     case 1n+p KCon{LZUn{x}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, x))
     # ---- hooks ----
@@ -4792,43 +4834,44 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{DSc0{x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kclosed(fs, x2, y2, hcb))
+         wm, nt, hcb, kclmax(fs, x2, y2, hcb))
     case 1n+p KCon{DSc0{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
       +w0 : R.Tr<U32> = wm
       +c2 : List<&2, U32> = ctx
-      +cl : Bool = U32.is_eq(ri, 1)
+      +lm : U32 = ri
+      +cl : Bool = U32.is_eq(lm, 0)
+      +ch : U32 = S.pick(cl, 0, kctxh_n(U32.to_nat(lm), c2, 0))
       +hit0 : Bool = cl
                      && (U32.is_eq(R.get(U32, 64n, w0, (x2 + 2147483648 : U32),
                                          4294967295), y2)
                          || U32.is_eq(R.get(U32, 64n, w0,
                                             (y2 + 2147483648 : U32),
                                             4294967295), x2))
-      km(p, KCon{DSc0b{hit0, cl, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, w0, nt, hcb,
-         kyc_tin(fs, hcb, x2, y2, S.pick(cl, 0, kctxh(c2, 0))))
-    case 1n+p KCon{DSc0b{hit0, cl, xi, yi, ctx, fu}, k}
+      km(p, KCon{DSc0b{hit0, cl, ch, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, w0, nt, hcb, kyc_tin(fs, hcb, x2, y2, ch))
+    case 1n+p KCon{DSc0b{hit0, cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{DSc1{hit0 || U32.is_eq(ri, 1), cl, xi, yi, ctx, fu}, k}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DSc1{True{}, cl, xi, yi, ctx, fu}, k}
+      km(p, KCon{DSc1{hit0 || U32.is_eq(ri, 1), cl, ch, xi, yi, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DSc1{True{}, cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TYes{}))
-    case 1n+p KCon{DSc1{False{}, cl, xi, yi, ctx, fu}, k}
+    case 1n+p KCon{DSc1{False{}, cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = yi
-      km(p, KCon{DDc0{cl, xi, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+      km(p, KCon{DDc0{cl, ch, xi, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, kfetch(fs, y2, 0))
-    case 1n+p KCon{DDc0{cl, xi, yi, ctx, fu}, k}
+    case 1n+p KCon{DDc0{cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{node}}, ri}:
       +q2 : R.Tr<U32> = qtt
       +nd : T.Ex = node
       km(p, KCon{DDc3{cl && U32.is_eq(I.const_nm2(nd),
                                       R.get(U32, 64n, q2, 8, 4294967295))
                          && Bool.not(U32.is_eq(I.const_nm2(nd), 4294967295)),
-                      cl, xi, yi, ctx, fu}, k},
+                      cl, ch, xi, yi, ctx, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # Lean's is_def_eq_core tries proof irrelevance before any structural
     # work: when the cheap type oracle says x is a proof, two proofs of
@@ -4837,14 +4880,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # is_def_eq_core: whnf_core both sides first (no delta, cheap
     # projections, recursor majors whnf'd in full), the YES cache keyed on
     # the originals
-    case 1n+p KCon{DDc3{False{}, cl, xi, yi, ctx, fu}, k}
+    case 1n+p KCon{DDc3{False{}, cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
-      +c2 : List<&2, U32> = ctx
       km(p, KCon{kwev(False{}, x2, Nil{}, 65536),
-                 KCon{DE2{y2, c2, fu}, KCon{DSRec{cl, kctxh(c2, 0), x2, y2},
-                                            k}}},
+                 KCon{DE2{y2, ctx, fu}, KCon{DSRec{cl, ch, x2, y2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DE2{yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wx : U32 = ri
@@ -5195,7 +5236,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DEL{x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
          nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DDc3{True{}, cl, xi, yi, ctx, fu}, k}
+    case 1n+p KCon{DDc3{True{}, cl, ch, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       km(p, KCon{DWhd{x2}, KCon{DDc1{x2, yi, ctx, fu}, k}}, lnt, nlx, mt, lp,
