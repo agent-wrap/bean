@@ -273,8 +273,107 @@ def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
       +py = strip_zero(ys)
       atoms_sub(px, py) && atoms_sub(py, px) && ln_eq(pf, y1, y2)
         && ln_eq(pf, r1, r2)
+    case 1n+p LNmx{xs, y1, r1} LNimax{x2, y2, o2}:
+      +pf = p
+      ln_eq(pf, a, LNmx{Nil{}, b, LNmax{Nil{}}})
+    case 1n+p LNimax{x1, y1, o1} LNmx{ys, y2, r2}:
+      +pf = p
+      ln_eq(pf, LNmx{Nil{}, a, LNmax{Nil{}}}, b)
     case 1n+p _ _:
       False{}
+
+# --- canonical order of a mixed chain --------------------------------------
+# Lean's level::normalize sorts the arguments of a max and drops duplicates,
+# so `max s r 1` (PULift's sort) and `max 1 (max (imax ..) (imax ..))` (the
+# declared sort of an auto-generated ctorElimType) compare equal although
+# their components arrive in different orders. A mixed chain is kept with
+# its atoms merged at the head and its imax components in ascending order of
+# a structural key (order-independent over atom sets, offset-independent so
+# that adding a successor keeps a chain sorted), without duplicates
+# (ln_eq); the order-sensitive structural comparisons below then decide
+# set equality. A key collision only leaves a chain unsorted (an unknown,
+# never a wrong answer).
+def atoms_key(xs: List<&2, Atom>, +h: U32) -> U32:
+  match xs:
+    case Nil{}:
+      h
+    case Con{head, tail}:
+      match head:
+        case At{base, off}:
+          atoms_key(tail, (h + ((base * 1000003 : U32) + 1 : U32) : U32))
+
+def ln_key(fuel: Nat, +a: LN) -> U32:
+  match fuel a:
+    case 0n _:
+      0
+    case 1n+p LNmax{xs}:
+      atoms_key(xs, 7)
+    case 1n+p LNimax{x, y, o}:
+      +pf = p
+      (((ln_key(pf, x) * 31 : U32) + (ln_key(pf, y) * 17 : U32) : U32) + 3 : U32)
+    case 1n+p LNmx{xs, y, r}:
+      +pf = p
+      ((atoms_key(xs, 11) + (ln_key(pf, y) * 13 : U32) : U32) + (ln_key(pf, r) * 7 : U32) : U32)
+    case 1n+p _:
+      1
+
+def mx_ins_go(+same: Bool, +before: Bool, +y: LN, xs: List<&2, Atom>, +y1: LN,
+              +r: LN, +ins_r: LN) -> LN:
+  match same before:
+    case True{} _:
+      LNmx{xs, y1, r}
+    case False{} True{}:
+      LNmx{xs, y, LNmx{Nil{}, y1, r}}
+    case False{} False{}:
+      LNmx{xs, y1, ins_r}
+
+# insert the imax component y into the chain c (atoms stay at the head)
+def mx_insert(fuel: Nat, +y: LN, +c: LN) -> LN:
+  match fuel c:
+    case 0n _:
+      LNmx{Nil{}, y, c}
+    case 1n+p LNmx{xs, y1, r}:
+      +py : LN = y
+      +py1 : LN = y1
+      +pr : LN = r
+      mx_ins_go(ln_eq(32n, py, py1), U32.is_lt(ln_key(16n, py), ln_key(16n, py1)),
+                py, xs, py1, pr, mx_insert(p, py, pr))
+    case 1n+p LNmax{xs}:
+      LNmx{xs, y, LNmax{Nil{}}}
+    case 1n+p LNimax{x1, y1, o1}:
+      mx_insert(p, y, LNmx{Nil{}, c, LNmax{Nil{}}})
+    case 1n+p _:
+      c
+
+def mx_add_atoms(xs: List<&2, Atom>, +c: LN) -> LN:
+  match c:
+    case LNmx{ys, y, r}:
+      LNmx{List.append(&2, Atom, xs, ys), y, r}
+    case LNmax{ys}:
+      LNmax{List.append(&2, Atom, xs, ys)}
+    case _:
+      c
+
+# rebuild a chain in canonical order; anything else is returned as is
+def mx_fold(fuel: Nat, +a: LN, +acc: LN) -> LN:
+  match fuel a:
+    case 0n _:
+      acc
+    case 1n+p LNmx{xs, y, r}:
+      mx_fold(p, r, mx_insert(16n, y, mx_add_atoms(xs, acc)))
+    case 1n+p LNimax{x, y, o}:
+      mx_insert(16n, a, acc)
+    case 1n+p LNmax{xs}:
+      mx_add_atoms(xs, acc)
+    case 1n+p _:
+      a
+
+def mx_norm(+a: LN) -> LN:
+  match a:
+    case LNmx{xs, y, r}:
+      mx_fold(16n, a, LNmax{Nil{}})
+    case _:
+      a
 
 # Mixing a max-of-atoms with an `imax` has no max-of-atoms form, but two
 # cases are exact and common: `max 0 x = x` and `max x x = x`. The first is
@@ -283,7 +382,7 @@ def ln_eq(fuel: Nat, +a: LN, +b: LN) -> Bool:
 # without it `Eq.{imax u v} (a -> b)` (any equality at a function type in a
 # universe-polymorphic statement: congr, congrFun, funext) read Eq's
 # parameter type as `Sort LNsym`, undecidable, and declined.
-def ln_max(+a: LN, +b: LN) -> LN:
+def ln_max0(+a: LN, +b: LN) -> LN:
   match a b:
     case LNun{} _:
       LNun{}
@@ -297,13 +396,13 @@ def ln_max(+a: LN, +b: LN) -> LN:
       LNmx{List.append(&2, Atom, xs, ys), y, r}
     case LNmx{xs, y1, r1} LNmx{ys, y2, r2}:
       LNmx{List.append(&2, Atom, xs, ys), y1,
-           ln_max(r1, LNmx{Nil{}, y2, r2})}
+           ln_max0(r1, LNmx{Nil{}, y2, r2})}
     case LNmx{xs, y1, r1} LNimax{p, q, o}:
       +py1 : LN = y1
-      pick_ln(ln_eq(32n, py1, b), a, LNmx{xs, py1, ln_max(r1, b)})
+      pick_ln(ln_eq(32n, py1, b), a, LNmx{xs, py1, ln_max0(r1, b)})
     case LNimax{p, q, o} LNmx{ys, y2, r2}:
       +py2 : LN = y2
-      pick_ln(ln_eq(32n, py2, a), b, LNmx{ys, py2, ln_max(a, r2)})
+      pick_ln(ln_eq(32n, py2, a), b, LNmx{ys, py2, ln_max0(a, r2)})
     case LNmax{xs} LNimax{p, q, o}:
       +px = xs
       pick_ln(all_zero(px), b, LNmx{px, b, LNmax{Nil{}}})
@@ -319,10 +418,33 @@ def ln_max(+a: LN, +b: LN) -> LN:
     case _ _:
       pick_ln(ln_eq(32n, a, b), a, LNsym{})
 
+def ln_max(+a: LN, +b: LN) -> LN:
+  mx_norm(ln_max0(a, b))
+
 def is_zero_ln(+a: LN) -> Bool:
   match a:
     case LNmax{xs}:
       all_zero(xs)
+    case _:
+      False{}
+
+# every atom a constant of offset at most 1, and one of them exactly 1:
+# the level is exactly one
+def atoms_one(xs: List<&2, Atom>, +seen: Bool) -> Bool:
+  match xs:
+    case Nil{}:
+      seen
+    case Con{head, tail}:
+      match head:
+        case At{base, off}:
+          +o2 : U32 = off
+          U32.is_eq(base, 0) && U32.is_le(o2, 1)
+          && atoms_one(tail, seen || U32.is_eq(o2, 1))
+
+def is_one_ln(+a: LN) -> Bool:
+  match a:
+    case LNmax{xs}:
+      atoms_one(xs, False{})
     case _:
       False{}
 
@@ -354,8 +476,11 @@ def ln_imax_go(+a: LN, +b: LN) -> LN:
     case _ _:
       +pa : LN = a
       +pb : LN = b
+      # Lean's mk_imax: `imax a b = b` when a is zero OR ONE (`is_one`),
+      # whatever b is -- `Π (n : Nat), B` over a structural imax B
       pick_ln(is_zero_ln(pb), ln_zero(),
-              imax_keep(ln_eq(32n, pa, pb), is_zero_ln(pa), pa, pb))
+              imax_keep(ln_eq(32n, pa, pb), is_zero_ln(pa) || is_one_ln(pa),
+                        pa, pb))
 
 # imax a 0 = 0 whatever a is -- even an unknown a: a Pi into a Prop is a
 # Prop however large its domain (a class of Prop fields over binders the
@@ -422,6 +547,12 @@ def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
       pick_tri(atoms_sub(px, py) && atoms_sub(py, px)
                && tri_is_yes(ln_cmp_f(pf, y1, y2))
                && tri_is_yes(ln_cmp_f(pf, r1, r2)), TYes{}, TUnk{})
+    case 1n+p LNmx{xs, y1, r1} LNimax{x2, y2, o2}:
+      +pf = p
+      ln_cmp_f(pf, a, LNmx{Nil{}, b, LNmax{Nil{}}})
+    case 1n+p LNimax{x1, y1, o1} LNmx{ys, y2, r2}:
+      +pf = p
+      ln_cmp_f(pf, LNmx{Nil{}, a, LNmax{Nil{}}}, b)
     case 1n+p _ _:
       TUnk{}
 
