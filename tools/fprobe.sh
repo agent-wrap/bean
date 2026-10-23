@@ -73,6 +73,26 @@ open(p, "w").write(s)
 PY
 # DMP=N dumps terms N levels deep (default 400)
 sed -i '' "s/dmp(400n/dmp(${DMP:-400}n/g" "$TMP/src/fdbg.bend"
+if [[ "${TRACE:-}" == "1" ]]; then
+  # TRACE=1: every recording (COND true) also prints "TRC x y" to stderr as
+  # it happens -- all hits in order, rollbacks or not (with KEEP=1 the
+  # indices stay valid for a later targeted probe of one pair)
+  "$ROOT/tools/bend.sh" "$TMP/src/fdbg.bend" -o "$TMP/gen.c"
+  python3 - "$TMP/gen.c" <<'PY2'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+m = re.search(r"  WL_CASE\(FID_KM_KPAIR_IF\)\n  \{\n((?:    [^\n]*_0 = r\d+;\n)+)", s)
+assert m, "kpair_if case not found"
+regs = dict((v, r) for v, r in re.findall(r"(_\w+?_0) = (r\d+);", m.group(1)))
+c = [v for v in regs if v.startswith("_c_")][0]; x = [v for v in regs if v.startswith("_x_")][0]; y = [v for v in regs if v.startswith("_y_")][0]
+line = '    if (%s) fprintf(stderr, "TRC %%u %%u\\n", (unsigned)%s, (unsigned)%s);\n' % (
+    "term_aux(%s) == CID_TRUE" % c if "Term %s" % c in m.group(1) else "%s" % c, x, y)
+s = s[:m.end()] + line + s[m.end():]
+open(p, "w").write(s)
+PY2
+  /nix/store/fy71z4s85kl6114vz7ksp3m5z4fz275k-clang-wrapper-21.1.8/bin/clang -O2 -o "$TMP/fdbg" "$TMP/gen.c" -lpthread 2>&1 | grep -i error | head -5 || true
+else
 "$ROOT/tools/fbuild.sh" "$TMP/src/fdbg.bend" "$TMP/fdbg" 2>&1 | grep -v '^$' | head -5 || true
+fi
 "$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg"
 python3 "$ROOT/tools/fdump.py" "$SLICE" "$TMP/dump.dbg" ""

@@ -192,7 +192,20 @@ type KF is Data:
   # the index comparison's verdict arrives here (MTri)
   WK4{pok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+      fu: U32, pp: U32, mn: U32, mk: U32, cn: U32, p5: P5,
+      xs: List<&2, U32>, ys: List<&2, U32>}
+  WK4b{need: Bool, t: L.Tri, pok: Bool, isue: Bool, can: Bool, delta: Bool,
+       vi: U32, ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32,
+       args: List<&2, U32>, fu: U32, pp: U32, mn: U32, mk: U32, cn: U32,
+       p5: P5, xs: List<&2, U32>, ys: List<&2, U32>}
+  WK5{pok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
+      ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
       fu: U32, pp: U32, mn: U32, mk: U32, cn: U32, p5: P5}
+  DLs{xs: List<&2, U32>, ys: List<&2, U32>}
+  DLs1{y: U32, xt: List<&2, U32>, yt: List<&2, U32>}
+  DLs2{wx: U32, xt: List<&2, U32>, yt: List<&2, U32>}
+  DLs3{xt: List<&2, U32>, yt: List<&2, U32>}
+  DLs4{go: Bool, t: L.Tri, xt: List<&2, U32>, yt: List<&2, U32>}
   # index comparison answered; fire K or fall through
   WKGo{kok: Bool, isue: Bool, can: Bool, delta: Bool, vi: U32,
        ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
@@ -3847,19 +3860,71 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +p2 : U32 = pp
       +m2 : U32 = mn
       +k2 : U32 = mk
+      +xs : List<&2, U32> = I.skip_u(sargs, p2)
+      +ys : List<&2, U32> = I.take_u(I.skip_u(a2, (p2 + 1 + m2 : U32)), k2,
+                                     Nil{})
       km(p, KCon{WK4{pok, isue, can, delta, vi, ps, qs, e, a2, fu, p2, m2,
-                     k2, cn, p5}, k},
+                     k2, cn, p5, xs, ys}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         keq_lists_tin(fs, I.skip_u(sargs, p2),
-                       I.take_u(I.skip_u(a2, (p2 + 1 + m2 : U32)), k2,
-                                Nil{}),
-                       lnt))
+         keq_lists_tin(fs, xs, ys, lnt))
     # ---- K: verdict arrived ----
     case 1n+p KCon{WK4{pok, isue, can, delta, vi, ps, qs, e, args, fu, pp,
+                       mn, mk, cn, p5, xs, ys}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      +pk : Bool = pok
+      km(p, KCon{WK4b{pk && Bool.not(L.tri_is_yes(t2)), t2, pk, isue, can,
+                      delta, vi, ps, qs, e, args, fu, pp, mn, mk, cn, p5, xs,
+                      ys}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WK4b{False{}, t, pok, isue, can, delta, vi, ps, qs, e,
+                        args, fu, pp, mn, mk, cn, p5, xs, ys}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WKGo{Bool.and(pok, L.tri_is_yes(t)), isue, can, delta, vi,
+                      ps, qs, e, args, fu, pp, mn, mk, cn, p5}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # the indices are not syntactically equal: Lean's to_cnstr_when_K checks
+    # the major's type against the constructor's by is_def_eq, so compare
+    # each index pair by defeq (`motive (castSucc i)` vs `motive ⟨i, h⟩`)
+    case 1n+p KCon{WK4b{True{}, t, pok, isue, can, delta, vi, ps, qs, e,
+                        args, fu, pp, mn, mk, cn, p5, xs, ys}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLs{xs, ys}, KCon{WK5{pok, isue, can, delta, vi, ps, qs, e,
+                                       args, fu, pp, mn, mk, cn, p5}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WK5{pok, isue, can, delta, vi, ps, qs, e, args, fu, pp,
                        mn, mk, cn, p5}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       km(p, KCon{WKGo{Bool.and(pok, L.tri_is_yes(t)), isue, can, delta, vi,
                       ps, qs, e, args, fu, pp, mn, mk, cn, p5}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # ---- defeq of two lists, pairwise (whnf each side first) ----
+    case 1n+p KCon{DLs{Nil{}, Nil{}}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DLs{Con{x, xt}, Con{y, yt}}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DWhd{x}, KCon{DLs1{y, xt, yt}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLs{xs, ys}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{DLs1{y, xt, yt}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      km(p, KCon{DWhd{y}, KCon{DLs2{wx, xt, yt}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DLs2{wx, xt, yt}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wy : U32 = ri
+      +wx2 : U32 = wx
+      km(p, KCon{DSub{False{}, U32.is_eq(wx2, wy), wx2, wy, Nil{}, 4096},
+                 KCon{DLs3{xt, yt}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DLs3{xt, yt}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      km(p, KCon{DLs4{L.tri_is_yes(t2), t2, xt, yt}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DLs4{True{}, t, xt, yt}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DLs{xt, yt}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, knoop(fs, ri))
+    case 1n+p KCon{DLs4{False{}, t, xt, yt}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
     case 1n+p KCon{WKGo{True{}, isue, can, delta, vi, ps, qs, e, args, fu,
                         pp, mn, mk, cn, p5}, k} Tuple{Tuple{fs, msg}, ri}:
       +a2 : List<&2, U32> = args
