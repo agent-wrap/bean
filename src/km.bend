@@ -4698,10 +4698,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                      && U32.is_gt(la, 5)
       +isqi : Bool = U32.is_eq(n2, R.get(U32, 64n, qtt, 1, 4294967295))
                      && U32.is_gt(la, 4)
-      +issuc : Bool = U32.is_eq(n2, R.get(U32, 64n, qtt, 4, 4294967295))
+      # Lean's reduce_nat (the successor fold and the literal arithmetic)
+      # runs in whnf only, never in whnf_core: with delta off the
+      # successor's argument was whnf'd in full here, and a pair
+      # `succ (a + 4294967264) =?= succ (b + 4294967264)` under a binder
+      # (Char.toUpper._proof_1) descended the literal one successor per
+      # whnf_core entry; Lean's is_def_eq_offset settles it by args-first
+      +dl : Bool = delta
+      +issuc : Bool = dl && U32.is_eq(n2, R.get(U32, 64n, qtt, 4, 4294967295))
                       && U32.is_eq(la, 1)
       km(p, KCon{WScB{issuc, I.nth_u(a2, 0, 4294967295),
-                      WPh3{U32.is_lt(aw, 14) && U32.is_gt(la, 1), aw,
+                      WPh3{dl && U32.is_lt(aw, 14) && U32.is_gt(la, 1), aw,
                            Bool.or(isql, isqi), S.pick(isql, 5, 4), can,
                            delta, vi, ps, qs, e, a2, fu, p5, cx9}, cx9}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
