@@ -1417,7 +1417,10 @@ def lit_ok(+aw: U32, +da: List<&2, U32>, +db: List<&2, U32>) -> Bool:
   S.pick_b(U32.is_eq(aw, 3), U32.is_le((la + lb : U32), 200),
    S.pick_b(U32.is_eq(aw, 4),
             U32.is_le(lb, 4) && U32.is_le((la * dec_u32(dec_norm(db), 0) : U32), 90),
-            U32.is_le(la, 200) && U32.is_le(lb, 200)))
+    # shifts: the shift count stays small (2^k is computed), results <= 200 digits
+    S.pick_b(U32.is_eq(aw, 11) || U32.is_eq(aw, 12),
+             U32.is_le(lb, 4) && U32.is_le((la + (dec_u32(dec_norm(db), 0) / 3 : U32) : U32), 200),
+             U32.is_le(la, 200) && U32.is_le(lb, 200))))
 
 # --- literals against numerals -------------------------------------------
 # `ENat 3` and `Nat.succ (Nat.succ (Nat.succ Nat.zero))` are the same number
@@ -1480,6 +1483,81 @@ def lit_arith(+ok: Bool, +which: U32, +st: IS, +a: List<&2, U32>,
       IR{st, 4294967295, False{}}
     case True{}:
       lit_op(which, st, a, b, tn, fn2)
+
+# --- bitwise operations, shifts and gcd (Lean's reduce_bin_nat_op also
+# computes Nat.land/lor/xor/shiftLeft/shiftRight/gcd on literals; without
+# them `~~~(-1 : UInt32)` unfolds Nat.land into a binary recursion)
+# the binary digits of a, most significant first (0 -> Nil)
+def dec_bits_r(fuel: Nat, +stop: Bool, +a: List<&2, U32>,
+               acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel stop:
+    case 0n _:
+      acc
+    case 1n+p True{}:
+      acc
+    case 1n+p False{}:
+      +a2 : List<&2, U32> = dec_norm(a)
+      +q : List<&2, U32> = dec_norm(dec_div(a2, [50]))
+      dec_bits_r(p, dec_is_zero(q), q,
+                 Con{S.pick(dec_is_zero(dec_mod(a2, [50])), 0, 1), acc})
+
+def dec_bits(+a: List<&2, U32>) -> List<&2, U32>:
+  +a2 : List<&2, U32> = dec_norm(a)
+  dec_bits_r(4096n, dec_is_zero(a2), a2, Nil{})
+
+# back to decimal from bits most significant first
+def bits_dec(bits: List<&2, U32>, +acc: List<&2, U32>) -> List<&2, U32>:
+  match bits:
+    case Nil{}:
+      dec_norm(acc)
+    case Con{b, t}:
+      bits_dec(t, dec_add(dec_mul_small(acc, 2), [(b + 48 : U32)]))
+
+def bit_op(+op: U32, +x: U32, +y: U32) -> U32:
+  S.pick(U32.is_eq(op, 0), U32.and(x, y),
+         S.pick(U32.is_eq(op, 1), U32.or(x, y), U32.xor(x, y)))
+
+# zip two bit lists LEAST significant first (the reversed digit lists);
+# the result comes out most significant first
+def bits_zip(fuel: Nat, +op: U32, xs: List<&2, U32>, ys: List<&2, U32>,
+             acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel xs ys:
+    case 0n _ _:
+      acc
+    case 1n+p Nil{} Nil{}:
+      acc
+    case 1n+p Con{x, tx} Nil{}:
+      bits_zip(p, op, tx, Nil{}, Con{bit_op(op, x, 0), acc})
+    case 1n+p Nil{} Con{y, ty}:
+      bits_zip(p, op, Nil{}, ty, Con{bit_op(op, 0, y), acc})
+    case 1n+p Con{x, tx} Con{y, ty}:
+      bits_zip(p, op, tx, ty, Con{bit_op(op, x, y), acc})
+
+def dec_bitop(+op: U32, +a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  bits_dec(bits_zip(4096n, op, rev_u(dec_bits(a), Nil{}),
+                    rev_u(dec_bits(b), Nil{}), Nil{}),
+           [48])
+
+def dec_shl(+a: List<&2, U32>, +k: List<&2, U32>) -> List<&2, U32>:
+  dec_norm(dec_mul(a, dec_pow([50], k)))
+
+def dec_shr(+a: List<&2, U32>, +k: List<&2, U32>) -> List<&2, U32>:
+  dec_norm(dec_div(a, dec_pow([50], k)))
+
+def dec_gcd_r(fuel: Nat, +stop: Bool, +a: List<&2, U32>,
+              +b: List<&2, U32>) -> List<&2, U32>:
+  match fuel stop:
+    case 0n _:
+      a
+    case 1n+p True{}:
+      a
+    case 1n+p False{}:
+      +r : List<&2, U32> = dec_norm(dec_mod(a, b))
+      dec_gcd_r(p, dec_is_zero(r), b, r)
+
+def dec_gcd(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
+  +b2 : List<&2, U32> = dec_norm(b)
+  dec_gcd_r(4096n, dec_is_zero(b2), dec_norm(a), b2)
 
 def nat_digits(+x: T.Ex) -> List<&2, U32>:
   match x:

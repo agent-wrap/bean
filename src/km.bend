@@ -2655,8 +2655,20 @@ def klit(fs: Array<T.Ex> & U32, +aw: U32, +da: List<&2, U32>,
       kalloc(fs, T.ENat{I.dec_div(da, db)}, base)
     case 6:
       kalloc(fs, T.ENat{I.dec_mod(da, db)}, base)
-    case _:
+    case 7:
       kalloc(fs, T.EConst{S.pick(I.dec_eq(da, db), tn, fn2), Nil{}}, base)
+    case 8:
+      kalloc(fs, T.ENat{I.dec_bitop(0, da, db)}, base)
+    case 9:
+      kalloc(fs, T.ENat{I.dec_bitop(1, da, db)}, base)
+    case 10:
+      kalloc(fs, T.ENat{I.dec_bitop(2, da, db)}, base)
+    case 11:
+      kalloc(fs, T.ENat{I.dec_shl(da, db)}, base)
+    case 12:
+      kalloc(fs, T.ENat{I.dec_shr(da, db)}, base)
+    case _:
+      kalloc(fs, T.ENat{I.dec_gcd(da, db)}, base)
 
 # --- iota reduct construction (infer.bend's build_ihs tail + nat_expand) ---
 def kwith_msg(r: (Array<T.Ex> & U32) & U32,
@@ -3010,7 +3022,13 @@ def klitop(+n: U32, +la: U32, +q: R.Tr<U32>) -> Bool:
       || U32.is_eq(n, R.get(U32, 64n, q, 12, 4294967295))
       || U32.is_eq(n, R.get(U32, 64n, q, 13, 4294967295))
       || U32.is_eq(n, R.get(U32, 64n, q, 14, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 15, 4294967295)))
+      || U32.is_eq(n, R.get(U32, 64n, q, 15, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 26, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 27, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 28, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 29, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 30, 4294967295))
+      || U32.is_eq(n, R.get(U32, 64n, q, 31, 4294967295)))
 
 # the probe failure cache's key (0xC0000000..0xFFFFFF00: clear of node
 # indices, the x + 2^31 YES cache and the flags) and fingerprint
@@ -4473,7 +4491,19 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                                                    4294967295)), 6,
                          S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 15,
                                                     4294967295)), 7,
-                                99))))))))
+                          S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 26,
+                                                     4294967295)), 8,
+                           S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 27,
+                                                      4294967295)), 9,
+                            S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 28,
+                                                       4294967295)), 10,
+                             S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 29,
+                                                        4294967295)), 11,
+                              S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 30,
+                                                         4294967295)), 12,
+                               S.pick(U32.is_eq(n2, R.get(U32, 64n, qtt, 31,
+                                                          4294967295)), 13,
+                                99))))))))))))))
       +isql : Bool = U32.is_eq(n2, R.get(U32, 64n, qtt, 0, 4294967295))
                      && U32.is_gt(la, 5)
       +isqi : Bool = U32.is_eq(n2, R.get(U32, 64n, qtt, 1, 4294967295))
@@ -4481,7 +4511,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +issuc : Bool = U32.is_eq(n2, R.get(U32, 64n, qtt, 4, 4294967295))
                       && U32.is_eq(la, 1)
       km(p, KCon{WScB{issuc, I.nth_u(a2, 0, 4294967295),
-                      WPh3{U32.is_lt(aw, 8) && U32.is_gt(la, 1), aw,
+                      WPh3{U32.is_lt(aw, 14) && U32.is_gt(la, 1), aw,
                            Bool.or(isql, isqi), S.pick(isql, 5, 4), can,
                            delta, vi, ps, qs, e, a2, fu, p5}}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))

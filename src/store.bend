@@ -566,8 +566,13 @@ def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                    [97, 100, 100], [115, 117, 98], [98, 108, 101],
                    [116, 114, 117, 101], [102, 97, 108, 115, 101],
                    [109, 117, 108], [112, 111, 119], [100, 105, 118],
-                   [109, 111, 100], [98, 101, 113]],
-              [q, q, q, n, n, n, n, n, b, b, n, n, n, n, n], nones(15n))
+                   [109, 111, 100], [98, 101, 113],
+                   [108, 97, 110, 100], [108, 111, 114], [120, 111, 114],
+                   [115, 104, 105, 102, 116, 76, 101, 102, 116],
+                   [115, 104, 105, 102, 116, 82, 105, 103, 104, 116],
+                   [103, 99, 100]],
+              [q, q, q, n, n, n, n, n, b, b, n, n, n, n, n, n, n, n, n, n, n],
+              nones(21n))
   # string literals (Lean's string_lit_to_constructor): String.ofList,
   # List.nil, List.cons, Char.ofNat (keys 21-24), Char (25)
   +sl : List<&2, U32> =
@@ -577,7 +582,10 @@ def build_wk4(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
                nth_or(roots, 9)], nones(4n))
   set_keys([21, 22, 23, 24, 25], [nth_or(sl, 0), nth_or(sl, 1), nth_or(sl, 2),
                                   nth_or(sl, 3), nth_or(roots, 9)],
-  set_keys([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15], un,
+  # keys 26..31: Nat.land, lor, xor, shiftLeft, shiftRight, gcd -- the rest
+  # of Lean's reduce_bin_nat_op (log2 is unary and still unfolds)
+  set_keys([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15,
+            26, 27, 28, 29, 30, 31], un,
     set_keys([10, 16, 17, 18, 19, 20],
              [nth_or(roots, 3), nth_or(roots, 4), nth_or(roots, 5),
               nth_or(roots, 6), nth_or(roots, 7), n], t)))
