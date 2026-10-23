@@ -7037,11 +7037,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = x
       km(p, KCon{DWhd{x2}, KCon{LDw{y, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # the eager fallback evaluates the ORIGINAL pair (memoised, cached), not
+    # the probe's furthest-unfolded pair (fresh nodes: no whnf memo, no YES
+    # cache, every nested DSub re-infers types)
     case 1n+p KCon{LDk1{False{}, False{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{LDp{x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
-         nt, hcb, kfetch(fs, r2, r2))
+      +x2 : U32 = x
+      km(p, KCon{DWhd{x2}, KCon{LDw{y, ctx, fu}, k}}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LDp{x, y, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
       +a2 : U32 = a
