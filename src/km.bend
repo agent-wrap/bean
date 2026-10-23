@@ -4727,15 +4727,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # -- Pi/Pi --
     case 1n+p KCon{DEy{T.EAll{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EAll{n2, t2, b2, i2}}}, ri}:
-      # Lean's is_def_eq_binding compares domains and bodies by is_def_eq
-      # (lazy); LD probes lazily first and evaluates only what the probe
-      # leaves open (a body `(fun m => .. modCore (succ n) m ..) 2^64`
-      # whnf'd eagerly descends `succ n - 2^64` by unary recursion)
-      +f2 : U32 = fu
       +t12 : U32 = t1
-      +c2 : List<&2, U32> = ctx
-      km(p, KCon{LD{t12, t2, c2, (f2 - 1 : U32)},
-                 KCon{DAl3{b1, b2, t12, c2, f2}, k}},
+      km(p, KCon{DWhd{t12}, KCon{DAl2{0, t12, t2, b1, b2, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAl2{w1, t1, t2, b1, b2, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -4754,9 +4747,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DAl3{b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
-      +f2 : U32 = fu
-      km(p, KCon{LD{b1, b2, Con{t1, ctx}, (f2 - 1 : U32)}, KCon{DAl6{t}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      +b12 : U32 = b1
+      km(p, KCon{DWhd{b12}, KCon{DAl4{t, b12, b2, t1, ctx, fu}, k}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAl4{d1, b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b22 : U32 = b2
@@ -4778,9 +4771,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # -- Lam/Lam --
     case 1n+p KCon{DEy{T.ELam{n1, t1, b1, i1}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.ELam{n2, t2, b2, i2}}}, ri}:
-      +f2 : U32 = fu
-      km(p, KCon{LD{b1, b2, Con{t1, ctx}, (f2 - 1 : U32)}, KCon{DLm4{}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      +b12 : U32 = b1
+      km(p, KCon{DWhd{b12}, KCon{DLm3{0, b12, b2, t1, ctx, fu}, k}}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DLm3{w3, b1, b2, t1, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b22 : U32 = b2
@@ -4860,12 +4853,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DLzD2{False{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      # Lean's is_def_eq_app: the function parts, then the arguments, each
-      # by is_def_eq -- LD first (lazy), eager only when it cannot settle
-      +f3 : U32 = fu
-      +c2 : List<&2, U32> = ctx
-      km(p, KCon{LD{f1, f2, c2, (f3 - 1 : U32)},
-                 KCon{DAq3b{a1, a2, xi, yi, c2, f3}, k}},
+      km(p, KCon{DWhd{f1}, KCon{DAq2{f1, f2, a1, a2, xi, yi, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # args-first loop: walk both argument lists, defeq each pair
     case 1n+p KCon{DLzA{Nil{}, Nil{}, f1, f2, a1, a2, xi, yi, ctx, fu}, k}
@@ -5090,9 +5078,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{DAq3b{a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MTri{t}}, ri}:
-      +f2 : U32 = fu
-      +c2 : List<&2, U32> = ctx
-      km(p, KCon{LD{a1, a2, c2, (f2 - 1 : U32)}, KCon{DAq6{t, xi, yi, c2}, k}},
+      +a12 : U32 = a1
+      km(p, KCon{DWhd{a12}, KCon{DAq4{t, a12, a2, xi, yi, ctx, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DAq4{d1, a1, a2, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
