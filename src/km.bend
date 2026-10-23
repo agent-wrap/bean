@@ -452,6 +452,17 @@ type KF is Data:
         ctx: List<&2, U32>}
   DIr5s{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5u{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  PI1{cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  PI1g{has: Bool, tx: U32, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>,
+       fu: U32}
+  PI2{tx: U32, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  PI2g{prf: Bool, tx: U32, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>,
+       fu: U32}
+  PI3{tx: U32, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  PI3g{has: Bool, tx: U32, ty: U32, cl: Bool, x: U32, y: U32,
+       ctx: List<&2, U32>, fu: U32}
+  PI6{cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  PI6g{yes: Bool, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DIr5v{un: Bool, zy: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5w{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5wg{bad: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
@@ -4353,10 +4364,80 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                          && Bool.not(U32.is_eq(I.const_nm2(nd), 4294967295)),
                       cl, xi, yi, ctx, fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # Lean's is_def_eq_core tries proof irrelevance before any structural
+    # work: when the cheap type oracle says x is a proof, two proofs of
+    # defeq types are equal (YES only here; otherwise the structural path,
+    # whose own irrelevance step still runs)
     case 1n+p KCon{DDc3{False{}, cl, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
-      +y2 : U32 = yi
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DTy1{c2}, KCon{PI1{cl, x2, yi, c2, fu}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, 0))
+    case 1n+p KCon{PI1{cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +t2 : U32 = ri
+      km(p, KCon{PI1g{U32.is_ne(t2, 4294967295), t2, cl, x, y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, t2))
+    case 1n+p KCon{PI1g{True{}, tx, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +t2 : U32 = tx
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{kslev(t2, c2, 2000000), KCon{PI2{t2, cl, x, y, c2, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, t2, t2))
+    case 1n+p KCon{PI2{tx, cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, MLn{u}}, ri}:
+      km(p, KCon{PI2g{L.tri_is_yes(L.ln_is_zero(u)), tx, cl, x, y, ctx, fu},
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{PI2g{True{}, tx, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = y
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DTy1{c2}, KCon{PI3{tx, cl, x, y2, c2, fu}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, 0))
+    case 1n+p KCon{PI3{tx, cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +t2 : U32 = ri
+      km(p, KCon{PI3g{U32.is_ne(t2, 4294967295), tx, t2, cl, x, y, ctx, fu},
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, t2))
+    # the types compared lazily (the probe: whnf_core and lazy delta, never a
+    # full whnf -- a proof's type can unfold into a long evaluation)
+    case 1n+p KCon{PI3g{True{}, tx, ty, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+      +n2 : U32 = nx
+      km(p, KCon{LZ0{tx, ty, 256},
+                 KCon{KZr{}, KCon{KRb{n2, wm}, KCon{PI6{cl, x, y, ctx, fu},
+                                                     k}}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
+    case 1n+p KCon{PI6{cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{PI6g{L.tri_is_yes(t), cl, x, y, ctx, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{PI6g{True{}, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DSRec{cl, x, y}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+         nt, hcb, kmtri(fs, L.TYes{}))
+    # not (known to be) proofs of one type: the structural path
+    case 1n+p KCon{PI1g{False{}, tx, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{cl, x2, y2}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
+    case 1n+p KCon{PI2g{False{}, tx, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{cl, x2, y2}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
+    case 1n+p KCon{PI3g{False{}, tx, ty, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{cl, x2, y2}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
+    case 1n+p KCon{PI6g{False{}, cl, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
       km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{cl, x2, y2}, k}}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DDc3{True{}, cl, xi, yi, ctx, fu}, k}
