@@ -6034,14 +6034,20 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                  KCon{IPjR4{I.is_all(nd2), lsr, ok, ppx, ppd, pr, tn, idx, sx,
                             sargs, rs, c2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, f2, ri))
-    # field ppx definitely data here: the bound is definite from it on
+    # field ppx definitely data here: the bound is definite from it on; a
+    # proof here, and the projection is the next field: every earlier
+    # dependent field is a proof, so it is allowed
     case 1n+p KCon{IPjR4{isall, lsr, ok, ppx, ppd, pr, tn, idx, sx, sargs, rs,
                          ctx}, k} Tuple{Tuple{fs, MLn{u}}, ri}:
       +px2 : U32 = ppx
       +i2 : U32 = idx
       +tn2 : U32 = tn
-      km(p, KCon{IPj7{lsr, ok, px2,
-                      S.pick(isall && L.tri_is_no(L.ln_is_zero(u)), px2, ppd),
+      +z : L.Tri = L.ln_is_zero(u)
+      +ia : Bool = isall
+      km(p, KCon{IPj7{lsr, ok,
+                      S.pick(ia && L.tri_is_yes(z)
+                             && U32.is_eq(i2, (px2 + 1 : U32)), i2, px2),
+                      S.pick(ia && L.tri_is_no(z), px2, ppd),
                       pr, tn2, i2, sargs, rs, ctx}, k}, lnt,
          nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kprojn_tin(hcb, fs, i2, tn2, sx))

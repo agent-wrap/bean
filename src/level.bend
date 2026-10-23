@@ -342,7 +342,7 @@ def imax_keep(+same: Bool, +azero: Bool, +a: LN, +b: LN) -> LN:
     case False{} False{}:
       LNimax{a, b, 0}
 
-def ln_imax(+a: LN, +b: LN) -> LN:
+def ln_imax_go(+a: LN, +b: LN) -> LN:
   match a b:
     case LNun{} _:
       LNun{}
@@ -356,6 +356,20 @@ def ln_imax(+a: LN, +b: LN) -> LN:
       +pb : LN = b
       pick_ln(is_zero_ln(pb), ln_zero(),
               imax_keep(ln_eq(32n, pa, pb), is_zero_ln(pa), pa, pb))
+
+# imax a 0 = 0 whatever a is -- even an unknown a: a Pi into a Prop is a
+# Prop however large its domain (a class of Prop fields over binders the
+# oracle cannot size was undecided, and its recursor declined)
+def ln_imax_z(+bz: Bool, +a: LN, +b: LN) -> LN:
+  match bz:
+    case True{}:
+      ln_zero()
+    case False{}:
+      ln_imax_go(a, b)
+
+def ln_imax(+a: LN, +b: LN) -> LN:
+  +b2 : LN = b
+  ln_imax_z(is_zero_ln(b2), a, b2)
 
 # "Both, three-valued": no unless either is no, otherwise unknown if either
 # is unknown. `infer` has its own copy; this module cannot import it.

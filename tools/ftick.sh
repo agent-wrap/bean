@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
 # Build a per-declaration TIMING variant of the flat checker:
 #     tools/ftick.sh OUT
-# Patches the generated C so that entering fcheck's fck_one (one per
+# Patches the generated C so that entering fcheck's fck_sel (one per
 # declaration, in export order) and block_v (inductive blocks) logs to stderr:
 #     SLOW decl=<index> blk=<0|1> dt=<seconds> at=<since first decl>
 # for every declaration over 0.3 s, PROG every 5000 declarations, and
 #     VERD decl=<index> v=<1 reject | 2 decline>
 # for every declaration that does not accept. The
 # index counts declaration records (axiom/def/thm/opaque/quot/inductive) in
-# file order from 0. Verdicts are unchanged. Found the init hang
+# file order from 0 (fck_all's own counter). SRC=DIR builds a copy. Verdicts are unchanged. Found the init hang
 # (String.Pos.Raw.IsValid) after prefix bisection proved timing-dependent.
 set -euo pipefail
 OUT="$1"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
-"$DIR/bend.sh" "$DIR/../src/fmain.bend" -o "$TMP/gen.c"
+"$DIR/bend.sh" "${SRC:-$DIR/../src}/fmain.bend" -o "$TMP/gen.c"
 python3 - "$TMP/gen.c" <<'PY'
 import sys
 p = sys.argv[1]; s = open(p).read()
 tick = r'''
 #include <time.h>
 static double dbg_now(void){struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec+t.tv_nsec*1e-9;}
-static long dbg_decl=-1; static double dbg_t0=0, dbg_last=0; static int dbg_isblk=0;
+static long dbg_decl=-1, dbg_cur=0; static double dbg_t0=0, dbg_last=0; static int dbg_isblk=0;
 static void dbg_tick(int kind){
   double n=dbg_now(); if(dbg_t0==0){dbg_t0=n;dbg_last=n;}
   if(kind==0){ double dt=n-dbg_last; if(dt>0.3 && dbg_decl>=0) fprintf(stderr,"SLOW decl=%ld blk=%d dt=%.2f at=%.1f\n",dbg_decl,dbg_isblk,dt,n-dbg_t0);
-    dbg_decl++; dbg_last=n; dbg_isblk=0; if(dbg_decl%5000==0) fprintf(stderr,"PROG decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);}
+    dbg_decl=dbg_cur; dbg_last=n; dbg_isblk=0; if(dbg_decl%5000==0) fprintf(stderr,"PROG decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);}
   else { dbg_isblk=1; }
 }
 '''
@@ -33,10 +33,13 @@ i = s.index('static void err_fail'); s = s[:i] + tick + s[i:]
 # fck_all's last argument is the PREVIOUS declaration's ((store, nx), verdict),
 # unboxed: the verdict is the enum index in register _fr_2 (0 accept,
 # 1 reject, 2 decline) -- log every non-accept against that declaration
-a = "    u32 _fr_2 = r23;\n"
-assert s.count(a) == 1, 'fck_all registers moved'
-s = s.replace(a, a + '    if (_fr_2 != 0) fprintf(stderr, "VERD decl=%ld v=%u\\n", dbg_decl, _fr_2);\n')
-for fid, k in (('FID_FCHECK_FCK_ONE', 0), ('FID_FCHECK_BLOCK_V', 1)):
+import re
+m = re.search(r"    u32 _ix_0 = r(\d+);\n    Term _fr_0 = r\d+;\n    u32 _fr_1 = r\d+;\n    u32 _fr_2 = r\d+;\n", s)
+assert m, 'fck_all registers moved'
+# the index fck_all carries is the NEXT declaration's; the verdict it
+# receives is the previous one's
+s = s[:m.end()] + '    dbg_cur = (long)_ix_0; if (_fr_2 != 0) fprintf(stderr, "VERD decl=%ld v=%u\\n", (long)_ix_0 - 1, _fr_2);\n' + s[m.end():]
+for fid, k in (('FID_FCHECK_FCK_SEL', 0), ('FID_FCHECK_BLOCK_V', 1)):
     a = f"  WL_CASE({fid})\n  {{\n"
     assert s.count(a) == 1, fid
     s = s.replace(a, a + f"    dbg_tick({k});\n")

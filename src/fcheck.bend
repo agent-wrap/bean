@@ -135,10 +135,30 @@ def kpow2(n: Nat) -> U32:
 def ovf_v(+nx: U32, +cap: U32, +v: C.V) -> C.V:
   C.pick_v(U32.is_ge(nx, cap), C.VDecline{}, v)
 
+# The declarations checked: [krange_lo, krange_hi) by index. Everything in
+# the checker; tools/frange.sh rewrites these two in a copy to check one
+# slice of a large export (the rest trusted, still entering the tables), so
+# a long corpus runs as parallel slices.
+def krange_lo() -> U32:
+  0
+
+def krange_hi() -> U32:
+  4294967295
+
+def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+            +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
+            fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & C.V:
+  match go:
+    case True{}:
+      fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt, fs)
+    case False{}:
+      (fs, C.VAccept{})
+
 def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            +cap: U32, +poison: Bool, +acc: C.V,
+            +cap: U32, +poison: Bool, +acc: C.V, +ix: U32,
             fr: (Array<T.Ex> & U32) & C.V) -> C.V:
   match ds fr:
     case Nil{} Tuple{Tuple{ex, nx}, v}:
@@ -153,11 +173,13 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
       fck_all(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, cap, p2,
               C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cap, v)),
+              (ix + 1 : U32),
               # every declaration allocates from the region base again:
               # nothing a finished declaration allocated is referenced
               # later (its memo dies with it; kbump moves the hash table to
               # a new epoch, which retires every pointer it left)
-              fck_one(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
+              fck_sel(U32.is_ge(ix, krange_lo()) && U32.is_lt(ix, krange_hi()),
+                      st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
                       (M.kbump(ex, basenx), (basenx + M.ktbl() + 2 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
@@ -186,7 +208,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  # usable capacity; the array is twice that, its upper half
                  # holds the loose-bvar ranges (km's kput / khalf)
                  kpow2(M.sdepth(nx)), False{},
-                 C.VAccept{},
+                 C.VAccept{}, 0,
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),

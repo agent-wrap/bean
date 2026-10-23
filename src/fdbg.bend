@@ -1,6 +1,7 @@
 # DEBUG ENTRY (not the checker): per-declaration verdicts of the flat
 # checker. Prints: scans word (4294966272 + 16*pre + 4*consts + projs), then
-# for each declaration: name_index*1024 (0 for inductive blocks) + 64*structural +
+# for each declaration: name_index*1024 (0 for inductive blocks; their low
+# bits are the structural parts, see fck_one_d) + 64*structural +
 # typed_verdict + 16*incomplete + 32*corrupt (verdict 0/1/2, 3 = sentinel).
 import Base
 import ./scan.bend as S
@@ -232,9 +233,16 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case K.DInd{nms, items} Tuple{ex, nx}:
       +its = items
       +ntb = B.add_items_nt(its, nt)
+      # an inductive block: its structural parts, two bits each --
+      # items + 4 ctors + 16 recursors + 64 derivation + 256 names
+      # (the mutual/nested path: recursors and derivation are its verdict)
       done((ex, nx),
-       (vcode(FC.block_v(C.is_nm_block(its), its, st, mt, nt, lp, vt, ntb,
-                         nmt)) * 64 : U32))
+       (vcode(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}))
+        + vcode(C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
+                           C.VAccept{})) * 4
+        + vcode(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)) * 16
+        + vcode(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp)) * 64
+        + vcode(C.block_names_v(its, nmt)) * 256 : U32))
     case K.DNone{} Tuple{ex, nx}:
       done((ex, nx), 128)
     case _ Tuple{ex, nx}:
