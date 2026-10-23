@@ -1788,10 +1788,18 @@ def ctx_upto(doms: List<&2, U32>, +i: U32,
 # directly: "Non-dependent data fields are not relevant."
 #
 # `nf` when there is no such field, which permits every proof field.
+# a field counts as data: not definitely a proof, or (strict) definitely not
+def kdata(+strict: Bool, +z: L.Tri) -> Bool:
+  match strict:
+    case True{}:
+      L.tri_is_no(z)
+    case False{}:
+      Bool.not(L.tri_is_yes(z))
+
 def dep_data_inner(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
                    +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
                    +lp: R.Tr<List<&2, U32>>, +nskip: U32, +k: U32,
-                   +j: U32, +acc: U32) -> U32:
+                   +j: U32, +acc: U32, +strict: Bool) -> U32:
   match n:
     case 0n:
       acc
@@ -1803,25 +1811,25 @@ def dep_data_inner(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
                             U.ex_at(ex, I.nth_u(doms, (nskip + k : U32),
                                               4294967295)),
                             (k - 1 - j : U32))
-             && Bool.not(L.tri_is_yes(
+             && kdata(strict,
                   L.ln_is_zero(I.sl(256n, ex, ln, nt, lp,
                     U.ex_at(ex, I.nth_u(doms, (nskip + j : U32),
                                       4294967295)),
-                    ctx_upto(doms, (nskip + j : U32), Nil{})))))
+                    ctx_upto(doms, (nskip + j : U32), Nil{}))))
       dep_data_inner(q, doms, ex, ln, nt, lp, nskip, k, (j + 1 : U32),
-                     S.pick(hit && U32.is_lt(j, acc), j, acc))
+                     S.pick(hit && U32.is_lt(j, acc), j, acc), strict)
 
 def dep_data_outer(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
                    +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
                    +lp: R.Tr<List<&2, U32>>, +nskip: U32, +nf: U32,
-                   +k: U32, +acc: U32) -> U32:
+                   +k: U32, +acc: U32, +strict: Bool) -> U32:
   match n:
     case 0n:
       acc
     case 1n+q:
       dep_data_outer(q, doms, ex, ln, nt, lp, nskip, nf, (k + 1 : U32),
                      dep_data_inner(U32.to_nat(nf), doms, ex, ln, nt, lp,
-                                    nskip, k, 0, acc))
+                                    nskip, k, 0, acc, strict), strict)
 
 # The context for the field at position `i`: the domains before it,
 # innermost first.
@@ -1831,17 +1839,20 @@ def dep_data_outer(n: Nat, +doms: List<&2, U32>, +ex: R.Tr<T.Ex>,
 # tell" must only decline.
 def prop_proj_bound(+isprop: L.Tri, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                     +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +cty: U32,
-                    +np: U32, +nf: U32) -> U32:
-  S.pick(L.tri_is_yes(isprop),
-         dep_data_outer(U32.to_nat(nf),
-                        D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, cty),
-                                            Nil{}), Nil{}),
-                        ex, ln, nt, lp, np, nf, 0, nf),
-         4294967295)
+                    +np: U32, +nf: U32, +strict: Bool) -> U32:
+  match isprop:
+    case L.TYes{}:
+      dep_data_outer(U32.to_nat(nf),
+                     D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, cty),
+                                         Nil{}), Nil{}),
+                     ex, ln, nt, lp, np, nf, 0, nf, strict)
+    case _:
+      4294967295
 
 def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                    +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>,
-                   +ind: K.IItem) -> R.Tr<I.Meta>:
+                   +ind: K.IItem, +nt: R.Tr<U32>,
+                   +lp: R.Tr<List<&2, U32>>) -> R.Tr<I.Meta>:
   match ind:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
       +its = items
@@ -1884,23 +1895,35 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                       L.ln_is_zero(R.get(L.LN, 64n, ln,
                                         I.sort_lvl_of(tele_res(256n, ex,
                                           U.ex_at(ex, ty))), L.LNun{})),
-                                      ex, ln, R.TNil{},
-                                      R.TNil{},
+                                      ex, ln, nt, lp,
                                       ctor_ty_by_cidx(its, pnm, 0,
                                                       4294967295),
                                       np,
-                                      ctor_nf_by_cidx(its, pnm, 0, 0))},
+                                      ctor_nf_by_cidx(its, pnm, 0, 0), False{}),
+                                    prop_proj_bound(
+                                      L.ln_is_zero(R.get(L.LN, 64n, ln,
+                                        I.sort_lvl_of(tele_res(256n, ex,
+                                          U.ex_at(ex, ty))), L.LNun{})),
+                                      ex, ln, nt, lp,
+                                      ctor_ty_by_cidx(its, pnm, 0,
+                                                      4294967295),
+                                      np,
+                                      ctor_nf_by_cidx(its, pnm, 0, 0), True{})},
                              I.MNone{}),
                        t),
                  (pnm + 1073741824 : U32), I.MVer{1}, I.MNone{}))
     case _:
       t
 
+# nt / lp: the constants' types and level params so far, so the bound on
+# projections out of a Prop structure can size field types that mention
+# constants (an empty table counted `a = b` as data)
 def meta_block(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
-               +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+               +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+               +lp: R.Tr<List<&2, U32>>) -> R.Tr<I.Meta>:
   +inds = ind_only(items, Nil{})
   R.sub(I.Meta, U32.is_eq(len_items(inds, 0), 1),
-        meta_block_one(items, ex, ln, t, head_item(inds)), t)
+        meta_block_one(items, ex, ln, t, head_item(inds), nt, lp), t)
 
 # --- mutual and nested blocks -------------------------------------------
 def add_itab(items: List<&2, K.IItem>, +t: R.Tr<K.IItem>) -> R.Tr<K.IItem>:
@@ -2009,22 +2032,23 @@ def derive_or_ver(+items: List<&2, K.IItem>, +st: I.IS, +mt: R.Tr<I.Meta>,
 def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
                 +ctab: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                 +vt: R.Tr<U32>, +ann: List<&2, U32>,
-                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+                +t: R.Tr<I.Meta>, +nt: R.Tr<U32>) -> R.Tr<I.Meta>:
   match ds:
     case Nil{}:
       t
     case Con{head, tail}:
       +h = head
+      +nt2 = B.add_nt(h, nt)
       +lp2 = B.add_lp(h, lp)
       +vt2 = B.add_vt(h, vt)
       +its : List<&2, K.IItem> = K.dcl_items(h)
       +it2 = add_itab(its, itab)
       +ct2 = add_ctab(its, ctab)
-      +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t)
+      +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t, nt2, lp2)
       build_meta2(tail, st, it2, ct2, lp2, vt2, ann,
                   meta_any(U32.is_gt(len_items(ind_only(its, Nil{}), 0), 0),
                            is_nm_block(its), its, st, it2, ct2, t1, lp2, vt2,
-                           ann))
+                           ann), nt2)
 
 def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
@@ -2034,7 +2058,8 @@ def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
     case Con{head, tail}:
       match head:
         case K.DInd{nms, items}:
-          build_meta(tail, ex, ln, meta_block(items, ex, ln, t))
+          build_meta(tail, ex, ln, meta_block(items, ex, ln, t, R.TNil{},
+                                              R.TNil{}))
         case _:
           build_meta(tail, ex, ln, t)
 

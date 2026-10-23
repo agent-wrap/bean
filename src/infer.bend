@@ -37,7 +37,11 @@ type Meta is Data:
   # `ppx` bounds projections out of a PROP structure: a projection is
   # allowed only at an index strictly below it. See the note at the
   # projection rule in `infer`.
-  MInd{p: U32, nf: U32, cty: U32, pr: U32, ppx: U32}
+  # `ppd` is the same bound counting only fields that are DEFINITELY data
+  # under every instantiation (a field `w : α`, α a parameter, may be a
+  # proof in an instance -- `∃ h : a = b, q h` -- so Lean decides it on the
+  # instantiated field): a projection at or past `ppd` definitely violates.
+  MInd{p: U32, nf: U32, cty: U32, pr: U32, ppx: U32, ppd: U32}
   # A recursor reduced by its (verified) rules: nested and mutual blocks.
   # `rules` is flat [ctor, nfields, rhs, ...]; the major premise sits at
   # p + nmot + nmin + k.
@@ -110,14 +114,14 @@ def meta_p(+m: Meta) -> U32:
       p
     case MCtor{ci, p, nf, ind, recs, cty}:
       p
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       p
     case _:
       0
 
 def meta_is_ind(+m: Meta) -> Bool:
   match m:
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       True{}
     case _:
       False{}
@@ -126,7 +130,7 @@ def meta_nf(+m: Meta) -> U32:
   match m:
     case MCtor{ci, p, nf, ind, recs, cty}:
       nf
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       nf
     case _:
       0
@@ -138,21 +142,28 @@ def meta_nf(+m: Meta) -> U32:
 # plain field-type substitution used here.
 def meta_pr(+m: Meta) -> U32:
   match m:
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       pr
     case _:
       1
 
+def meta_ppd(+m: Meta) -> U32:
+  match m:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
+      ppd
+    case _:
+      0
+
 def meta_ppx(+m: Meta) -> U32:
   match m:
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       ppx
     case _:
       0
 
 def meta_cty(+m: Meta) -> U32:
   match m:
-    case MInd{p, nf, cty, pr, ppx}:
+    case MInd{p, nf, cty, pr, ppx, ppd}:
       cty
     case _:
       4294967295
