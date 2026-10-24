@@ -137,6 +137,69 @@ def dmp2(pr: Array<T.Ex> & List<&2, U32>, +y: U32) -> Array<T.Ex> & List<&2, U32
     case Tuple{a, acc}:
       dmp(400n, Array.get(T.Ex, a, y), Nil{}, Con{4294966001, acc})
 
+# the levels of the Sort nodes in a dump (tokens `l, 12`), as records
+# 13 l <level> after a 4294966003 marker: level tokens 30 unknown, 31
+# symbolic, 32 n (base off)*n a max of atoms, 33 off <a> <b> an imax,
+# 34 n (base off)*n <y> <r> a mixed chain
+def lnser_atoms(xs: List<&2, L.Atom>, acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{L.At{b, o}, t}:
+      lnser_atoms(t, Con{o, Con{b, acc}})
+
+def lnlen(xs: List<&2, L.Atom>, +n: U32) -> U32:
+  match xs:
+    case Nil{}:
+      n
+    case Con{h, t}:
+      lnlen(t, (n + 1 : U32))
+
+def lnser(fuel: Nat, l: L.LN, acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel l:
+    case 0n _:
+      Con{35, acc}
+    case 1n+p L.LNun{}:
+      Con{30, acc}
+    case 1n+p L.LNsym{}:
+      Con{31, acc}
+    case 1n+p L.LNmax{xs}:
+      +xs2 : List<&2, L.Atom> = xs
+      lnser_atoms(xs2, Con{lnlen(xs2, 0), Con{32, acc}})
+    case 1n+p L.LNimax{a, b, off}:
+      +p2 : Nat = p
+      lnser(p2, b, lnser(p2, a, Con{off, Con{33, acc}}))
+    case 1n+p L.LNmx{xs, y, r}:
+      +p2 : Nat = p
+      +xs2 : List<&2, L.Atom> = xs
+      lnser(p2, r, lnser(p2, y, lnser_atoms(xs2, Con{lnlen(xs2, 0), Con{34, acc}})))
+
+def lvl_rec1(+go: Bool, +a: U32, +lt: R.Tr<L.LN>,
+             acc: List<&2, U32>) -> List<&2, U32>:
+  match go:
+    case True{}:
+      lnser(64n, R.get(L.LN, 64n, lt, a, L.LNun{}), Con{a, Con{13, acc}})
+    case False{}:
+      acc
+
+def lvl_recs(toks: List<&2, U32>, +lt: R.Tr<L.LN>,
+             acc: List<&2, U32>) -> List<&2, U32>:
+  match toks:
+    case Con{a, Con{b, rest}}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      +lt2 : R.Tr<L.LN> = lt
+      lvl_recs(Con{b2, rest}, lt2, lvl_rec1(U32.is_eq(b2, 12), a2, lt2, acc))
+    case _:
+      acc
+
+def lvl_pass(pr: Array<T.Ex> & List<&2, U32>,
+             +lt: R.Tr<L.LN>) -> Array<T.Ex> & List<&2, U32>:
+  match pr:
+    case Tuple{a, acc}:
+      +acc2 : List<&2, U32> = acc
+      (a, lvl_recs(acc2, lt, Con{4294966003, acc2}))
+
 def dump_fin(pr: Array<T.Ex> & List<&2, U32>,
              +nx: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match pr:
@@ -147,19 +210,20 @@ def dump_fin(pr: Array<T.Ex> & List<&2, U32>,
 # the two terms a probe recorded (keys 4294967288 / 4294967287), reversed
 # token lists after a 4294966000 marker
 def dump_pair(fs: Array<T.Ex> & U32, +x: U32,
-              +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+              +y: U32, +lt: R.Tr<L.LN>) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match fs:
     case Tuple{ex, nx}:
       +x2 : U32 = x
       +y2 : U32 = y
-      dump_fin(dmp2(dmp(400n, Array.get(T.Ex, ex, x2), Nil{},
-                        Con{y2, Con{x2, Con{4294966000, Nil{}}}}), y2), nx)
+      dump_fin(lvl_pass(dmp2(dmp(400n, Array.get(T.Ex, ex, x2), Nil{},
+                                 Con{y2, Con{x2, Con{4294966000, Nil{}}}}), y2),
+                        lt), nx)
 
 def dump_if(+z: Bool, fs: Array<T.Ex> & U32, +x: U32,
-            +y: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+            +y: U32, +lt: R.Tr<L.LN>) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match z:
     case True{}:
-      dump_pair(fs, x, y)
+      dump_pair(fs, x, y, lt)
     case False{}:
       (fs, Nil{})
 
@@ -188,7 +252,7 @@ def dfold3(+pb: U32, r: (Array<T.Ex> & U32) & List<&2, U32>,
       (fs, Con{c, kpb(pb, d)})
 
 def dfoldF(pr: Array<T.Ex> & U32, +nx: U32, +v: U32, +wm: R.Tr<U32>,
-           +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+           +sv: C.V, +base: U32, +lt: R.Tr<L.LN>) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match pr:
     case Tuple{ex, fl}:
       +w2 : R.Tr<U32> = wm
@@ -205,7 +269,7 @@ def dfoldF(pr: Array<T.Ex> & U32, +nx: U32, +v: U32, +wm: R.Tr<U32>,
       +dy : U32 = R.get(U32, 64n, w2, 4294967287, 4294967295)
       +pb : U32 = R.get(U32, 64n, w2, 4294967286, 4294967295)
       dfold3(pb, dump_if(Bool.not(U32.is_eq(dx, 4294967295)), (ex, nxf),
-                         dx, dy),
+                         dx, dy, lt),
              S.pick(U32.is_eq(pr2, 4294967295),
                     (vcode(sv) * 64 + S.pick(U32.is_lt(v2, 3), v2, 3) + inc
                      + cor + S.pick(ovf, 256, 0) : U32),
@@ -214,8 +278,8 @@ def dfoldF(pr: Array<T.Ex> & U32, +nx: U32, +v: U32, +wm: R.Tr<U32>,
 def dfold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
           +sv: C.V, +base: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   match kr:
-    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
-      dfoldF(M.kfl_flags(ex, base), nx, v, wm, sv, base)
+    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{Tuple{lt, nl}, wm}}:
+      dfoldF(M.kfl_flags(ex, base), nx, v, wm, sv, base, lt)
 
 def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
   (fs, Con{c, Nil{}})
@@ -223,7 +287,7 @@ def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
 def krestart(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (M.kbump(ex, basenx), (basenx + M.ktbl() + 2 : U32))
+      (M.kbump(ex, basenx), (basenx + M.ktbl(basenx) + 2 : U32))
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
@@ -307,7 +371,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
                                      T.EBad{}))),
-                   (nx + M.ktbl() + 2 : U32)), Con{0, Nil{}}))}
+                   (nx + M.ktbl(nx) + 2 : U32)), Con{0, Nil{}}))}
 
 def show_all(xs: List<&2, U32>) -> String:
   match xs:

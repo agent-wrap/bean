@@ -626,6 +626,17 @@ type KF is Data:
   DCr3Go{cy: Bool, pyn: T.Ex, hdy: T.Ex, spy: List<&2, U32>, pxi: U32,
          pyi: U32, ctx: List<&2, U32>, fu: U32}
   DCr5{pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
+  # a projection-headed side: its struct whnf'd, fetched, spined, then
+  # judged as the side itself (x: DCrP*, y: DCrQ*)
+  DCrP{pxi: U32, pyi: U32, pyn: T.Ex, hdy: T.Ex, spy: List<&2, U32>,
+       ctx: List<&2, U32>, fu: U32}
+  DCrP2{si: U32, pxi: U32, pyi: U32, pyn: T.Ex, hdy: T.Ex, spy: List<&2, U32>,
+        ctx: List<&2, U32>, fu: U32}
+  DCrP3{sn: T.Ex, pxi: U32, pyi: U32, pyn: T.Ex, hdy: T.Ex, spy: List<&2, U32>,
+        ctx: List<&2, U32>, fu: U32}
+  DCrQ{pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
+  DCrQ2{si: U32, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
+  DCrQ3{sn: T.Ex, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
   # the rigid denial: type oracle + universe, deny outside Prop
   DRg1{cheaprig: Bool, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
   DRg2{pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
@@ -639,6 +650,18 @@ type KF is Data:
   # rec_stuck: a recursor application that can never reduce
   RSGo{ok0: Bool, maj: U32, pp: U32, ni: U32, mn: U32, kf: U32,
        rcty: U32, ind: U32, sargs: List<&2, U32>, ctx: List<&2, U32>}
+  # is a whnf'd node (head, spine) rigid? 1 / 0 as the register: a bvar,
+  # sort, pi, literal or bvar-headed application; a stuck recursor (its
+  # major judged the same way, RSGo); a stuck projection (its struct
+  # whnf'd and judged the same way); a constructor-headed one is 0
+  RSJ{nd: T.Ex, hd: T.Ex, sargs: List<&2, U32>, ctx: List<&2, U32>}
+  RSJd{v: U32}
+  RSJP{s: U32, ctx: List<&2, U32>}
+  RSJp{ctx: List<&2, U32>}
+  RSJp2{si: U32, ctx: List<&2, U32>}
+  RSJp3{sn: T.Ex, ctx: List<&2, U32>}
+  RSKj{dok: Bool, nc: Bool, pp: U32, ni: U32, mn: U32, rcty: U32,
+       sargs: List<&2, U32>, ctx: List<&2, U32>}
   RS2{pp: U32, ni: U32, mn: U32, kf: U32, rcty: U32, ind: U32,
       sargs: List<&2, U32>, ctx: List<&2, U32>}
   RS3{wm2: U32, pp: U32, ni: U32, mn: U32, kf: U32, rcty: U32, ind: U32,
@@ -1422,11 +1445,25 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
 # allocation region from base + ktbl + 2. 2^22: a large declaration
 # allocates past a million nodes, and a full table stops entering new ones
 # (the store stops being canonical)
-def ktbl() -> U32:
+# the hash table: 2^22 slots, or an eighth of the store's node half when
+# that is larger (a 7M-node proof against 4M slots left every probe
+# failing after its 24 steps: no sharing, no memo hits, 90% of the time in
+# kprobe_slot -- std's blastAdd.go_denote_eq._unary)
+def ktbl0() -> U32:
   4194304
 
-def kmask() -> U32:
-  4194303
+def sdepth(+base: U32) -> Nat:
+  Nat.add(U32.log2(((base + ktbl0() : U32) + 2097152 : U32)), 2n)
+
+def khalf(+base: U32) -> U32:
+  U32.shln(1, sdepth(base))
+
+def ktbl(+base: U32) -> U32:
+  +e : U32 = (khalf(base) / 8 : U32)
+  S.pick(U32.is_gt(e, ktbl0()), e, ktbl0())
+
+def kmask(+base: U32) -> U32:
+  (ktbl(base) - 1 : U32)
 
 def kmix(+h: U32, +x: U32) -> U32:
   (U32.xor(h, x) * 16777619 : U32)
@@ -1505,7 +1542,7 @@ def kis_bad(+x: T.Ex) -> Bool:
       False{}
 
 def knxt(+base: U32, +slot: U32) -> U32:
-  (base + U32.and((slot + 1 - base : U32), kmask()) : U32)
+  (base + U32.and((slot + 1 - base : U32), kmask(base)) : U32)
 
 def kpu(+z: Bool, +x: U32, +y: U32) -> U32:
   match z:
@@ -1542,7 +1579,7 @@ def kep_of(+e: T.Ex) -> U32:
       0
 
 def kep_slot(+base: U32) -> U32:
-  (base + ktbl() + 1 : U32)
+  (base + ktbl(base) + 1 : U32)
 
 def kep2(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
   match pr:
@@ -1632,12 +1669,6 @@ def kscan(k: Nat, +done: Bool, +base: U32, +node: T.Ex, +slot: U32,
 # khalf). A floor of 2^25 was tried: every run then pays ~4 GB (a slot costs
 # ~64 bytes, all initialised) and perf/magma-list-pair-n7 still overflows --
 # the store never frees a slot, which is the real limit there.
-def sdepth(+base: U32) -> Nat:
-  Nat.add(U32.log2(((base + ktbl() : U32) + 2097152 : U32)), 2n)
-
-def khalf(+base: U32) -> U32:
-  U32.shln(1, sdepth(base))
-
 
 # --- per-declaration flags in the store --------------------------------
 # Kept out of the memo trie: a trie set copies a path (and a rollback
@@ -2869,7 +2900,7 @@ def kcs4(+leaf: Bool, +c: U32, +top: U32, +rest: List<&2, U32>, +nd: T.Ex,
       # every child placed: relocate, then share or place it
       +rn : T.Ex = kreloc(nd, mark, m)
       +fp : U32 = kfp(rn)
-      +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
+      +s0 : U32 = (base + U32.and(fp, kmask(base)) : U32)
       kcs6(kscan(24n, False{}, base, rn, s0, 4294967295, 4294967295, False{}, mark, fp,
                  kprobe_slot(a, s0, mark, fp, True{}, rn, base)),
            top, rest, rn, k, m, nx, mark, base, ms, gd)
@@ -3243,7 +3274,7 @@ def ksweep_go(pr: Array<T.Ex> & T.Ex, +base: U32, +cm: U32, +ck: U32,
               +hi: U32) -> Array<T.Ex>:
   match pr:
     case Tuple{a, e}:
-      ksweep(U32.to_nat(ktbl()), base, kep_of(e), cm, ck, hi, a)
+      ksweep(U32.to_nat(ktbl(base)), base, kep_of(e), cm, ck, hi, a)
 
 def ksweep0(+go: Bool, a: Array<T.Ex>, +base: U32, +cm: U32, +ck: U32,
             +hi: U32) -> Array<T.Ex>:
@@ -3388,7 +3419,7 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
       +nd : T.Ex = node
       +n2 : U32 = nx
       +fp : U32 = kfp(nd)
-      +s0 : U32 = (base + U32.and(fp, kmask()) : U32)
+      +s0 : U32 = (base + U32.and(fp, kmask(base)) : U32)
       kfin(kscan(24n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
                  kprobe_slot(ex, s0, n2, fp, True{}, nd, base)),
            nd, n2, base)
@@ -4364,7 +4395,7 @@ def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
 # the shared-argument record (IApR): a reserved store slot right below the
 # allocation region, EApp{argument, type | ok << 31}
 def krec_slot(+hcb: U32) -> U32:
-  (hcb + ktbl() : U32)
+  (hcb + ktbl(hcb) : U32)
 
 # The record carries the rollback generation G at the write (kg_slot), and
 # a read is a hit only at the same G: the type index it hands over may be
@@ -4379,12 +4410,12 @@ def krec_w2(pr: Array<T.Ex> & T.Ex, +slot: U32, +a: U32, +t: U32,
       (Array.set(T.Ex, ex, slot,
                  T.EProj{a, (t + S.pick(ok, 2147483648, 0) : U32), kg_v(g)}), nx)
 
-def krec_write(fs: Array<T.Ex> & U32, +slot: U32, +a: U32, +t: U32,
+def krec_write(fs: Array<T.Ex> & U32, +hcb: U32, +a: U32, +t: U32,
                +ok: Bool) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      krec_w2(Array.get(T.Ex, ex, kg_slot(khalf((slot - ktbl() : U32)))),
-              slot, a, t, ok, nx)
+      krec_w2(Array.get(T.Ex, ex, kg_slot(khalf(hcb))),
+              krec_slot(hcb), a, t, ok, nx)
 
 # the read: the record as EApp{argument, type|ok} when its generation is
 # the current one, else EBad (a miss)
@@ -4437,6 +4468,13 @@ def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
 # a bare (nullary) constructor counts only when its inductive is not a
 # structure: a structure's nullary constructor is unit-like, and unit eta
 # can equate it with anything of its type
+def kproj_struct(+e: T.Ex) -> U32:
+  match e:
+    case T.EProj{tn, i, s}:
+      s
+    case _:
+      4294967295
+
 def kctor_headed(+x: T.Ex, +hd: T.Ex, +mt: R.Tr<I.Meta>) -> Bool:
   match x:
     case T.EApp{f, a}:
@@ -7655,6 +7693,39 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DCr3{pxi, pyi, pyn, hdy, spy, ctx, fu}, k}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # A projection-headed side (`(Nat.rec .. #1).0 #2`, the brecOn
+    # unfolding of a structural recursion on a variable) is rigid when its
+    # struct is: whnf'd in full, then judged like the side itself (a bvar,
+    # a stuck recursor, another stuck projection); a constructor-headed
+    # struct (unit-like, or an eta case) stays unknown. Lean reaches the
+    # same NO because is_def_eq_core, once lazy delta is exhausted, fails;
+    # std's blastAdd.go_denote_eq._unary had `#1 * #2 =?= #2` as its
+    # innermost undecided pair.
+    case 1n+p KCon{DCr1{False{}, pxn, T.EProj{tn, idx, s}, spx, pxi, pyi, pyn,
+                        hdy, spy, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +s2 : U32 = s
+      km(p, KCon{DWhd{s2, cx9}, KCon{DCrP{pxi, pyi, pyn, hdy, spy, cx9, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCrP{pxi, pyi, pyn, hdy, spy, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DCrP2{r2, pxi, pyi, pyn, hdy, spy, ctx, fu}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
+    case 1n+p KCon{DCrP2{si, pxi, pyi, pyn, hdy, spy, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{node}}, ri}:
+      +s2 : U32 = si
+      km(p, KCon{DCrP3{node, pxi, pyi, pyn, hdy, spy, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, s2, ri))
+    case 1n+p KCon{DCrP3{sn, pxi, pyi, pyn, hdy, spy, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +sn2 : T.Ex = sn
+      +h2 : T.Ex = hd
+      +ctor : Bool = kctor_headed(sn2, h2, mt)
+      km(p, KCon{pick_kf(ctor, DRg1{False{}, pxi, pyi, ctx, fu},
+                         DCr1{krigid(sn2, h2), sn2, h2, sargs, pxi, pyi, pyn,
+                              hdy, spy, ctx, fu}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DCr1{False{}, pxn, hd, spx, pxi, pyi, pyn, hdy, spy,
                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +h2 : T.Ex = hd
@@ -7696,6 +7767,29 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DRg1{True{}, pxi, pyi, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCr3Go{False{}, pyn, T.EProj{tn, idx, s}, spy, pxi, pyi, ctx,
+                          fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +s2 : U32 = s
+      km(p, KCon{DWhd{s2, cx9}, KCon{DCrQ{pxi, pyi, cx9, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCrQ{pxi, pyi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DCrQ2{r2, pxi, pyi, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfetch(fs, r2, 0))
+    case 1n+p KCon{DCrQ2{si, pxi, pyi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +s2 : U32 = si
+      km(p, KCon{DCrQ3{node, pxi, pyi, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kspine_tin(fs, s2, ri))
+    case 1n+p KCon{DCrQ3{sn, pxi, pyi, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +sn2 : T.Ex = sn
+      +h2 : T.Ex = hd
+      +ctor : Bool = kctor_headed(sn2, h2, mt)
+      km(p, KCon{pick_kf(ctor, DRg1{False{}, pxi, pyi, ctx, fu},
+                         DCr3Go{krigid(sn2, h2), sn2, h2, sargs, pxi, pyi, ctx,
+                                fu}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DCr3Go{False{}, pyn, hdy, spy, pxi, pyi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +h2 : T.Ex = hdy
@@ -7720,12 +7814,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DDl1{False{}, pxi, pyi, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # the cheap spine oracle (a constant's or a variable's type applied)
+    # answers nothing for a projection-headed side; the full inference
+    # then runs, as for proof irrelevance (DTyF): std's
+    # blastAdd.go_denote_eq._unary needed `(Nat.rec .. #1).0 #2 =?= #2`
+    # denied, and its type came back unknown
     case 1n+p KCon{DRg1{True{}, pxi, pyi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = pxi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DRg2{x2, pyi, c2, fu}, k}}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+      km(p, KCon{DTy1{c2}, KCon{DTyF{x2, c2}, KCon{DRg2{x2, pyi, c2, fu}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
     # the inferred type is whnf'd before its sort is read (Lean's
     # infer_type then whnf): a stuck recursor's type is the motive applied,
     # a beta-redex `(λ i.. h. Sort u) i.. h` the syntactic sort oracle
@@ -7797,6 +7896,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +w2 : U32 = wm2
       km(p, KCon{RS4{node, pp, ni, mn, kf, rcty, ind, sargs, ctx}, k}, lnt,
          nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, w2, ri))
+    # the major judged by RSJ (a stuck recursor or stuck projection as the
+    # major counts: `n / 2` unfolds to an Acc.rec whose major is a Nat.rec
+    # on n, and std's blastAdd.go_denote_eq._unary needed `n =?= n / 2`
+    # denied), then the K-like and constructor conditions as before
     case 1n+p KCon{RS4{mn2, pp, ni, mn, kf, rcty, ind, sargs, ctx}, k}
          Tuple{Tuple{fs, MSP{hd, sargs2}}, ri}:
       +m2 : T.Ex = mn2
@@ -7804,13 +7907,59 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cmi2 : I.Meta = R.get(I.Meta, 64n, mt, I.const_nm2(h2), I.MNone{})
       +uind2 : I.Meta = R.get(I.Meta, 64n, mt, ind, I.MNone{})
       +k2 : U32 = kf
-      km(p, KCon{RSK{U32.is_eq(k2, 1),
-                     (krigid(m2, h2)
-                      && Bool.not(I.meta_is_ctor(cmi2)))
-                     && Bool.not(I.meta_is_ind(uind2)
-                                 && U32.is_eq(I.meta_nf(uind2), 0)),
-                     pp, ni, mn, rcty, sargs, ctx}, k},
+      +c2 : List<&2, U32> = ctx
+      +nc : Bool = Bool.not(I.meta_is_ctor(cmi2))
+                   && Bool.not(I.meta_is_ind(uind2)
+                               && U32.is_eq(I.meta_nf(uind2), 0))
+      km(p, KCon{RSJ{m2, h2, sargs2, c2},
+                 KCon{RSKj{U32.is_eq(k2, 1), nc, pp, ni, mn, rcty, sargs, c2}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{RSKj{dok, nc, pp, ni, mn, rcty, sargs, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{RSK{dok, U32.is_eq(ri, 1) && nc, pp, ni, mn, rcty, sargs, ctx},
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{RSJ{nd, hd, sargs, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +n2 : T.Ex = nd
+      +h2 : T.Ex = hd
+      +s2 : List<&2, U32> = sargs
+      +c2 : List<&2, U32> = ctx
+      +cx : Bool = krigid(n2, h2)
+      +ctor : Bool = kctor_headed(n2, h2, mt)
+      +mi : I.Meta = R.get(I.Meta, 64n, mt, I.const_nm2(h2), I.MNone{})
+      +pp : U32 = I.meta_p(mi)
+      +ni : U32 = I.meta_k(mi)
+      +mn : U32 = I.meta_n(mi)
+      +nmj : U32 = (pp + 1 + mn + ni : U32)
+      +isrec : Bool = I.meta_is_rec(mi) && U32.is_gt(I.len_u(s2, 0), nmj)
+      +ps : U32 = kproj_struct(h2)
+      km(p, KCon{pick_kf(cx, RSJd{1},
+                 pick_kf(ctor, RSJd{0},
+                 pick_kf(isrec,
+                         RSGo{True{}, I.nth_u(s2, nmj, 4294967295), pp, ni, mn,
+                              I.meta_kf(mi), I.meta_rcty(mi), I.meta_ind(mi),
+                              s2, c2},
+                 pick_kf(U32.is_ne(ps, 4294967295), RSJP{ps, c2}, RSJd{0})))),
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{RSJd{v}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, v))
+    case 1n+p KCon{RSJP{s, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +s2 : U32 = s
+      km(p, KCon{DWhd{s2, cx9}, KCon{RSJp{cx9}, k}}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{RSJp{ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{RSJp2{r2, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kfetch(fs, r2, 0))
+    case 1n+p KCon{RSJp2{si, ctx}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +s2 : U32 = si
+      km(p, KCon{RSJp3{node, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kspine_tin(fs, s2, ri))
+    case 1n+p KCon{RSJp3{sn, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      km(p, KCon{RSJ{sn, hd, sargs, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{RSK{False{}, base, pp, ni, mn, rcty, sargs, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -8285,7 +8434,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # record this argument check for an enclosing `f a` (see IApR)
       km(p, KCon{IAp5{a2, nd2, t2, ok2, rf, rfok, ctx, fu}, k}, lnt, nlx,
          mt, lp, vt, qtt, natn, wm, nt, hcb,
-         keq_lists_tin(krec_write(fs, krec_slot(hcb), a2, t2, ok2),
+         keq_lists_tin(krec_write(fs, hcb, a2, t2, ok2),
                        Con{t2, Nil{}},
                        Con{I.all_dom(nd2), Nil{}}, lnt))
     case 1n+p KCon{IAp5{a, node, ra, raok, rf, rfok, ctx, fu}, k}

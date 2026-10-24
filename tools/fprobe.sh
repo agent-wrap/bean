@@ -67,10 +67,10 @@ if os.environ.get("LAST") == "1":
 if os.environ.get("KEEP") == "1":
     old = "S.pick(roll, m2, n2)), msg), r2))"
     assert old in s, "KRb changed: update fprobe.sh"
-    s = s.replace(old, "n2), msg), r2))", 1)
+    s = s.replace(old, "n2), msg), r2))")
     old2 = "+comp : Bool = Bool.not(old) && Bool.not(ovf)"
     assert old2 in s, "KRb comp changed: update fprobe.sh"
-    s = s.replace(old2, "+comp : Bool = False{} && Bool.not(old) && Bool.not(ovf)", 1)
+    s = s.replace(old2, "+comp : Bool = False{} && Bool.not(old) && Bool.not(ovf)")
 open(p, "w").write(s)
 PY
 # DMP=N dumps terms N levels deep (default 400)

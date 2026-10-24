@@ -43,5 +43,24 @@ def parse(t,i,depth=0):
     return "?%d"%k,i+1
 x,i=parse(toks,0)
 if i<len(toks) and toks[i]==4294966001: i+=1
-y,_=parse(toks,i)
+y,i=parse(toks,i)
+def lnparse(t,i):
+    k=t[i]
+    if k==30: return "?un",i+1
+    if k==31: return "?sym",i+1
+    if k==35: return "…",i+1
+    if k in (32,34):
+        n=t[i+1]; i+=2; ats=[]
+        for _ in range(n):
+            b,o=t[i],t[i+1]; i+=2
+            ats.append(("%d"%o) if b==0 else ("u%d%s"%(b-1, "+%d"%o if o else "")))
+        if k==32: return ("max(%s)"%",".join(ats) if len(ats)!=1 else ats[0]),i
+        yv,i=lnparse(t,i); r,i=lnparse(t,i); return "mx(%s; %s; %s)"%(",".join(ats),yv,r),i
+    if k==33:
+        off=t[i+1]; a,i=lnparse(t,i+2); b,i=lnparse(t,i); return "imax(%s,%s)%s"%(a,b,"+%d"%off if off else ""),i
+    return "?%d"%k,i+1
+if i<len(toks) and toks[i]==4294966003:
+    i+=1
+    while i<len(toks) and toks[i]==13:
+        lid=toks[i+1]; lv,i=lnparse(toks,i+2); print("LV %d = %s"%(lid,lv))
 import os; L=int(os.environ.get("FDUMP_MAX","3000")); print("X =",x[:L]); print("Y =",y[:L])
