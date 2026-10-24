@@ -27,7 +27,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 /bin/cp -Rf "${SRC:-$ROOT/src}" "$TMP/src"   # SRC=DIR probes a modified copy
 if [[ "${STORE:-}" == "4" ]]; then
-  sed -i '' "s/Nat.add(U32.log2((base + 2097152 : U32)), 2n)/Nat.add(U32.log2((base + 2097152 : U32)), 4n)/" "$TMP/src/km.bend"
+  sed -i '' "s/Nat.add(U32.log2(((base + ktbl() : U32) + 2097152 : U32)), 2n)/Nat.add(U32.log2(((base + ktbl() : U32) + 2097152 : U32)), 4n)/" "$TMP/src/km.bend"
 fi
 python3 - "$TMP/src/km.bend" "$ARM" "$X" "$Y" "$COND" <<'PY'
 import sys
