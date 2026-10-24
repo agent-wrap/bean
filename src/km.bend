@@ -1216,6 +1216,20 @@ def kpick_lta(+same: Bool, +lnt: R.Tr<L.LN>, +nl: U32, +i: U32,
       klv_add(lnt, nl, i, u)
 
 # substitute every level in `us`, interning each normal form (head first)
+# every level of the list unchanged by the substitution
+def klsub_same(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +ps: List<&2, U32>,
+               +qs: List<&2, L.LN>) -> Bool:
+  match us:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      +t : R.Tr<L.LN> = lnt
+      +old : L.LN = R.get(L.LN, 64n, t, head, L.LNun{})
+      +p2 : List<&2, U32> = ps
+      +q2 : List<&2, L.LN> = qs
+      L.tri_is_yes(L.ln_cmp(old, L.ln_subst(old, p2, q2)))
+      && klsub_same(tail, t, p2, q2)
+
 def klsub_lvls(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +nlx: U32,
                +ps: List<&2, U32>, +qs: List<&2, L.LN>) -> LVS:
   match us:
@@ -2622,6 +2636,16 @@ def ksort3(+same: Bool, fs: Array<T.Ex> & U32, +nlx: U32,
 def ksconst(fs: Array<T.Ex> & U32, +n: U32,
             +xs: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   kalloc(fs, T.EConst{n, xs}, base)
+
+# the same, or the original node when its levels were unchanged
+def ksconst2(+same: Bool, fs: Array<T.Ex> & U32, +n: U32,
+             +xs: List<&2, U32>, +e: U32,
+             +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match same:
+    case True{}:
+      kkeep(fs, e)
+    case False{}:
+      kalloc(fs, T.EConst{n, xs}, base)
 
 # rebuild the leftover arg spine over head h (infer.bend's rebuild)
 # collect an application spine: head node + args in application order
@@ -4474,9 +4498,21 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
              S.pick(fresh, (nl + 1 : U32), nl), mt, lp, vt, qtt, natn, wm, nt,
              hcb, ksort3(same, fs, i, e, hcb))
         case T.EConst{n, us}:
-          +r : LVS = klsub_lvls(us, lnt, nlx, ps, qs)
+          +us2 : List<&2, U32> = us
+          +ps2 : List<&2, U32> = ps
+          +qs2 : List<&2, L.LN> = qs
+          # unchanged levels keep the node (Lean's instantiate_lparams
+          # returns a param-free subterm as is): allocating a fresh
+          # EConst made a TWIN of every export constant (export nodes are
+          # not in the pointer table), so an unfolded value compared with
+          # the export's own copy of it node by node -- and for
+          # Poly.combine_k, whose value is `Nat.rec .. hugeFuel`, each
+          # level of that comparison iota-reduced one more fuel step on
+          # both sides instead of meeting the same node: a million levels
+          +sm : Bool = klsub_same(us2, lnt, ps2, qs2)
+          +r : LVS = klsub_lvls(us2, lnt, nlx, ps2, qs2)
           km(p, k, lvs_t(r), lvs_nx(r), mt, lp, vt, qtt, natn, wm, nt, hcb,
-             ksconst(fs, n, lvs_xs(r), hcb))
+             ksconst2(sm, fs, n, lvs_xs(r), e, hcb))
         case T.EApp{f, a}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +f2 : U32 = f
