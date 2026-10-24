@@ -519,8 +519,77 @@ def at_spec(+st: I.IS, +ty: U32, +lps: List<&2, U32>, +us: List<&2, U32>,
   inst_ps(ps, I.ir_st(r), I.ir_ty(r), node(I.ir_st(r), I.ir_ty(r)))
 
 # Pi telescope with whnf at every step (Lean's is_rec_argument)
+# --- K-like reduction with the indices compared by defeq ---------------------
+# The oracle's whnf (I.whd) reduces a K-like recursor only when the given
+# indices are SYNTACTICALLY the constructor's. Lean's to_cnstr_when_K
+# compares the major's type with the constructor's by is_def_eq, so a
+# field type `Gate.rec .. h ..` whose indices only reduce to the
+# constructor's (bugs/rec-missing-ih: `Owner.step`'s third field mentions
+# `Owner` under such a recursor, and the indices agree only by proof
+# irrelevance) stayed stuck here, read as an invalid occurrence, and the
+# block's verification was abandoned -- the exported recursor's missing
+# inductive hypothesis went unverified.
+def kidx_ok(xs: List<&2, U32>, ys: List<&2, U32>, +st: I.IS,
+            +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+            +vt: R.Tr<U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{a, at} Con{b, bt}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      +s2 : I.IS = st
+      L.tri_is_yes(I.dr_r(I.defeq(2048n, U32.is_eq(a2, b2), s2, mt, nt,
+                                  lp, vt, Nil{}, node(s2, a2), node(s2, b2))))
+      && kidx_ok(at, bt, s2, mt, nt, lp, vt)
+    case _ _:
+      False{}
+
+# the reduct (the minor over the remaining arguments), or the sentinel
+def k_reduct(+ok: Bool, +st: I.IS, +rest: List<&2, U32>, +minor: U32) -> I.IR:
+  match ok:
+    case False{}:
+      I.IR{st, 4294967295, False{}}
+    case True{}:
+      I.app_args(rest, st, minor)
+
+def pick_ir(+z: Bool, +a: I.IR, +b: I.IR) -> I.IR:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
+def whd_k(fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>,
+          +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: U32) -> I.IR:
+  match fuel:
+    case 0n:
+      I.whd(st, mt, lp, vt, x)
+    case 1n+p:
+      +w = I.whd(st, mt, lp, vt, x)
+      +s1 : I.IS = I.ir_st(w)
+      +y : U32 = I.ir_ty(w)
+      +h : T.Ex = spine_hd(s1, y)
+      +args : List<&2, U32> = spine_args(s1, y)
+      +mi : I.Meta = R.get(I.Meta, 64n, mt, I.const_nm2(h), I.MNone{})
+      +pp : U32 = I.meta_p(mi)
+      +ni : U32 = I.meta_k(mi)
+      +kneed : U32 = (pp + 1 + I.meta_n(mi) : U32)
+      +iskr : Bool = I.meta_is_rec(mi) && U32.is_eq(I.meta_kf(mi), 1)
+                     && U32.is_gt(I.len_u(args, 0), (kneed + ni : U32))
+      +kexp = I.k_expected(s1, S.pick(iskr, I.meta_rcty(mi), 4294967295), pp,
+                           args)
+      +s2 : I.IS = I.ir_st(kexp)
+      +kidx : List<&2, U32> = I.skip_u(spine_args(s2, I.ir_ty(kexp)), pp)
+      +kgiven : List<&2, U32> = I.take_u(I.skip_u(args, kneed), ni, Nil{})
+      +ok : Bool = iskr && I.ir_ok(kexp) && kidx_ok(kidx, kgiven, s2, mt, nt, lp, vt)
+      +r = k_reduct(ok, s2, I.skip_u(args, (kneed + ni + 1 : U32)),
+                    I.nth_u(args, (pp + 1 : U32), 4294967295))
+      pick_ir(ok, whd_k(p, I.ir_st(r), mt, nt, lp, vt,
+                        S.pick(ok, I.ir_ty(r), 0)), w)
+
 def tw_go(fuel: Nat, +st: I.IS, +kc: U32, +mt: R.Tr<I.Meta>,
-          +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ty: U32,
+          +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ty: U32,
           +acc: List<&2, U32>, +nd: T.Ex) -> TL:
   match fuel nd:
     case 0n _:
@@ -528,17 +597,17 @@ def tw_go(fuel: Nat, +st: I.IS, +kc: U32, +mt: R.Tr<I.Meta>,
     case 1n+p T.EAll{nm, d, b, bi}:
       +f = fv_new(st, kc)
       +bd = inst0(nr_st(f), b, nr_x(f))
-      +w = I.whd(I.ir_st(bd), mt, lp, vt, I.ir_ty(bd))
-      tw_go(p, I.ir_st(w), nr_kc(f), mt, lp, vt, I.ir_ty(w),
+      +w = whd_k(64n, I.ir_st(bd), mt, nt, lp, vt, I.ir_ty(bd))
+      tw_go(p, I.ir_st(w), nr_kc(f), mt, nt, lp, vt, I.ir_ty(w),
             Con{d, Con{nr_x(f), Con{(fvb() + kc : U32), acc}}},
             node(I.ir_st(w), I.ir_ty(w)))
     case 1n+p _:
       TL{st, kc, I.rev_u(acc, Nil{}), ty}
 
 def tele_whnf(+st: I.IS, +kc: U32, +mt: R.Tr<I.Meta>,
-              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ty: U32) -> TL:
-  +w = I.whd(st, mt, lp, vt, ty)
-  tw_go(256n, I.ir_st(w), kc, mt, lp, vt, I.ir_ty(w), Nil{},
+              +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ty: U32) -> TL:
+  +w = whd_k(64n, st, mt, nt, lp, vt, ty)
+  tw_go(256n, I.ir_st(w), kc, mt, nt, lp, vt, I.ir_ty(w), Nil{},
         node(I.ir_st(w), I.ir_ty(w)))
 
 # --- spec membership --------------------------------------------------------
@@ -644,13 +713,13 @@ def ds_bad(+r: DS) -> Bool:
 def disc_fields(flds: List<&2, U32>, +st: I.IS, +kc: U32,
                 +specs: List<&2, SP>, +bad: Bool, +tn: List<&2, U32>,
                 +items: List<&2, K.IItem>, +itab: R.Tr<K.IItem>,
-                +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+                +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                 +vt: R.Tr<U32>) -> DS:
   match flds:
     case Nil{}:
       DS{st, kc, specs, bad}
     case Con{fty, t}:
-      +tw = tele_whnf(st, kc, mt, lp, vt, fty)
+      +tw = tele_whnf(st, kc, mt, nt, lp, vt, fty)
       +s1 : I.IS = tl_st(tw)
       +fres : U32 = tl_ty(tw)
       +h : T.Ex = spine_hd(s1, fres)
@@ -666,13 +735,13 @@ def disc_fields(flds: List<&2, U32>, +st: I.IS, +kc: U32,
       disc_fields(t, s1, tl_kc(tw),
                   pick_lsp(isnew, app_sp(specs, SP{hn, const_us(h), pa}),
                            specs),
-                  bad || ndom || inval, tn, items, itab, mt, lp, vt)
+                  bad || ndom || inval, tn, items, itab, mt, nt, lp, vt)
 
 def disc_ctors(cs: List<&2, U32>, +sp: SP, +lps: List<&2, U32>,
                +st: I.IS, +kc: U32, +specs: List<&2, SP>, +bad: Bool,
                +tn: List<&2, U32>, +items: List<&2, K.IItem>,
                +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +mt: R.Tr<I.Meta>,
-               +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>) -> DS:
+               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>) -> DS:
   match cs:
     case Nil{}:
       DS{st, kc, specs, bad}
@@ -681,14 +750,14 @@ def disc_ctors(cs: List<&2, U32>, +sp: SP, +lps: List<&2, U32>,
       +tl = tele(I.ir_st(r), kc, I.ir_ty(r))
       +d = disc_fields(fv_types(tl_fvs(tl), Nil{}), tl_st(tl), tl_kc(tl),
                        specs, bad || Bool.not(I.ir_ok(r)), tn, items, itab,
-                       mt, lp, vt)
+                       mt, nt, lp, vt)
       disc_ctors(t, sp, lps, ds_st(d), ds_kc(d), ds_specs(d), ds_bad(d), tn,
-                 items, itab, ctab, mt, lp, vt)
+                 items, itab, ctab, mt, nt, lp, vt)
 
 def disc(fuel: Nat, +more: Bool, +j: U32, +st: I.IS, +kc: U32,
          +specs: List<&2, SP>, +bad: Bool, +tn: List<&2, U32>,
          +items: List<&2, K.IItem>, +itab: R.Tr<K.IItem>,
-         +ctab: R.Tr<U32>, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+         +ctab: R.Tr<U32>, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
          +vt: R.Tr<U32>) -> DS:
   match fuel more:
     case 0n _:
@@ -699,11 +768,11 @@ def disc(fuel: Nat, +more: Bool, +j: U32, +st: I.IS, +kc: U32,
       +sp : SP = nth_sp(specs, j)
       +ii = ind_of(items, itab, sp_n(sp))
       +d = disc_ctors(ii_cs(ii), sp, ii_lps(ii), st, kc, specs, bad, tn,
-                      items, itab, ctab, mt, lp, vt)
+                      items, itab, ctab, mt, nt, lp, vt)
       +sp2 : List<&2, SP> = ds_specs(d)
       disc(p, U32.is_lt((j + 1 : U32), len_sp(sp2, 0)), (j + 1 : U32),
            ds_st(d), ds_kc(d), sp2, ds_bad(d), tn, items, itab, ctab, mt,
-           lp, vt)
+           nt, lp, vt)
 
 # --- motives -------------------------------------------------------------
 # For each spec: its index telescope, the major `t`, and
@@ -853,12 +922,12 @@ def pick_ihs(+z: Bool, +a: List<&2, IH>, +b: List<&2, IH>) -> List<&2, IH>:
 
 def mk_ihs(flds: List<&2, U32>, +st: I.IS, +kc: U32, +specs: List<&2, SP>,
            +mots: List<&2, U32>, +mt: R.Tr<I.Meta>,
-           +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+           +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
            +fvs: List<&2, U32>, +ihs: List<&2, IH>) -> IL:
   match flds:
     case Con{fnm, Con{fnd0, Con{fty, t}}}:
       +fnd : U32 = fnd0
-      +tw = tele_whnf(st, kc, mt, lp, vt, fty)
+      +tw = tele_whnf(st, kc, mt, nt, lp, vt, fty)
       +s1 : I.IS = tl_st(tw)
       +so : SO = spec_of(specs, s1, tl_ty(tw))
       +k : U32 = so_k(so)
@@ -870,7 +939,7 @@ def mk_ihs(flds: List<&2, U32>, +st: I.IS, +kc: U32, +specs: List<&2, SP>,
       +h = fv_new(I.ir_st(ty), tl_kc(tw))
       +rec : Bool = U32.is_ne(k, 4294967295)
       mk_ihs(t, pick_st(rec, nr_st(h), st), S.pick(rec, nr_kc(h), kc), specs,
-             mots, mt, lp, vt,
+             mots, mt, nt, lp, vt,
              S.pick_l(rec, List.append(&2, U32, fvs,
                                        [(fvb() + tl_kc(tw) : U32), nr_x(h),
                                         I.ir_ty(ty)]), fvs),
@@ -892,7 +961,7 @@ def mk_minors_c(cs: List<&2, U32>, +j: U32, +sp: SP, +lps: List<&2, U32>,
                 +st: I.IS, +kc: U32, +specs: List<&2, SP>,
                 +mots: List<&2, U32>, +ann: List<&2, U32>,
                 +items: List<&2, K.IItem>, +ctab: R.Tr<U32>,
-                +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
                 +fvs: List<&2, U32>, +info: List<&2, MI>) -> MN:
   match cs:
     case Nil{}:
@@ -903,7 +972,7 @@ def mk_minors_c(cs: List<&2, U32>, +j: U32, +sp: SP, +lps: List<&2, U32>,
       +tl = tele(I.ir_st(r), kc, I.ir_ty(r))
       +s1 : I.IS = tl_st(tl)
       +flds : List<&2, U32> = strip_fvs(tl_fvs(tl), s1, ann, Nil{})
-      +il = mk_ihs(flds, s1, tl_kc(tl), specs, mots, mt, lp, vt, Nil{}, Nil{})
+      +il = mk_ihs(flds, s1, tl_kc(tl), specs, mots, mt, nt, lp, vt, Nil{}, Nil{})
       +s2 : I.IS = il_st(il)
       +idx : List<&2, U32> = I.skip_u(spine_args(s2, tl_ty(tl)),
                                       I.len_u(sp_ps(sp), 0))
@@ -917,7 +986,7 @@ def mk_minors_c(cs: List<&2, U32>, +j: U32, +sp: SP, +lps: List<&2, U32>,
                   I.ir_ty(bd))
       +m = fv_new(I.ir_st(ty), il_kc(il))
       mk_minors_c(t, j, sp, lps, nr_st(m), nr_kc(m), specs, mots, ann,
-                  items, ctab, mt, lp, vt,
+                  items, ctab, mt, nt, lp, vt,
                   List.append(&2, U32, fvs,
                               [(fvb() + il_kc(il) : U32), nr_x(m),
                                I.ir_ty(ty)]),
@@ -927,7 +996,7 @@ def mk_minors(sps: List<&2, SP>, +j: U32, +st: I.IS, +kc: U32,
               +specs: List<&2, SP>, +mots: List<&2, U32>,
               +ann: List<&2, U32>, +items: List<&2, K.IItem>,
               +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +mt: R.Tr<I.Meta>,
-              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+              +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
               +fvs: List<&2, U32>, +info: List<&2, MI>) -> MN:
   match sps:
     case Nil{}:
@@ -936,9 +1005,9 @@ def mk_minors(sps: List<&2, SP>, +j: U32, +st: I.IS, +kc: U32,
       +sp : SP = sp0
       +ii = ind_of(items, itab, sp_n(sp))
       +r = mk_minors_c(ii_cs(ii), j, sp, ii_lps(ii), st, kc, specs, mots,
-                       ann, items, ctab, mt, lp, vt, fvs, info)
+                       ann, items, ctab, mt, nt, lp, vt, fvs, info)
       mk_minors(t, (j + 1 : U32), mn_st(r), mn_kc(r), specs, mots, ann,
-                items, itab, ctab, mt, lp, vt, mn_fvs(r), mn_info(r))
+                items, itab, ctab, mt, nt, lp, vt, mn_fvs(r), mn_info(r))
 
 # --- recursor types --------------------------------------------------------
 #   rec_j : forall params motives minors (indices) (t : spec_j ..),
@@ -1214,7 +1283,7 @@ def rw_per(+r: RW) -> List<&2, U32>:
 
 def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                  +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>,
-                 +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+                 +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                  +vt: R.Tr<U32>, +ann: List<&2, U32>) -> VR:
   +inds = ind_items(items)
   +tn : List<&2, U32> = ind_names(inds)
@@ -1257,14 +1326,14 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                                               I.ir_ty(z))})
   # specs
   +d = disc(64n, True{}, 0, I.ir_st(sv), tl_kc(rt),
-            specs0(tn, us0, pv), False{}, tn, items, itab, ctab, mt, lp, vt)
+            specs0(tn, us0, pv), False{}, tn, items, itab, ctab, mt, nt, lp, vt)
   +specs : List<&2, SP> = ds_specs(d)
   # motives, minors
   +ml = mk_motives(specs, ds_st(d), ds_kc(d), I.ir_ty(sv), items, itab, ann,
                    Nil{})
   +mots : List<&2, U32> = ml_fvs(ml)
   +mn = mk_minors(specs, 0, ml_st(ml), ml_kc(ml), specs, mots, ann, items,
-                  itab, ctab, mt, lp, vt, Nil{}, Nil{})
+                  itab, ctab, mt, nt, lp, vt, Nil{}, Nil{})
   +prefv : List<&2, U32> = List.append(&2, U32, params,
                              List.append(&2, U32, mots, mn_fvs(mn)))
   # recursor types and their exported namesakes
@@ -1281,6 +1350,14 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
                  fv_nodes(prefv, Nil{}), prefv, items, True{}, Nil{})
   +ruleok : Bool = rw_ok(rw) && U32.is_eq(count_rules(items, 0), nmin)
   +good : Bool = lvok && Bool.not(ds_bad(d)) && recok && ruleok
+  # 0 verified, 2 undecided (the older derivation decides). A completed
+  # derivation that does not match the export is NOT yet a reject: in
+  # bugs/rec-missing-ih Lean rejects the inductive itself (a field's type is
+  # a K-like recursor stuck because its indices `rcC x` and `rcA x` are not
+  # defeq -- a non-transitive proof-irrelevance pair -- so `Owner` occurs
+  # non-positively); deciding that NO needs the main machine's rigidity,
+  # which this oracle lacks, and a derivation on an undecided field could
+  # differ from Lean's for the wrong reason.
   VR{S.pick(good, 0, 2),
      rr_metas(specs, 0, rnames, rw_per(rw), np, nmot, nmin, items, itab, mt)}
 

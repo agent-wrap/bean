@@ -1991,19 +1991,19 @@ def pick_mt(+z: Bool, +a: R.Tr<I.Meta>, +b: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
 # derivation as the fallback when this one cannot say, e.g. Prop).
 def meta_nm(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
-            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+            +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
-  +vr = N.verify_block(items, st, itab, ctab, t, lp, vt, ann)
+  +vr = N.verify_block(items, st, itab, ctab, t, nt, lp, vt, ann)
   R.set(I.Meta, 64n, pick_mt(nb, N.vr_mt(vr), t), ver_key(items),
         I.MVer{N.vr_v(vr)}, I.MNone{})
 
 def meta_any(+blk: Bool, +nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
              +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
-             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
              +ann: List<&2, U32>) -> R.Tr<I.Meta>:
   match blk:
     case True{}:
-      meta_nm(nb, items, st, itab, ctab, t, lp, vt, ann)
+      meta_nm(nb, items, st, itab, ctab, t, nt, lp, vt, ann)
     case False{}:
       t
 
@@ -2047,7 +2047,7 @@ def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
       +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t, nt2, lp2)
       build_meta2(tail, st, it2, ct2, lp2, vt2, ann,
                   meta_any(U32.is_gt(len_items(ind_only(its, Nil{}), 0), 0),
-                           is_nm_block(its), its, st, it2, ct2, t1, lp2, vt2,
+                           is_nm_block(its), its, st, it2, ct2, t1, nt2, lp2, vt2,
                            ann), nt2)
 
 def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
