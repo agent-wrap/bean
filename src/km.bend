@@ -272,6 +272,7 @@ type KF is Data:
   # ---- definitional equality (infer.bend's defeq) ----
   # entry: fuel guard, same-index shortcut, then fetch both sides
   DSub{z0: Bool, same: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DSubS{sent: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # the closed-pair YES cache (Lean's equivalence manager, restricted to
   # closed terms: an open pair's answer can depend on the binder types)
   DSc0{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
@@ -675,6 +676,7 @@ type KF is Data:
   # ---- type inference (infer.bend's infer) ----
   ISub{xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubC{xi: U32, ctx: List<&2, U32>, fu: U32}
+  ISubS{sent: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubD{ok: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
   ISubE{ok: Bool, xi: U32, cid: U32, ctx: List<&2, U32>, fu: U32}
   ISubF{ok: Bool, io: Bool, xi: U32, ctx: List<&2, U32>, fu: U32}
@@ -980,6 +982,7 @@ type KF is Data:
   DWhdGo{hit: Bool, h: U32, i: U32, ctx: List<&2, U32>}
   DWhdSt{i: U32, ctx: List<&2, U32>}
   DWhdM{i: U32, ctx: List<&2, U32>}
+  DWhdS{sent: Bool, i: U32, ctx: List<&2, U32>}
   DWhdF{i: U32, fu: U32, ctx: List<&2, U32>}
   DWhdFM{i: U32, fu: U32, ctx: List<&2, U32>}
   DWhdFG{hit: Bool, h: U32, i: U32, fu: U32, ctx: List<&2, U32>}
@@ -3511,12 +3514,50 @@ def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
 def krec_slot(+hcb: U32) -> U32:
   (hcb + ktbl() : U32)
 
+# The record carries the rollback generation G at the write (kg_slot), and
+# a read is a hit only at the same G: the type index it hands over may be
+# a node allocated inside a region rolled back since (its slot reused by
+# another node), which read as a garbage function type -- `f a` inferred
+# "not a Pi" and the declaration declined, only with store reuse on
+# (Std.Iter.step_flatMapAfter, Vector.attach_append, Vector.extract).
+def krec_w2(pr: Array<T.Ex> & T.Ex, +slot: U32, +a: U32, +t: U32,
+            +ok: Bool, +nx: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{ex, g}:
+      (Array.set(T.Ex, ex, slot,
+                 T.EProj{a, (t + S.pick(ok, 2147483648, 0) : U32), kg_v(g)}), nx)
+
 def krec_write(fs: Array<T.Ex> & U32, +slot: U32, +a: U32, +t: U32,
                +ok: Bool) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (Array.set(T.Ex, ex, slot,
-                 T.EApp{a, (t + S.pick(ok, 2147483648, 0) : U32)}), nx)
+      krec_w2(Array.get(T.Ex, ex, kg_slot(khalf((slot - ktbl() : U32)))),
+              slot, a, t, ok, nx)
+
+# the read: the record as EApp{argument, type|ok} when its generation is
+# the current one, else EBad (a miss)
+def krec_r3(pr: Array<T.Ex> & T.Ex, +rec: T.Ex,
+            +nx: U32, +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{ex, g}:
+      match rec:
+        case T.EProj{a, tk, gw}:
+          (((ex, nx), MX{I.pick_exx(U32.is_eq(gw, kg_v(g)), T.EApp{a, tk},
+                                 T.EBad{})}), ri)
+        case _:
+          (((ex, nx), MX{T.EBad{}}), ri)
+
+def krec_r2(pr: Array<T.Ex> & T.Ex, +hb: U32, +nx: U32,
+            +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{ex, rec}:
+      krec_r3(Array.get(T.Ex, ex, kg_slot(hb)), rec, nx, ri)
+
+def krec_read(fs: Array<T.Ex> & U32, +hcb: U32,
+              +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      krec_r2(Array.get(T.Ex, ex, krec_slot(hcb)), khalf(hcb), nx, ri)
 
 # a fully applied constructor of a structure (Lean's try_eta_struct_core)
 def kseta(+h: T.Ex, +n: U32, +mt: R.Tr<I.Meta>) -> Bool:
@@ -5159,6 +5200,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kmtri(fs, L.TYes{}))
     case 1n+p KCon{DSub{False{}, False{}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      +y2 : U32 = yi
+      km(p, KCon{DSubS{U32.is_ge(x2, 4294967294) || U32.is_ge(y2, 4294967294),
+                       x2, y2, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # a sentinel on either side: undecided, never a read
+    case 1n+p KCon{DSubS{True{}, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{DSubS{False{}, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{DSc0{x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
@@ -7025,7 +7076,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # under (x, cid), cid the hash-consed chain of that context prefix, and
     # both are verified on a hit (keys 0x70000000 + h: type, 0x78000000 + h:
     # x | ok << 31, 0x90000000 + h: cid). A fuel-out is not memoised.
-    case 1n+p KCon{ISub{xi, ctx, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
+    case 1n+p KCon{ISub{xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{ISubS{U32.is_ge(x2, 4294967294), x2, ctx, fu}, k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # a sentinel: the failure it stands for, never a read
+    case 1n+p KCon{ISubS{True{}, xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmir(fs, xi, False{}))
+    case 1n+p KCon{ISubS{False{}, xi, ctx, fu}, k} Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
       +x2 : U32 = xi
       km(p, KCon{ISubC{x2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, klb_tin(klb_get(ex, x2, khalf(hcb)), nx))
@@ -7301,7 +7360,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{IApR{a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{g, a0}}}, ri}:
       km(p, KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp,
-         vt, qtt, natn, wm, nt, hcb, kfetch(fs, krec_slot(hcb), ri))
+         vt, qtt, natn, wm, nt, hcb, krec_read(fs, hcb, ri))
     case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EApp{ra, rt}}}, ri}:
       +a2 : U32 = a
@@ -8271,7 +8330,20 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          kkeep(fs, S.pick(Bool.or(L.is_un(w2) && L.is_un(g2),
                                   L.tri_is_yes(L.ln_cmp(w2, g2))), 1, 0)))
     # ---- memoised whnf ----
+    # The sentinels 4294967295 (unknown) and 4294967294 (ill-typed) are not
+    # nodes: a failed inference's result must never be dereferenced. The
+    # store index wraps (Array.get is modulo the array size), so reading
+    # them gave whatever node sat in the last slot -- with store reuse a
+    # garbage term, then a million undecided pairs walking it
+    # (Std.Iter.step_flatMapAfter; the poison-on-rollback build showed 56
+    # EBad reads at ISub, every one at index 4294967295).
     case 1n+p KCon{DWhd{i, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +i2 : U32 = i
+      km(p, KCon{DWhdS{U32.is_ge(i2, 4294967294), i2, ctx}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DWhdS{True{}, i, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, i))
+    case 1n+p KCon{DWhdS{False{}, i, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +i2 : U32 = i
       km(p, KCon{DWhdM{i2, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kwm_tin(fs, i2, khalf(hcb)))
