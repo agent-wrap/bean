@@ -105,7 +105,13 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       ((ex, nx), C.VDecline{})
     case _ Tuple{ex, nx}:
       +pd = d
-      fck_fold(M.fck_typed(1000000000n, (ex, nx), I.is_lnt(st),
+      # the machine's step fuel: 2^32 * 64 (a Nat literal stops at 2^32-1).
+      # 1e9 steps (~33 s) ran out on Lean.Grind.Ring.OfSemiring.mul_helper
+      # and WellFounded.partialExtrinsicFix₃_eq: the machine then answered
+      # with a stale register, read as a decline with no flag or UNK
+      # anywhere (found with a diagnostic fold mapping registers outside
+      # 0..2 to a reject)
+      fck_fold(M.fck_typed(Nat.mul(4294967295n, 64n), (ex, nx), I.is_lnt(st),
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
                            K.dcl_value(pd), basenx),
