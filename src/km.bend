@@ -275,6 +275,7 @@ type KF is Data:
   # the closed-pair YES cache (Lean's equivalence manager, restricted to
   # closed terms: an open pair's answer can depend on the binder types)
   DSc0{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DSc0h{lm: U32, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DSc0b{hit0: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
         fu: U32}
   DSc1{hit: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
@@ -2757,6 +2758,99 @@ def kclmax(fs: Array<T.Ex> & U32, +x: U32, +y: U32,
       +hb : U32 = khalf(base)
       kcl2m(klb_get(ex, x, hb), y, nx, hb)
 
+# --- a structural hash of a binder type ----------------------------------
+# The open-pair success cache was keyed on the context prefix's binder
+# type NODE INDICES. A binder domain pushed by the binder descent is an
+# instantiated node, minted again at every visit, so the same open pair
+# under the same context missed the cache on every revisit: Vector
+# .attach_push ran the same search until the store overflowed (with the
+# context dropped from the key it accepted in 13 s instead of a 76 s
+# overflow decline; the same proof with the binders `(xs) (a)` instead of
+# `{a} {xs}` accepted in 7 s). Definitional equality of open terms is
+# invariant under renaming the free variables with variables of the same
+# types, so STRUCTURALLY equal contexts are one key: each binder type is
+# hashed as a tree (a bounded worklist walk: constants by name, bound
+# variables by index, literals by value, levels ignored), the prefix of
+# length lm (the pair's loose-bvar range) folded in order.
+def ksh_mix(+h: U32, +v: U32) -> U32:
+  ((h * 1000003 : U32) + (v * 8191 : U32) + 1 : U32)
+
+def ksh_pick(a: Array<T.Ex>, todo: List<&2, U32>) -> Array<T.Ex> & T.Ex:
+  match todo:
+    case Nil{}:
+      (a, T.EBad{})
+    case Con{head, tail}:
+      Array.get(T.Ex, a, head)
+
+def ksh_tail(todo: List<&2, U32>) -> List<&2, U32>:
+  match todo:
+    case Nil{}:
+      Nil{}
+    case Con{head, tail}:
+      tail
+
+def ksh_node(fuel: Nat, pr: Array<T.Ex> & T.Ex, todo: List<&2, U32>,
+             +h: U32) -> Array<T.Ex> & U32:
+  match fuel pr:
+    case 0n Tuple{a, nd}:
+      (a, ksh_mix(h, 7))
+    case 1n+p Tuple{a, nd}:
+      match nd:
+        case T.EBad{}:
+          (a, h)
+        case T.EApp{f, x}:
+          +t2 : List<&2, U32> = Con{f, Con{x, todo}}
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, 19))
+        case T.EAll{n, t, b, bi}:
+          +t2 : List<&2, U32> = Con{t, Con{b, todo}}
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, 23))
+        case T.ELam{n, t, b, bi}:
+          +t2 : List<&2, U32> = Con{t, Con{b, todo}}
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, 29))
+        case T.ELet{n, t, v, b}:
+          +t2 : List<&2, U32> = Con{t, Con{v, Con{b, todo}}}
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, 31))
+        case T.EProj{tn, ix, e}:
+          +t2 : List<&2, U32> = Con{e, todo}
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2),
+                   ksh_mix(ksh_mix(h, 37), ((tn * 131 : U32) + ix : U32)))
+        case T.EConst{n, us}:
+          +t2 : List<&2, U32> = todo
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, ((n * 2654435761 : U32) + 3 : U32)))
+        case T.EBVar{i}:
+          +t2 : List<&2, U32> = todo
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, ((i * 40503 : U32) + 5 : U32)))
+        case T.ENat{d}:
+          +t2 : List<&2, U32> = todo
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, (I.dec_u32(d, 0) + 13 : U32)))
+        case _:
+          +t2 : List<&2, U32> = todo
+          ksh_node(p, ksh_pick(a, t2), ksh_tail(t2), ksh_mix(h, 11))
+
+# the prefix of length n of the context, folded in order
+def kctxh_s(n: Nat, pr: Array<T.Ex> & U32, xs: List<&2, U32>) -> Array<T.Ex> & U32:
+  match n pr:
+    case 0n Tuple{a, h}:
+      (a, h)
+    case 1n+p Tuple{a, h}:
+      match xs:
+        case Nil{}:
+          (a, h)
+        case Con{head, tail}:
+          kctxh_s(p, ksh_node(64n, Array.get(T.Ex, a, head), Nil{},
+                              ((h * 31 : U32) + 1 : U32)), tail)
+
+def kctxh_tin2(pr: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, h}:
+      (((a, nx), MN{}), h)
+
+def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32,
+              xs: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), xs), nx)
+
 def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
   match n xs:
     case 0n _:
@@ -5070,13 +5164,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DSc0{x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, kclmax(fs, x2, y2, hcb))
     case 1n+p KCon{DSc0{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +c2 : List<&2, U32> = ctx
+      +lm : U32 = ri
+      km(p, KCon{DSc0h{lm, xi, yi, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kctxh_tin(fs, lm, c2))
+    case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
       +w0 : R.Tr<U32> = wm
       +c2 : List<&2, U32> = ctx
-      +lm : U32 = ri
       +cl : Bool = U32.is_eq(lm, 0)
-      +ch : U32 = S.pick(cl, 0, kctxh_n(U32.to_nat(lm), c2, 0))
+      +ch : U32 = S.pick(cl, 0, ri)
       +hit0 : Bool = cl
                      && (U32.is_eq(R.get(U32, 64n, w0, (x2 + 2147483648 : U32),
                                          4294967295), y2)
