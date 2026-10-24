@@ -625,6 +625,7 @@ type KF is Data:
   # the rigid denial: type oracle + universe, deny outside Prop
   DRg1{cheaprig: Bool, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
   DRg2{pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
+  DRg2w{pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
   DRg3{rtok: Bool, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
   # one reduction of each side at a shape mismatch, then dq_or_irrel
   DDl1{isno: Bool, pxi: U32, pyi: U32, ctx: List<&2, U32>, fu: U32}
@@ -6894,13 +6895,24 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +c2 : List<&2, U32> = ctx
       km(p, KCon{DTy1{c2}, KCon{DRg2{x2, pyi, c2, fu}, k}}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+    # the inferred type is whnf'd before its sort is read (Lean's
+    # infer_type then whnf): a stuck recursor's type is the motive applied,
+    # a beta-redex `(λ i.. h. Sort u) i.. h` the syntactic sort oracle
+    # could not read, so the denial was skipped and bugs/proj-of-stuck-prop
+    # (`Gate.rec .. h =?= Prop`, a NO in Lean) declined
     case 1n+p KCon{DRg2{pxi, pyi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +r2 : U32 = ri
-      km(p, KCon{kslev(r2, cx9, 2000000),
-                 KCon{DRg3{Bool.not(U32.is_eq(r2, 4294967295)), pxi, pyi,
-                           cx9, fu}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, 0))
+      km(p, KCon{DWhd{r2, cx9}, KCon{DRg2w{pxi, pyi, cx9, fu}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DRg2w{pxi, pyi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +r2 : U32 = ri
+      +ok : Bool = U32.is_lt(r2, 4294967294)
+      km(p, KCon{kslev(S.pick(ok, r2, 0), cx9, 2000000),
+                 KCon{DRg3{ok, pxi, pyi, cx9, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kfetch(fs, S.pick(ok, r2, 0), 0))
     case 1n+p KCon{DRg3{rtok, pxi, pyi, ctx, fu}, k}
          Tuple{Tuple{fs, MLn{u}}, ri}:
       km(p, KCon{DDl1{rtok && L.tri_is_no(L.ln_is_zero(u)), pxi, pyi, ctx,
@@ -6992,9 +7004,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, MSP{hd, sargs2}}, ri}:
       +p2 : U32 = pp
       +s2 : List<&2, U32> = sargs
-      km(p, KCon{KI0{I.skip_u(sargs2, p2),
+      # Lean's to_cnstr_when_K compares the constructor's indices with the
+      # major's by is_def_eq: the full comparison under the context (DLs,
+      # as the whnf's K-like step does), not the constant denial (KI0),
+      # which cannot deny an index that is an application -- so a K-like
+      # recursor stuck on a local whose indices only REDUCE to different
+      # constructors (bugs/proj-of-stuck-prop, rec-missing-ih: the result
+      # sort `Gate.rec .. h =?= Prop`) read as not stuck, and the pair as
+      # undecided where Lean rejects
+      km(p, KCon{DLs{I.skip_u(sargs2, p2),
                      I.take_u(I.skip_u(s2, (p2 + 1 + mn : U32)), ni,
-                              Nil{}), L.TYes{}, ctx},
+                              Nil{}), ctx},
                  KCon{RS7{base, pok}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{RS7{base, pok}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
