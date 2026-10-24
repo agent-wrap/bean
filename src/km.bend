@@ -78,6 +78,8 @@ type MG is Data:
   MX{x: T.Ex}
   # the walked subterm has no loose bvar at or above the cutoff (kfetch_w)
   MKeep{}
+  # a walk's memoised result for the fetched node (kfetch_w)
+  MHit{r: U32}
   MSP{hd: T.Ex, sargs: List<&2, U32>}
   MTri{t: L.Tri}
   # a constructor field type's telescope: binder count, binder types
@@ -111,15 +113,15 @@ type KF is Data:
   # after the bvar-eq sentinel walk: pick the real answer for an inst bvar
   KBvI{iseq: Bool, isgt: Bool, i: U32, e: U32}
   KAp2{wp: WP, e: U32, f0: U32, a0: U32}
-  KAp3{e: U32, f0: U32, a0: U32, r1: U32}
+  KAp3{wp: WP, e: U32, f0: U32, a0: U32, r1: U32}
   KLm2{wp: WP, e: U32, n: U32, t0: U32, b0: U32, bi: U32}
-  KLm3{e: U32, n: U32, t0: U32, b0: U32, bi: U32, r1: U32}
+  KLm3{wp: WP, e: U32, n: U32, t0: U32, b0: U32, bi: U32, r1: U32}
   KAl2{wp: WP, e: U32, n: U32, t0: U32, b0: U32, bi: U32}
-  KAl3{e: U32, n: U32, t0: U32, b0: U32, bi: U32, r1: U32}
+  KAl3{wp: WP, e: U32, n: U32, t0: U32, b0: U32, bi: U32, r1: U32}
   KLt2{wp: WP, e: U32, n: U32, t0: U32, v0: U32, b0: U32}
   KLt3{wp: WP, e: U32, n: U32, t0: U32, v0: U32, b0: U32, r1: U32}
-  KLt4{e: U32, n: U32, t0: U32, v0: U32, b0: U32, r1: U32, r2: U32}
-  KPj2{e: U32, tn: U32, ix: U32, s0: U32}
+  KLt4{wp: WP, e: U32, n: U32, t0: U32, v0: U32, b0: U32, r1: U32, r2: U32}
+  KPj2{wp: WP, e: U32, tn: U32, ix: U32, s0: U32}
   # ---- weak head normal form ----
   # evaluate the fetched node under the arg spine
   WEv{delta: Bool, e: U32, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
@@ -2005,6 +2007,341 @@ def kyi_set(+go: Bool, a: Array<T.Ex>, +base: U32, +pk: U32, +io: U32,
     case False{}:
       a
 
+# --- the walk memo, in the store -------------------------------------------
+# lift(e, c, d) and inst(e, c, v) are pure in their arguments and the (never
+# rewritten while live) subtrees, so a ROOT walk's result is memoised like
+# an inferred type: 2^17 two-slot entries at kfl_slot(base, 1048576 + 2*h):
+# EProj{e, result, c} and EApp{dv | op<<31, gc}. Valid while gc is of this
+# declaration and e, the result and (inst) the value were not freed and
+# rewritten since (stamps at most gc, indices below the pointer). Lean's
+# fvars make its values closed, so it never lifts them; km's locals are
+# bvars, so every value substituted under k binders is lifted by k at each
+# occurrence: WellFounded.partialExtrinsicFix₃_eq lifted the same PSigma
+# terms 100 million nodes' worth (101M lift visits, 90M inst visits, with
+# 564 unfolds: Lean 763 unfolds in 19 ms).
+# 2^18 sets of 4 ways (8 slots) at kfl_slot(base, 1572864 + 8*h): a walk
+# must find every entry it wrote -- a lost entry re-walks a whole subtree,
+# and on perf/app-lam a direct-mapped table lost enough of them per walk
+# (5k entries, 4% collisions) to make the opening of each level
+# exponential again (233M application visits in 20 s)
+# --- the walk memo, in the store -------------------------------------------
+# lift(e, c, d) and inst(e, c, v) are pure in their arguments and the (never
+# rewritten while live) subtrees, so a ROOT walk's result is memoised like
+# an inferred type: 2^17 two-slot entries at kfl_slot(base, 1048576 + 2*h):
+# EProj{e, result, c} and EApp{dv | op<<31, gc}. Valid while gc is of this
+# declaration and e, the result and (inst) the value were not freed and
+# rewritten since (stamps at most gc, indices below the pointer). Lean's
+# fvars make its values closed, so it never lifts them; km's locals are
+# bvars, so every value substituted under k binders is lifted by k at each
+# occurrence: WellFounded.partialExtrinsicFix₃_eq lifted the same PSigma
+# terms 100 million nodes' worth (101M lift visits, 90M inst visits, with
+# 564 unfolds: Lean 763 unfolds in 19 ms).
+# 2^18 sets of 4 ways (8 slots) at kfl_slot(base, 1572864 + 8*h): a walk
+# must find every entry it wrote -- a lost entry re-walks a whole subtree,
+# and on perf/app-lam a direct-mapped table lost enough of them per walk
+# (5k entries, 4% collisions) to make the opening of each level
+# exponential again (233M application visits in 20 s)
+def kwl_key(+e: U32, +c: U32, +dv: U32, +op: U32) -> U32:
+  (1572864 + (8 * U32.and(((((e * 2654435761 : U32) + (c * 40503 : U32) : U32)
+                            + (dv * 97 : U32) : U32) + (op * 7919 : U32) : U32),
+                          262143) : U32) : U32)
+
+def kwl_h6(pr: Array<T.Ex> & T.Ex, +gc: U32, +okv: Bool,
+           +r: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      (a, S.pick(okv && U32.is_le(kyst(e), gc), r, 4294967295))
+
+# the value's stamp (inst only; lift reads slot 0's shadow, ignored)
+# the value's stamp (inst only; lift reads slot 0's shadow, ignored)
+def kwl_h5(pr: Array<T.Ex> & T.Ex, +hb: U32, +gc: U32, +okr: Bool, +r: U32,
+           +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      +isv : Bool = U32.is_eq(op, 1)
+      kwl_h6(Array.get(T.Ex, a, (S.pick(isv, dv, 0) + hb : U32)), gc,
+             okr && U32.is_le(kyst(e), gc), r)
+
+def kwl_h5b(+isv: Bool, a: Array<T.Ex>, +hb: U32, +gc: U32, +okr: Bool,
+            +r: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match isv:
+    case True{}:
+      kwl_h5(Array.get(T.Ex, a, (r + hb : U32)), hb, gc, okr, r, dv, op)
+    case False{}:
+      (a, 4294967295)
+
+# the result's stamp
+# the result's stamp
+def kwl_h4(pr: Array<T.Ex> & T.Ex, +hb: U32, +nx: U32, +gc: U32, +r: U32,
+           +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, e}:
+      +isnode : Bool = U32.is_lt(r, (hb - 2 : U32)) && U32.is_lt(r, nx)
+      +vok : Bool = Bool.not(U32.is_eq(op, 1))
+                    || (U32.is_lt(dv, (hb - 2 : U32)) && U32.is_lt(dv, nx))
+      kwl_h5b(isnode && vok, a, hb, gc, U32.is_le(kyst(e), gc), r, dv, op)
+
+# e's stamp
+# e's stamp
+def kwl_h3b(+ok: Bool, a: Array<T.Ex>, +hb: U32, +nx: U32, +e: U32, +r: U32,
+            +dv: U32, +op: U32, +gc: U32) -> Array<T.Ex> & U32:
+  match ok:
+    case True{}:
+      kwl_h4(Array.get(T.Ex, a, (e + hb : U32)), hb, nx, gc, r, dv, op)
+    case False{}:
+      (a, 4294967295)
+
+def kwl_h3(pr: Array<T.Ex> & T.Ex, +hb: U32, +nx: U32, +e: U32, +r: U32,
+           +dv: U32, +op: U32, +gc: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, gde}:
+      kwl_h3b(U32.is_ge(gc, kg_v(gde)), a, hb, nx, e, r, dv, op, gc)
+
+def kwl_h2b(pr: Array<T.Ex> & T.Ex, +hb: U32, +nx: U32, +e: U32, +r: U32,
+            +dv: U32, +op: U32, +gd: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, T.EApp{dvop, gc}}:
+      +g2 : U32 = gc
+      kwl_h3b(U32.is_eq(dvop, (dv + U32.shln(op, 31n) : U32))
+              && U32.is_ge(g2, gd), a, hb, nx, e, r, dv, op, g2)
+    case Tuple{a, x}:
+      (a, 4294967295)
+
+def kwl_h2g(pr: Array<T.Ex> & T.Ex, +base: U32, +nx: U32, +k: U32, +e: U32,
+            +r: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, gde}:
+      +hb : U32 = khalf(base)
+      kwl_h2b(Array.get(T.Ex, a, kfl_slot(base, (k + 1 : U32))), hb, nx, e,
+              r, dv, op, kg_v(gde))
+
+def kwl_h1b(+ok: Bool, a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32,
+            +e: U32, +r: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match ok:
+    case True{}:
+      kwl_h2g(Array.get(T.Ex, a, kgd_slot(khalf(base))), base, nx, k, e, r,
+              dv, op)
+    case False{}:
+      (a, 4294967295)
+
+def kwl_h1(pr: Array<T.Ex> & T.Ex, +base: U32, +nx: U32, +k: U32, +e: U32,
+           +c: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, T.EProj{e2, r, c2}}:
+      +r2 : U32 = r
+      kwl_h1b(U32.is_eq(e2, e) && U32.is_eq(c2, c), a, base, nx, k, e, r2,
+              dv, op)
+    case Tuple{a, x}:
+      (a, 4294967295)
+
+def kwl_try(a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32, +e: U32, +c: U32,
+            +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  kwl_h1(Array.get(T.Ex, a, kfl_slot(base, k)), base, nx, k, e, c, dv, op)
+
+def kwl_fcx(+found: Bool, a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32,
+            +e: U32, +c: U32, +dv: U32, +op: U32, +r: U32) -> Array<T.Ex> & U32:
+  match found:
+    case True{}:
+      (a, r)
+    case False{}:
+      kwl_try(a, base, nx, (k + 6 : U32), e, c, dv, op)
+
+def kwl_fc(pr: Array<T.Ex> & U32, +base: U32, +nx: U32, +k: U32, +e: U32,
+           +c: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, r}:
+      +r2 : U32 = r
+      kwl_fcx(U32.is_ne(r2, 4294967295), a, base, nx, k, e, c, dv, op, r2)
+
+def kwl_fbx(+found: Bool, a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32,
+            +e: U32, +c: U32, +dv: U32, +op: U32, +r: U32) -> Array<T.Ex> & U32:
+  match found:
+    case True{}:
+      (a, r)
+    case False{}:
+      kwl_fc(kwl_try(a, base, nx, (k + 4 : U32), e, c, dv, op), base, nx, k,
+             e, c, dv, op)
+
+def kwl_fb(pr: Array<T.Ex> & U32, +base: U32, +nx: U32, +k: U32, +e: U32,
+           +c: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, r}:
+      +r2 : U32 = r
+      kwl_fbx(U32.is_ne(r2, 4294967295), a, base, nx, k, e, c, dv, op, r2)
+
+def kwl_fax(+found: Bool, a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32,
+            +e: U32, +c: U32, +dv: U32, +op: U32, +r: U32) -> Array<T.Ex> & U32:
+  match found:
+    case True{}:
+      (a, r)
+    case False{}:
+      kwl_fb(kwl_try(a, base, nx, (k + 2 : U32), e, c, dv, op), base, nx, k,
+             e, c, dv, op)
+
+def kwl_fa(pr: Array<T.Ex> & U32, +base: U32, +nx: U32, +k: U32, +e: U32,
+           +c: U32, +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, r}:
+      +r2 : U32 = r
+      kwl_fax(U32.is_ne(r2, 4294967295), a, base, nx, k, e, c, dv, op, r2)
+
+# the four ways of the set in turn
+# the four ways of the set in turn
+def kwl_find(a: Array<T.Ex>, +base: U32, +nx: U32, +k: U32, +e: U32, +c: U32,
+             +dv: U32, +op: U32) -> Array<T.Ex> & U32:
+  kwl_fa(kwl_try(a, base, nx, k, e, c, dv, op), base, nx, k, e, c, dv, op)
+
+# the way to write: the first whose entry is of an earlier declaration (its
+# gc below this declaration's start) or unwritten, else one by the node
+# the way to write: the first whose entry is of an earlier declaration (its
+# gc below this declaration's start) or unwritten, else one by the node
+def kwl_gc_of(+x: T.Ex) -> U32:
+  match x:
+    case T.EApp{dvop, gc}:
+      gc
+    case _:
+      0
+
+def kwl_pk4(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +gd: U32,
+            +e: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, x}:
+      (a, S.pick(U32.is_lt(kwl_gc_of(x), gd), (k + 6 : U32),
+                 (k + (2 * U32.and((e / 16 : U32), 3) : U32) : U32)))
+
+def kwl_pk3b(+free: Bool, a: Array<T.Ex>, +base: U32, +k: U32, +gd: U32,
+             +e: U32) -> Array<T.Ex> & U32:
+  match free:
+    case True{}:
+      (a, (k + 4 : U32))
+    case False{}:
+      kwl_pk4(Array.get(T.Ex, a, kfl_slot(base, (k + 7 : U32))), base, k, gd, e)
+
+def kwl_pk3(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +gd: U32,
+            +e: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, x}:
+      kwl_pk3b(U32.is_lt(kwl_gc_of(x), gd), a, base, k, gd, e)
+
+def kwl_pk2b(+free: Bool, a: Array<T.Ex>, +base: U32, +k: U32, +gd: U32,
+             +e: U32) -> Array<T.Ex> & U32:
+  match free:
+    case True{}:
+      (a, (k + 2 : U32))
+    case False{}:
+      kwl_pk3(Array.get(T.Ex, a, kfl_slot(base, (k + 5 : U32))), base, k, gd, e)
+
+def kwl_pk2(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +gd: U32,
+            +e: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, x}:
+      kwl_pk2b(U32.is_lt(kwl_gc_of(x), gd), a, base, k, gd, e)
+
+def kwl_pk1b(+free: Bool, a: Array<T.Ex>, +base: U32, +k: U32, +gd: U32,
+             +e: U32) -> Array<T.Ex> & U32:
+  match free:
+    case True{}:
+      (a, k)
+    case False{}:
+      kwl_pk2(Array.get(T.Ex, a, kfl_slot(base, (k + 3 : U32))), base, k, gd, e)
+
+def kwl_pk1(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +gd: U32,
+            +e: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, x}:
+      kwl_pk1b(U32.is_lt(kwl_gc_of(x), gd), a, base, k, gd, e)
+
+def kwl_pick(a: Array<T.Ex>, +base: U32, +k: U32, +gd: U32,
+             +e: U32) -> Array<T.Ex> & U32:
+  kwl_pk1(Array.get(T.Ex, a, kfl_slot(base, (k + 1 : U32))), base, k, gd, e)
+
+def kwl_tin2(pr: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, r}:
+      (((a, nx), MN{}), r)
+
+# the memoised root walk as the register, or 4294967295
+# the memoised root walk as the register, or 4294967295
+def kwl_tin(fs: Array<T.Ex> & U32, +base: U32, +e: U32, +c: U32, +dv: U32,
+            +op: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      +k : U32 = kwl_key(e, c, dv, op)
+      +n2 : U32 = nx
+      kwl_tin2(kwl_find(ex, base, n2, k, e, c, dv, op), n2)
+
+def kwl_s1(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +e: U32, +c: U32,
+           +dv: U32, +op: U32, +r: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, g}:
+      Array.set(T.Ex, Array.set(T.Ex, a, kfl_slot(base, k), T.EProj{e, r, c}),
+                kfl_slot(base, (k + 1 : U32)),
+                T.EApp{(dv + U32.shln(op, 31n) : U32), kg_v(g)})
+
+def kwl_gd(pr: Array<T.Ex> & T.Ex) -> U32:
+  match pr:
+    case Tuple{a, g}:
+      kg_v(g)
+
+def kwl_set3(pr: Array<T.Ex> & U32, +base: U32, +e: U32, +c: U32, +dv: U32,
+             +op: U32, +r: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, way}:
+      kwl_s1(Array.get(T.Ex, a, kg_slot(khalf(base))), base, way, e, c, dv,
+             op, r)
+
+def kwl_set2b(pr: Array<T.Ex> & T.Ex, +base: U32, +e: U32, +c: U32,
+              +dv: U32, +op: U32, +r: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, g}:
+      kwl_set3(kwl_pick(a, base, kwl_key(e, c, dv, op), kg_v(g), e), base, e,
+               c, dv, op, r)
+
+def kwl_set2(+go: Bool, a: Array<T.Ex>, +base: U32, +e: U32, +c: U32,
+             +dv: U32, +op: U32, +r: U32) -> Array<T.Ex>:
+  match go:
+    case True{}:
+      kwl_set2b(Array.get(T.Ex, a, kgd_slot(khalf(base))), base, e, c, dv, op,
+                r)
+    case False{}:
+      a
+
+def kwl_set(fs: Array<T.Ex> & U32, +base: U32, +e: U32, +c: U32, +dv: U32,
+            +op: U32, +r: U32) -> Array<T.Ex> & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      +hb : U32 = khalf(base)
+      (kwl_set2(U32.is_lt(r, (hb - 2 : U32)) && U32.is_lt(e, (hb - 2 : U32))
+                && U32.is_lt(dv, 2147483648) && U32.is_lt(c, 2147483648),
+                ex, base, e, c, dv, op, r), nx)
+
+# record a walk's result for node e, then pass the result on
+# record a walk's result for node e, then pass the result on
+def kwl_rec2(+dv: U32, +op: U32, +c: U32, +e: U32, +base: U32,
+             t: ((Array<T.Ex> & U32) & MG) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match t:
+    case Tuple{Tuple{fs, msg}, r}:
+      +r2 : U32 = r
+      ((kwl_set(fs, base, e, c, dv, op, r2), msg), r2)
+
+def kwl_rec3(+nomemo: Bool, +dv: U32, +op: U32, +c: U32, +e: U32, +base: U32,
+             t: ((Array<T.Ex> & U32) & MG) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match nomemo:
+    case True{}:
+      t
+    case False{}:
+      kwl_rec2(dv, op, c, e, base, t)
+
+def kwl_rec(+w: WP, +e: U32, +base: U32,
+            t: ((Array<T.Ex> & U32) & MG) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match w:
+    case WP{op, c, d, v, ps, qs, fu}:
+      +o2 : U32 = op
+      +dv : U32 = S.pick(U32.is_eq(o2, 1), v,
+                         S.pick(U32.is_eq(o2, 0) || U32.is_eq(o2, 4), d,
+                                4294967295))
+      kwl_rec3(U32.is_eq(dv, 4294967295), dv, o2, c, e, base, t)
+
 def klb_get(a: Array<T.Ex>, +j: U32, +hb: U32) -> Array<T.Ex> & U32:
   klb_unpack(Array.get(T.Ex, a, (j + hb : U32)))
 
@@ -2177,33 +2514,79 @@ def kwm_set(fs: Array<T.Ex> & U32, +i: U32, +r: U32,
 # fetch a subterm a lift/instantiate walk is about to enter -- or, when its
 # recorded lbr is at most the walk's cutoff, answer MKeep (keep it as is).
 # lsubst (op 2) does not depend on bound variables and always fetches.
+# fetch a subterm a lift/instantiate walk is about to enter -- or, when its
+# recorded lbr is at most the walk's cutoff, answer MKeep (keep it as is).
+# lsubst (op 2) does not depend on bound variables and always fetches.
+# the walk's key for a node: (op, cutoff, value|shift); 4294967295 = no memo
+def kwl_dv(+w: WP) -> U32:
+  match w:
+    case WP{op, c, d, v, ps, qs, fu}:
+      S.pick(U32.is_eq(op, 1), v,
+             S.pick(U32.is_eq(op, 0) || U32.is_eq(op, 4), d, 4294967295))
+
+def kfcm3(+miss: Bool, a: Array<T.Ex>, +x: U32, +nx: U32, +ri: U32,
+          +r: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match miss:
+    case True{}:
+      kfetch2(Array.get(T.Ex, a, x), nx, ri)
+    case False{}:
+      (((a, nx), MHit{r}), ri)
+
+# not kept by range: the walk memo (a DAG-shared subterm is walked once
+# per walk, Lean's replace cache), else the node
+# not kept by range: the walk memo (a DAG-shared subterm is walked once
+# per walk, Lean's replace cache), else the node
+def kfcm2(pr: Array<T.Ex> & U32, +x: U32, +nx: U32,
+          +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, r}:
+      +r2 : U32 = r
+      kfcm3(U32.is_eq(r2, 4294967295), a, x, nx, ri, r2)
+
+def kfcm(+dv: U32, a: Array<T.Ex>, +x: U32, +nx: U32, +ri: U32, +w: WP,
+         +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match w:
+    case WP{op, c, d, v, ps, qs, fu}:
+      kfcm2(kwl_find(a, base, nx, kwl_key(x, c, dv, op), x, c, dv, op),
+            x, nx, ri)
+
+def kfc3b(+nomemo: Bool, a: Array<T.Ex>, +x: U32, +nx: U32, +ri: U32,
+          +w: WP, +base: U32, +dv: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match nomemo:
+    case True{}:
+      kfetch2(Array.get(T.Ex, a, x), nx, ri)
+    case False{}:
+      kfcm(dv, a, x, nx, ri, w, base)
+
 def kfc3(+skip: Bool, a: Array<T.Ex>, +x: U32, +nx: U32,
-         +ri: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+         +ri: U32, +w: WP, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match skip:
     case True{}:
       (((a, nx), MKeep{}), ri)
     case False{}:
-      kfetch2(Array.get(T.Ex, a, x), nx, ri)
+      +w2 : WP = w
+      +dv : U32 = kwl_dv(w2)
+      kfc3b(U32.is_eq(dv, 4294967295), a, x, nx, ri, w2, base, dv)
 
 def kfc2(pr: Array<T.Ex> & U32, +x: U32, +nx: U32, +ri: U32,
-         +c: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+         +c: U32, +w: WP, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match pr:
     case Tuple{a, l}:
-      kfc3(U32.is_le(l, c), a, x, nx, ri)
+      kfc3(U32.is_le(l, c), a, x, nx, ri, w, base)
 
 def kfc1(+lb: Bool, fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +c: U32,
-         +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+         +w: WP, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match lb fs:
     case True{} Tuple{ex, nx}:
       +x2 : U32 = x
-      kfc2(klb_get(ex, x2, khalf(base)), x2, nx, ri, c)
+      kfc2(klb_get(ex, x2, khalf(base)), x2, nx, ri, c, w, base)
     case False{} Tuple{ex, nx}:
       kfetch2(Array.get(T.Ex, ex, x), nx, ri)
 
 def kfetch_w(fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +w: WP,
              +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   +w2 : WP = w
-  kfc1(Bool.not(U32.is_eq(wp_op(w2), 2)), fs, x, ri, wp_c(w2), base)
+  kfc1(Bool.not(U32.is_eq(wp_op(w2), 2)), fs, x, ri, wp_c(w2), w2, base)
 
 # record the lbr of every export node, in index order (an export lists a
 # term's children before it; a child not yet recorded reads as unknown)
@@ -4363,6 +4746,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DWhd{a1, cx9}, KCon{DAq4{L.TYes{}, a1, a2, xi, yi, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # ---- eval: lift ----
+    case 1n+p KCon{KEvL{c, d, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, r))
     case 1n+p KCon{KEvL{c, d, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     case 1n+p KCon{KEvL{c, d, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
@@ -4392,11 +4777,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case T.EProj{tn, i, s}:
           +w : WP = WP{0, c, d, 0, Nil{}, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
-          km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
+          km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- eval: inst ----
+    case 1n+p KCon{KEvI{c, v, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, r))
     case 1n+p KCon{KEvI{c, v, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     case 1n+p KCon{KEvI{c, v, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
@@ -4433,11 +4820,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case T.EProj{tn, i, s}:
           +w : WP = WP{1, c, 0, v, Nil{}, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
-          km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
+          km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- eval: instantiate several (op 3) ----
+    case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, r))
     case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
@@ -4477,7 +4866,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case T.EProj{tn, i, s}:
           +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
-          km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
+          km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
@@ -4537,7 +4926,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case T.EProj{tn, i, s}:
           +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
           +s2 : U32 = s
-          km(p, KCon{kev(w, s2), KCon{KPj2{e, tn, i, s2}, k}}, lnt, nlx, mt,
+          km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
@@ -8652,38 +9041,46 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{KAp2{wp, e, f0, a0}, k} Tuple{Tuple{fs, msg}, ri}:
       +w : WP = wp
       +a2 : U32 = a0
-      km(p, KCon{kev(w, a2), KCon{KAp3{e, f0, a2, ri}, k}}, lnt, nlx, mt,
+      km(p, KCon{kev(w, a2), KCon{KAp3{w, e, f0, a2, ri}, k}}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, a2, 0, w, hcb))
-    case 1n+p KCon{KAp3{e, f0, a0, r1}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{KAp3{wp, e, f0, a0, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
+      +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kalloc_if(Bool.not(U32.is_eq(r1b, f0) && U32.is_eq(rib, a0)),
-                   fs, T.EApp{r1b, rib}, e, hcb))
+         kwl_rec(wp, e2, hcb,
+                 kalloc_if(Bool.not(U32.is_eq(r1b, f0) && U32.is_eq(rib, a0)),
+                           fs, T.EApp{r1b, rib}, e2, hcb)))
     case 1n+p KCon{KLm2{wp, e, n, t0, b0, bi}, k} Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
-      +wb : WP = wp_bump(wp)
-      km(p, KCon{kev(wb, b2), KCon{KLm3{e, n, t0, b2, bi, ri}, k}},
+      +w0 : WP = wp
+      +wb : WP = wp_bump(w0)
+      km(p, KCon{kev(wb, b2), KCon{KLm3{w0, e, n, t0, b2, bi, ri}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kfetch_w(fs, b2, 0, wb, hcb))
-    case 1n+p KCon{KLm3{e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{KLm3{wp, e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
+      +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
-                   fs, T.ELam{n, r1b, rib, bi}, e, hcb))
+         kwl_rec(wp, e2, hcb,
+                 kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
+                           fs, T.ELam{n, r1b, rib, bi}, e2, hcb)))
     case 1n+p KCon{KAl2{wp, e, n, t0, b0, bi}, k} Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
-      +wb : WP = wp_bump(wp)
-      km(p, KCon{kev(wb, b2), KCon{KAl3{e, n, t0, b2, bi, ri}, k}},
+      +w0 : WP = wp
+      +wb : WP = wp_bump(w0)
+      km(p, KCon{kev(wb, b2), KCon{KAl3{w0, e, n, t0, b2, bi, ri}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kfetch_w(fs, b2, 0, wb, hcb))
-    case 1n+p KCon{KAl3{e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{KAl3{wp, e, n, t0, b0, bi, r1}, k} Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +rib : U32 = ri
+      +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
-                   fs, T.EAll{n, r1b, rib, bi}, e, hcb))
+         kwl_rec(wp, e2, hcb,
+                 kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(rib, b0)),
+                           fs, T.EAll{n, r1b, rib, bi}, e2, hcb)))
     case 1n+p KCon{KLt2{wp, e, n, t0, v0, b0}, k} Tuple{Tuple{fs, msg}, ri}:
       +w : WP = wp
       +v02 : U32 = v0
@@ -8692,25 +9089,30 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{KLt3{wp, e, n, t0, v0, b0, r1}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +b2 : U32 = b0
-      +wb : WP = wp_bump(wp)
+      +w0 : WP = wp
+      +wb : WP = wp_bump(w0)
       km(p, KCon{kev(wb, b2),
-                 KCon{KLt4{e, n, t0, v0, b2, r1, ri}, k}},
+                 KCon{KLt4{w0, e, n, t0, v0, b2, r1, ri}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kfetch_w(fs, b2, 0, wb, hcb))
-    case 1n+p KCon{KLt4{e, n, t0, v0, b0, r1, r2}, k}
+    case 1n+p KCon{KLt4{wp, e, n, t0, v0, b0, r1, r2}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +r1b : U32 = r1
       +r2b : U32 = r2
       +rib : U32 = ri
+      +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(r2b, v0)
-                            && U32.is_eq(rib, b0)),
-                   fs, T.ELet{n, r1b, r2b, rib}, e, hcb))
-    case 1n+p KCon{KPj2{e, tn, ix, s0}, k} Tuple{Tuple{fs, msg}, ri}:
+         kwl_rec(wp, e2, hcb,
+                 kalloc_if(Bool.not(U32.is_eq(r1b, t0) && U32.is_eq(r2b, v0)
+                                    && U32.is_eq(rib, b0)),
+                           fs, T.ELet{n, r1b, r2b, rib}, e2, hcb)))
+    case 1n+p KCon{KPj2{wp, e, tn, ix, s0}, k} Tuple{Tuple{fs, msg}, ri}:
       +rib : U32 = ri
+      +e2 : U32 = e
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kalloc_if(Bool.not(U32.is_eq(rib, s0)), fs,
-                   T.EProj{tn, ix, rib}, e, hcb))
+         kwl_rec(wp, e2, hcb,
+                 kalloc_if(Bool.not(U32.is_eq(rib, s0)), fs,
+                           T.EProj{tn, ix, rib}, e2, hcb)))
 
     # A frame/message combination no transition produces; unreachable by
     # construction (every eval frame follows a fetch), mapped to the error
