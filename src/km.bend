@@ -5018,9 +5018,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cx9 : List<&2, U32> = ctx
       +s2 : U32 = sx
       +f2 : U32 = (fu - 1 : U32)
-      km(p, KCon{kwev(delta, s2, Nil{}, f2, cx9),
-                 KCon{WPrj{delta, e, tn, idx, args, f2, cx9}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, s2, ri))
+      +d2 : Bool = delta
+      # the struct's whnf through the memo, as an iota major's: a value
+      # projected several times (`(x ◇ y).val` under decide) was otherwise
+      # computed once per projection (perf/magma-string-pair-n9)
+      km(p, KCon{pick_kf(Bool.not(d2), DWhd{s2, cx9}, DWhdF{s2, f2, cx9}),
+                 KCon{WPrj{d2, e, tn, idx, args, f2, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{WEv{delta, e, args, fu, ctx}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, krebuild(hcb, args, fs, e))
     # ---- rule-based iota (RI0) ----
