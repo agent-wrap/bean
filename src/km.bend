@@ -8393,7 +8393,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # bounded store. An overflow seen here (or at the end, by fcheck)
     # marks the declaration CORRUPT.
     # a rollback region's end. A result OLDER than the mark: drop back to the
-    # mark (memo snapshot restored, flags carried). A NEW result of a region
+    # mark (memo snapshot restored, flags carried) -- only once the pointer
+    # is past half the store; below that the region is kept for its memos
+    # (see the KRb arm). A NEW result of a region
     # that allocated a lot: COMPACT -- its reachable new part is copied down
     # to the mark (kcompact: post-order, verified, lbr recomputed) and the
     # memo snapshot restored, so a long evaluation runs in bounded store
@@ -8461,10 +8463,24 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       +n2 : U32 = nx
       +m2 : U32 = mark
-      +roll : Bool = U32.is_lt(r2, m2)
       +hb : U32 = khalf(hcb)
+      # An OLD result (below the mark) means nothing new survives in the
+      # term graph -- but the region's allocations are released only under
+      # store pressure (the pointer past half the store). Releasing every
+      # such region, as before, also discarded every memo made inside it
+      # that names a node at or above the mark (whnf memos of old nodes
+      # whose normal form was new, successes and inferred types involving
+      # one), and the next visit re-derived them until the comparison depth
+      # ran out: Std.Iter.step_flatMapAfter, the Array/Vector.extract omega
+      # proofs and Vector.attach_append declined, and accept in 9-34 s with
+      # the regions kept; perf/fueled-chain 50 s timeout -> 7 s,
+      # perf/magma-string-n4 70 s timeout -> 28 s, magma-list-deep-n36
+      # 390 s timeout -> 239 s; no test slower. (Keeping them without the
+      # pressure bound was not measured against the perf tests.)
+      +old : Bool = U32.is_lt(r2, m2)
+      +roll : Bool = old && U32.is_ge(n2, (hb / 2 : U32))
       +ovf : Bool = U32.is_ge(n2, hb)
-      +comp : Bool = Bool.not(roll) && Bool.not(ovf)
+      +comp : Bool = Bool.not(old) && Bool.not(ovf)
                      && U32.is_ge((n2 - m2 : U32), 4096)
                      && U32.is_lt((n2 + (n2 - m2 : U32) + 16 : U32), hb)
       km(p, KCon{KRb2{comp, m2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
@@ -8478,12 +8494,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       +n2 : U32 = nx
       +m2 : U32 = mark
-      +roll : Bool = U32.is_lt(r2, m2)
       +hb : U32 = khalf(hcb)
+      +old : Bool = U32.is_lt(r2, m2)
+      +roll : Bool = old && U32.is_ge(n2, (hb / 2 : U32))
       +ovf : Bool = U32.is_ge(n2, hb)
       # a large new result keeps its nodes but drops the memo entries made
       # meanwhile (the snapshot), as a compaction would
-      +comp : Bool = Bool.not(roll) && Bool.not(ovf)
+      +comp : Bool = Bool.not(old) && Bool.not(ovf)
                      && False{} && U32.is_ge((n2 - m2 : U32), 65536)
                      && U32.is_lt((n2 + (n2 - m2 : U32) + 16 : U32), hb)
       km(p, KCon{KRb3{comp, m2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
