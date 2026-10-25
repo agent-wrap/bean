@@ -1005,9 +1005,12 @@ def ctor_nf_for(items: List<&2, K.IItem>, +ind: U32, +acc: U32) -> U32:
         case _:
           ctor_nf_for(tail, ind, acc)
 
+# Lean's infer_proj asks for one constructor and no indices only; a NESTED
+# structure (Lean.Doc.Part, Lean.Language.SnapshotTree) is projected like
+# any other. Requiring `nn == 0` here rejected every projection out of one
+# (cedar: 19 wrong rejects, all `abbrev` projection functions)
 def str_code(+nc: U32, +ni: U32, +nn: U32, +nf: U32) -> U32:
-  S.pick(U32.is_eq(nc, 1) && U32.is_eq(ni, 0) && U32.is_eq(nn, 0),
-         (nf + 2 : U32), 1)
+  S.pick(U32.is_eq(nc, 1) && U32.is_eq(ni, 0), (nf + 2 : U32), 1)
 
 def str_of_items(items: List<&2, K.IItem>, +all: List<&2, K.IItem>,
                  +t: R.Tr<U32>) -> R.Tr<U32>:
@@ -1874,9 +1877,14 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                          Nil{}), np), ex, pnm))
       meta_items(its, its, ex, pnm, np, ni, nc,
                  R.set_if(I.Meta, se,
+                 # Lean's infer_proj asks only for one constructor and no
+                 # indices: a NESTED structure (Lean.Doc.Part, SnapshotTree)
+                 # projects like any other, from its exported constructor
+                 # type; without this entry its projections were REJECTED
+                 # (cedar: 19 wrong rejects, the unknown-structure bounds
+                 # read as a definite Prop violation)
                  R.sub(I.Meta,
-                       U32.is_eq(nc, 1) && U32.is_eq(ni, 0)
-                       && U32.is_eq(nn, 0),
+                       U32.is_eq(nc, 1) && U32.is_eq(ni, 0),
                        R.set(I.Meta, 64n, t, pnm,
                              I.MInd{np, ctor_nf_by_cidx(its, pnm, 0, 0),
                                     ctor_ty_by_cidx(its, pnm, 0,
@@ -1918,12 +1926,65 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
 # nt / lp: the constants' types and level params so far, so the bound on
 # projections out of a Prop structure can size field types that mention
 # constants (an empty table counted `a = b` as data)
+# A structure-like inductive of a MUTUAL block (one constructor, no
+# indices) gets the same projection-typing entry as a lone one, computed
+# from its own sort and constructor type; Lean's infer_proj does not care
+# which block the inductive came from. bugs/proj-of-imax-prop puts a Prop
+# structure `ImaxProp : Sort (imax 1 0)` in a mutual block and projects
+# `Bool` out of a proof: the entry's bounds (ppx = ppd = 0) are what make
+# that a definite ill-typing. No structure-eta marker here (eta needs the
+# block non-recursive, which the single path checks against one name).
+def meta_struct_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+                    +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>, +ind: K.IItem,
+                    +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>) -> R.Tr<I.Meta>:
+  match ind:
+    case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+      +its = items
+      +pnm = nm
+      +nc = count_ctors(its, pnm, 0)
+      +isp : L.Tri = L.ln_is_zero(R.get(L.LN, 64n, ln,
+                       I.sort_lvl_of(tele_res(256n, ex, U.ex_at(ex, ty))),
+                       L.LNun{}))
+      R.sub(I.Meta, U32.is_eq(nc, 1) && U32.is_eq(ni, 0),
+            R.set(I.Meta, 64n, t, pnm,
+                  I.MInd{np, ctor_nf_by_cidx(its, pnm, 0, 0),
+                         ctor_ty_by_cidx(its, pnm, 0, 4294967295),
+                         S.pick(L.tri_is_yes(
+                           large_elim(isp, nc,
+                             ctor_fields_prop(its, pnm, ex, ln,
+                                              R.TNil{}, R.TNil{}, L.TYes{}))),
+                           0, 1),
+                         prop_proj_bound(isp, ex, ln, nt, lp,
+                                         ctor_ty_by_cidx(its, pnm, 0, 4294967295),
+                                         np, ctor_nf_by_cidx(its, pnm, 0, 0),
+                                         False{}),
+                         prop_proj_bound(isp, ex, ln, nt, lp,
+                                         ctor_ty_by_cidx(its, pnm, 0, 4294967295),
+                                         np, ctor_nf_by_cidx(its, pnm, 0, 0),
+                                         True{})},
+                  I.MNone{}),
+            t)
+    case _:
+      t
+
+def meta_structs(inds: List<&2, K.IItem>, +items: List<&2, K.IItem>,
+                 +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>,
+                 +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>) -> R.Tr<I.Meta>:
+  match inds:
+    case Nil{}:
+      t
+    case Con{h, tl}:
+      meta_structs(tl, items, ex, ln,
+                   meta_struct_one(items, ex, ln, t, h, nt, lp), nt, lp)
+
 def meta_block(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                +ln: R.Tr<L.LN>, +t: R.Tr<I.Meta>, +nt: R.Tr<U32>,
                +lp: R.Tr<List<&2, U32>>) -> R.Tr<I.Meta>:
   +inds = ind_only(items, Nil{})
+  +its = items
   R.sub(I.Meta, U32.is_eq(len_items(inds, 0), 1),
-        meta_block_one(items, ex, ln, t, head_item(inds), nt, lp), t)
+        meta_block_one(its, ex, ln, t, head_item(inds), nt, lp),
+        meta_structs(inds, its, ex, ln, t, nt, lp))
 
 # --- mutual and nested blocks -------------------------------------------
 def add_itab(items: List<&2, K.IItem>, +t: R.Tr<K.IItem>) -> R.Tr<K.IItem>:

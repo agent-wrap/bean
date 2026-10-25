@@ -152,14 +152,14 @@ def meta_ppd(+m: Meta) -> U32:
     case MInd{p, nf, cty, pr, ppx, ppd}:
       ppd
     case _:
-      0
+      4294967295
 
 def meta_ppx(+m: Meta) -> U32:
   match m:
     case MInd{p, nf, cty, pr, ppx, ppd}:
       ppx
     case _:
-      0
+      4294967295
 
 def meta_cty(+m: Meta) -> U32:
   match m:
