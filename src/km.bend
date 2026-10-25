@@ -605,6 +605,7 @@ type KF is Data:
   DNtR4{islit: Bool, wx: U32, ctx: List<&2, U32>, fu: U32}
   # the structural catch-all: spines, swap, structure eta or denial
   DC1{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DCYes{}
   DC2x{xn: T.Ex, yn: T.Ex, hx: T.Ex, sx: List<&2, U32>, xi: U32, yi: U32,
        ctx: List<&2, U32>, fu: U32}
   DCGo{eok: Bool, pxi: U32, pyi: U32, pxn: T.Ex, pyn: T.Ex, hd: T.Ex,
@@ -4508,6 +4509,27 @@ def kproj_struct(+e: T.Ex) -> U32:
     case _:
       4294967295
 
+# Lean's quick_is_def_eq before the catch-all's denial: the same node, the
+# same variable, the same constant at equal levels, the same sort. The
+# rigid denial checked rigidity and types but never identity, so an
+# argument pair `#11 =?= #11` (a twin node against the export's) was
+# denied and the enclosing same-head applications unfolded in full (std's
+# blastDivSubtractShift._proof_7: 108k unfolds, 126 s, against Lean's 99).
+def ksame_quick(+xi: U32, +yi: U32, +xn: T.Ex, +yn: T.Ex,
+                +lnt: R.Tr<L.LN>) -> Bool:
+  match xn yn:
+    case T.EBVar{a} T.EBVar{b}:
+      U32.is_eq(xi, yi) || U32.is_eq(a, b)
+    case T.EConst{n, us} T.EConst{m, vs}:
+      U32.is_eq(xi, yi)
+      || (U32.is_eq(n, m) && L.tri_is_yes(I.eq_lvls(us, vs, lnt)))
+    case T.ESort{l} T.ESort{m}:
+      U32.is_eq(xi, yi)
+      || L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, lnt, l, L.LNun{}),
+                               R.get(L.LN, 64n, lnt, m, L.LNun{})))
+    case _ _:
+      U32.is_eq(xi, yi)
+
 def kctor_headed(+x: T.Ex, +hd: T.Ex, +mt: R.Tr<I.Meta>) -> Bool:
   match x:
     case T.EApp{f, a}:
@@ -4889,10 +4911,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # both, equal heights, is_eqp); constructor, recursor, axiom or
       # variable heads stall and the tail (is_def_eq_app, or the projected
       # fields under a projection) compares the arguments
+      # the levels by index first, then by normal form (only when the
+      # names already agree): a rebuilt twin of a constant carries freshly
+      # interned level indices, and an index-only test sent `mkConstCached
+      # aig b =?= mkConstCached aig' b` past the arguments-first step into
+      # unfolding both sides -- the hash-map lookup inside, evaluated on
+      # a symbolic AIG (std's blastDivSubtractShift._proof_7: 76k lazy
+      # loops, 108k unfolds, 126 s; Lean 99 unfolds)
       +samehd : Bool = Bool.not(U32.is_eq(na, 4294967295))
                        && U32.is_eq(na, nb) && cx && cy
                        && U32.is_eq(hxh, hyh) && U32.is_ne(hxh, 4294967294)
-                       && I.eq_u32s(kcus(ha), kcus(hb))
+                       && (I.eq_u32s(kcus(ha), kcus(hb))
+                           || L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt)))
                        && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       +opx : Bool = klitop(na, I.len_u(sa, 0), q2)
       +opy : Bool = klitop(nb, I.len_u(sb, 0), q2)
@@ -7668,6 +7698,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +hxl : T.Ex = hx
       +hyr : T.Ex = hd
+      +lt9 : R.Tr<L.LN> = lnt
+      +same9 : Bool = ksame_quick(xi, yi, xn, yn, lt9)
       +swap : Bool = Bool.not(I.meta_is_ctor(
                        R.get(I.Meta, 64n, mt, I.const_nm2(hxl),
                              I.MNone{})))
@@ -7689,7 +7721,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                                            I.MNone{}))
                       && I.meta_is_ctor(R.get(I.Meta, 64n, mt,
                                               I.const_nm2(hyr), I.MNone{}))
-      km(p, KCon{DCGo{I.meta_is_ctor(cmi) && full && Bool.not(cboth)
+      km(p, KCon{pick_kf(same9, DCYes{}, DCGo{I.meta_is_ctor(cmi) && full && Bool.not(cboth)
                       && I.meta_is_ind(R.get(I.Meta, 64n, mt,
                                              I.meta_ind(cmi), I.MNone{})),
                       S.pick(swap, yi2, xi2), S.pick(swap, xi2, yi2),
@@ -7698,9 +7730,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       hdp, I.pick_exx(swap, hxl, hyr),
                       pick_us(swap, sy2, sx2), pick_us(swap, sx2, sy2),
                       I.meta_p(cmi), I.meta_nf(cmi), I.meta_ind(cmi), ctx,
-                      fu}, k},
+                      fu}), k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     # structure eta applies: build `mk (p.0) .. (p.(n-1))` and compare
+    case 1n+p KCon{DCYes{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
     case 1n+p KCon{DCGo{True{}, pxi, pyi, pxn, pyn, hd, hdy, spx, spy, cp,
                         cnf, cind, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DCe1{I.take_u(spx, cp, Nil{}), cnf, cind, pyi, pxi, ctx,
