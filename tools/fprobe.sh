@@ -52,8 +52,11 @@ after = os.environ.get("AFTER", "")
 if after:                        # AFTER=TEXT: insert below the arm's first line containing TEXT
     j = s.index("\n", s.index(after, j)) + 1
 s = s[:j] + "      +px9 : U32 = %s\n      +py9 : U32 = %s\n      +pc9 : Bool = %s\n" % (x, y, cond) + s[j:]
-k = s.index("natn, wm, nt", j)
-s = s[:k] + "natn, kpair_if(pc9, wm, px9, py9), nt" + s[k + len("natn, wm, nt"):]
+# the arm's km call threads wm as `wm` or as a rebind `w2`
+import re as _re
+m9 = _re.compile(r"natn, (wm|w2), nt").search(s, j)
+assert m9, "no `natn, wm, nt` after the arm"
+s = s[:m9.start()] + "natn, kpair_if(pc9, %s, px9, py9), nt" % m9.group(1) + s[m9.end():]
 # keep the probe's keys across KRb rollbacks (a recorded term allocated
 # inside a rolled-back region may since have been overwritten)
 old = "+s1 : R.Tr<U32> = snap"

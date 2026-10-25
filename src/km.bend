@@ -5674,8 +5674,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +s2 : List<&2, U32> = sargs
       +hit : Bool = Bool.not(U32.is_eq(rhs, 4294967295))
                     && U32.is_ge(I.len_u(s2, 0), nf)
+      +a3 : List<&2, U32> = args
+      # no rule: the ORIGINAL arguments, major included. kri_args drops the
+      # major (it is replaced by the constructor's fields, none without a
+      # rule), so a stuck nested recursor was rebuilt one argument short:
+      # `Expr.rec motives minors melse h` for `Expr.rec .. x melse h`, a
+      # different arity, and the comparison with the other side answered NO
+      # -- cedar's four eq_def/match-equation REJECTS (Lean 4.34's
+      # _sparseCasesOn over a nested inductive with a variable scrutinee)
       km(p, KCon{RI3{hit, rhs, delta, e,
-                     kri_args(args, pre, mj, s2, S.pick(hit, nf, 0)), fu, ps,
+                     pick_us(hit, kri_args(a3, pre, mj, s2, nf), a3), fu, ps,
                      qs, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{RI3{True{}, rhs, delta, e, args, fu, ps, qs, ctx}, k}
