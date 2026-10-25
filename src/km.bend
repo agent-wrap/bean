@@ -4911,18 +4911,13 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # both, equal heights, is_eqp); constructor, recursor, axiom or
       # variable heads stall and the tail (is_def_eq_app, or the projected
       # fields under a projection) compares the arguments
-      # the levels by index first, then by normal form (only when the
-      # names already agree): a rebuilt twin of a constant carries freshly
-      # interned level indices, and an index-only test sent `mkConstCached
-      # aig b =?= mkConstCached aig' b` past the arguments-first step into
-      # unfolding both sides -- the hash-map lookup inside, evaluated on
-      # a symbolic AIG (std's blastDivSubtractShift._proof_7: 76k lazy
-      # loops, 108k unfolds, 126 s; Lean 99 unfolds)
+      # the levels by INDEX only: comparing normal forms here (tried
+      # 2026-10-24 for the rebuilt twins of std's _proof_7, which it did
+      # not help) costs the hot loop 4x on let-ladder and 1.6x on n21
       +samehd : Bool = Bool.not(U32.is_eq(na, 4294967295))
                        && U32.is_eq(na, nb) && cx && cy
                        && U32.is_eq(hxh, hyh) && U32.is_ne(hxh, 4294967294)
-                       && (I.eq_u32s(kcus(ha), kcus(hb))
-                           || L.tri_is_yes(I.eq_lvls(kcus(ha), kcus(hb), lnt)))
+                       && I.eq_u32s(kcus(ha), kcus(hb))
                        && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
       +opx : Bool = klitop(na, I.len_u(sa, 0), q2)
       +opy : Bool = klitop(nb, I.len_u(sb, 0), q2)
