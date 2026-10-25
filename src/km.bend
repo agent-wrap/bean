@@ -7840,10 +7840,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{DSub{U32.is_eq(f2, 4294967295), False{}, p2, r2, ctx,
                       f2}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # a failed structure eta is FINAL, as in Lean (try_eta_struct is the
+    # last resort of is_def_eq_core; a false there is `return false`).
+    # The NO was downgraded to UNK while two earlier bugs leaked NOs into
+    # it (the rigidity denial before is_def_eq_app, the stuck nested
+    # recursor rebuilt short); with those fixed the gate is unchanged with
+    # it final, and std's blastAdd / con-leche's checkSumTele declines
+    # settle
     case 1n+p KCon{DCe3{}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       +t2 : L.Tri = t
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kmtri(fs, L.pick_tri(L.tri_is_no(t2), L.TUnk{}, t2)))
+         kmtri(fs, t2))
     # Lean's is_def_eq_app before the denial: two applications of the SAME
     # constant (equal levels, equal arity) are equal when their arguments
     # are, pairwise -- the rigidity denial compared two stuck recursors
@@ -9547,6 +9554,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case T.EApp{f, a}:
           +e2 : U32 = e
           km(p, KCon{SLAp1{ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, e2, ri))
+        # a let: the body's sort under the let binder (a sort never depends
+        # on the bound value). Without this the third field of
+        # Std.Internal.IndexMultiMap -- `∀ x h, let a := m.get x h; a.size > 0
+        # ∧ ..` -- had no sort, two proof variables of that type were not
+        # identified by proof irrelevance, and mk.injEq DECLINED (std)
+        case T.ELet{n, t, v, b}:
+          +b2 : U32 = b
+          +t2 : U32 = t
+          +c2 : List<&2, U32> = ctx
+          +f2 : U32 = fu
+          km(p, KCon{kslev(b2, Con{t2, c2}, (f2 - 1 : U32)), k},
+             lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
              kmln(fs, L.LNun{}))
