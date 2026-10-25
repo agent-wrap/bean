@@ -91,6 +91,57 @@ def block_v(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
              C.comb(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp),
                     C.block_names_v(its, nmt)))
 
+# A declined block gets the machine's positivity pass over every
+# constructor (M.fck_posit): a definite invalid occurrence (a stuck K-like
+# recursor whose indices are NOT the constructor's, mentioning the block)
+# is Lean's rejection -- bugs/rec-missing-ih. Anything else stays declined.
+def posit_v(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>)) -> (Array<T.Ex> & U32) & Bool:
+  match kr:
+    case Tuple{Tuple{fs, v}, rest}:
+      (fs, U32.is_eq(v, 2))
+
+def posit_one(+item: K.IItem, +nms: List<&2, U32>, +st: I.IS,
+              +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+              +basenx: U32, +natn: U32, +qtt: R.Tr<U32>, +nt: R.Tr<U32>,
+              fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & Bool:
+  match item:
+    case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
+      posit_v(M.fck_posit(100000000n, fs, I.is_lnt(st), I.is_nlx(st), mt, lp,
+                          vt, qtt, natn, R.TNil{}, nt, ty, np, nms, basenx))
+    case _:
+      (fs, False{})
+
+def posit_ctors(items: List<&2, K.IItem>, +nms: List<&2, U32>, +st: I.IS,
+                +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+                +basenx: U32, +natn: U32, +qtt: R.Tr<U32>, +nt: R.Tr<U32>,
+                r: (Array<T.Ex> & U32) & Bool) -> (Array<T.Ex> & U32) & Bool:
+  match items r:
+    case Nil{} Tuple{fs, b}:
+      (fs, b)
+    case Con{head, tail} Tuple{fs, True{}}:
+      (fs, True{})
+    case Con{head, tail} Tuple{fs, False{}}:
+      posit_ctors(tail, nms, st, mt, lp, vt, basenx, natn, qtt, nt,
+                  posit_one(head, nms, st, mt, lp, vt, basenx, natn, qtt, nt, fs))
+
+def posit_fin(r: (Array<T.Ex> & U32) & Bool) -> (Array<T.Ex> & U32) & C.V:
+  match r:
+    case Tuple{fs, True{}}:
+      (fs, C.VReject{})
+    case Tuple{fs, False{}}:
+      (fs, C.VDecline{})
+
+def posit_if(+v: C.V, +items: List<&2, K.IItem>, +nms: List<&2, U32>,
+             +st: I.IS, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+             +vt: R.Tr<U32>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
+             +nt: R.Tr<U32>, fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & C.V:
+  match v:
+    case C.VDecline{}:
+      posit_fin(posit_ctors(items, nms, st, mt, lp, vt, basenx, natn, qtt, nt,
+                            (fs, False{})))
+    case _:
+      (fs, v)
+
 def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
@@ -99,8 +150,10 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case K.DInd{nms, items} Tuple{ex, nx}:
       +its = items
       +ntb = B.add_items_nt(its, nt)
-      ((ex, nx), block_v(C.is_nm_block(its), its, st, mt, nt, lp, vt, ntb,
-                         nmt))
+      +ntb2 : R.Tr<U32> = ntb
+      posit_if(block_v(C.is_nm_block(its), its, st, mt, nt, lp, vt, ntb2,
+                       nmt),
+               its, nms, st, mt, lp, vt, basenx, natn, qtt, ntb2, (ex, nx))
     case K.DNone{} Tuple{ex, nx}:
       ((ex, nx), C.VDecline{})
     case _ Tuple{ex, nx}:

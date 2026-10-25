@@ -657,6 +657,21 @@ type KF is Data:
   # major judged the same way, RSGo); a stuck projection (its struct
   # whnf'd and judged the same way); a constructor-headed one is 0
   RSJ{nd: T.Ex, hd: T.Ex, sargs: List<&2, U32>, ctx: List<&2, U32>}
+  # positivity of a constructor's fields on the machine (Lean's
+  # check_positivity): a field whose whnf is a DEFINITELY stuck recursor
+  # (RSJ: the K-like index comparison answered NO) mentioning the block's
+  # inductives is an invalid occurrence -- register 2 (reject); anything
+  # the machine cannot settle leaves the verifier's decline (register 0)
+  POc{ctx: List<&2, U32>, np: U32, ns: List<&2, U32>, e: U32}
+  POc1{ctx: List<&2, U32>, np: U32, ns: List<&2, U32>}
+  PODone{}
+  PONop{}
+  POf{ctx: List<&2, U32>, ns: List<&2, U32>, t: U32}
+  POf1{ctx: List<&2, U32>, ns: List<&2, U32>}
+  POf2{ctx: List<&2, U32>, ns: List<&2, U32>, wi: U32}
+  POf3{nd: T.Ex, ctx: List<&2, U32>, ns: List<&2, U32>, wi: U32}
+  POf4{ns: List<&2, U32>, wi: U32}
+  POf5{ns: List<&2, U32>, wi: U32}
   RSJd{v: U32}
   RSJP{s: U32, ctx: List<&2, U32>}
   RSJp{ctx: List<&2, U32>}
@@ -4530,6 +4545,64 @@ def ksame_quick(+xi: U32, +yi: U32, +xn: T.Ex, +yn: T.Ex,
     case _ _:
       U32.is_eq(xi, yi)
 
+# does a constant named in ns occur in the term at wi? (a bounded worklist
+# over the store; the budget's end counts as "yes" only for the REJECT
+# gate's caller, which treats an unsettled walk as no occurrence)
+def kocc_in(+n: U32, ns: List<&2, U32>) -> Bool:
+  match ns:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      U32.is_eq(n, h) || kocc_in(n, t)
+
+def kocc_step(pr: Array<T.Ex> & T.Ex, +ns: List<&2, U32>,
+              wl: List<&2, U32>) -> (Array<T.Ex> & (List<&2, U32> & U32)):
+  match pr:
+    case Tuple{a, nd}:
+      match nd:
+        case T.EConst{n, us}:
+          (a, (wl, S.pick(kocc_in(n, ns), 1, 0)))
+        case T.EApp{f, g}:
+          (a, (Con{f, Con{g, wl}}, 0))
+        case T.ELam{n, t, b, bi}:
+          (a, (Con{t, Con{b, wl}}, 0))
+        case T.EAll{n, t, b, bi}:
+          (a, (Con{t, Con{b, wl}}, 0))
+        case T.ELet{n, t, v, b}:
+          (a, (Con{t, Con{v, Con{b, wl}}}, 0))
+        case T.EProj{tn, i, sx}:
+          (a, (Con{sx, wl}, 0))
+        case _:
+          (a, (wl, 0))
+
+def kocc_merge(+f: U32, st: Array<T.Ex> & (List<&2, U32> & U32)) -> Array<T.Ex> & (List<&2, U32> & U32):
+  match st:
+    case Tuple{a, Tuple{wl, f2}}:
+      +f3 : U32 = f2
+      (a, (pick_us(U32.is_eq(f3, 1), Nil{}, wl), (f + f3 : U32)))
+
+def kocc_loop(fuel: Nat, +ns: List<&2, U32>,
+              st: Array<T.Ex> & (List<&2, U32> & U32)) -> Array<T.Ex> & U32:
+  match fuel st:
+    case 0n Tuple{a, Tuple{wl, f}}:
+      (a, 0)
+    case 1n+p Tuple{a, Tuple{Nil{}, f}}:
+      (a, f)
+    case 1n+p Tuple{a, Tuple{Con{h, t}, f}}:
+      kocc_loop(p, ns, kocc_merge(f, kocc_step(Array.get(T.Ex, a, h), ns, t)))
+
+def kocc_tin2(pr: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, f}:
+      (((a, nx), MN{}), S.pick(U32.is_ge(f, 1), 2, 0))
+
+# the occurrence verdict as the register: 2 when found, else 0
+def kocc_tin(fs: Array<T.Ex> & U32, +wi: U32,
+             +ns: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      kocc_tin2(kocc_loop(1000000n, ns, (ex, (Con{wi, Nil{}}, 0))), nx)
+
 def kctor_headed(+x: T.Ex, +hd: T.Ex, +mt: R.Tr<I.Meta>) -> Bool:
   match x:
     case T.EApp{f, a}:
@@ -7994,6 +8067,63 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{RSK{dok, U32.is_eq(ri, 1) && nc, pp, ni, mn, rcty, sargs, ctx},
                  k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    # ---- positivity on the machine ----
+    case 1n+p KCon{POc{ctx, np, ns, e}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      +e2 : U32 = e
+      km(p, KCon{pick_kf(U32.is_eq(r2, 2), PODone{}, POc1{ctx, np, ns}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, e2, r2))
+    case 1n+p KCon{PODone{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 2))
+    case 1n+p KCon{PONop{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 0))
+    # a parameter binder passes; a field binder's type is checked first
+    case 1n+p KCon{POc1{ctx, np, ns}, k} Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
+      +t2 : U32 = t
+      +c2 : List<&2, U32> = ctx
+      +ns2 : List<&2, U32> = ns
+      +np2 : U32 = np
+      +isp : Bool = U32.is_gt(np2, 0)
+      km(p, KCon{pick_kf(isp, PONop{}, POf{c2, ns2, t2}),
+                 KCon{POc{Con{t2, c2}, S.pick(isp, (np2 - 1 : U32), 0), ns2, b}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{POc1{ctx, np, ns}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 0))
+    case 1n+p KCon{POf{ctx, ns, t}, k} Tuple{Tuple{fs, msg}, ri}:
+      +c2 : List<&2, U32> = ctx
+      +t2 : U32 = t
+      km(p, KCon{DWhd{t2, c2}, KCon{POf1{c2, ns}, k}}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{POf1{ctx, ns}, k} Tuple{Tuple{fs, msg}, ri}:
+      +w2 : U32 = ri
+      km(p, KCon{POf2{ctx, ns, w2}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kfetch(fs, w2, 0))
+    # a Pi: the body under the binder (a domain occurrence is Lean's
+    # non-positive rejection, left undecided here: the whnf may be weaker)
+    case 1n+p KCon{POf2{ctx, ns, wi}, k} Tuple{Tuple{fs, MX{T.EAll{n, t, b, bi}}}, ri}:
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{POf{Con{t, c2}, ns, b}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{POf2{ctx, ns, wi}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +w2 : U32 = wi
+      km(p, KCon{POf3{node, ctx, ns, w2}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kspine_tin(fs, w2, ri))
+    # the block's own inductive at the head: a valid application (the
+    # parameters are the verifier's business); otherwise rigid or stuck
+    # (RSJ) and mentioning the block -> an invalid occurrence
+    case 1n+p KCon{POf3{nd, ctx, ns, wi}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +h2 : T.Ex = hd
+      +ns2 : List<&2, U32> = ns
+      km(p, KCon{pick_kf(kocc_in(I.const_nm2(h2), ns2), PONop{},
+                         RSJ{nd, h2, sargs, ctx}),
+                 KCon{POf4{ns2, wi}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{POf4{ns, wi}, k} Tuple{Tuple{fs, msg}, ri}:
+      +w2 : U32 = wi
+      km(p, KCon{pick_kf(U32.is_eq(ri, 1), POf5{ns, w2}, PONop{}), k}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{POf5{ns, wi}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kocc_tin(fs, wi, ns))
     case 1n+p KCon{RSJ{nd, hd, sargs, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +n2 : T.Ex = nd
       +h2 : T.Ex = hd
@@ -9871,6 +10001,17 @@ def fck_typed(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
   +t2 : U32 = ti
   km(fuel, KCon{DWhd{t2, Nil{}}, KCon{CkT1{isthm, vi, 1048576}, KNil{}}}, lnt, nlx,
      mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+
+# positivity of one constructor's fields: register 2 = a definite invalid
+# occurrence, else 0
+def fck_posit(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
+              +nlx: U32, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+              +vt: R.Tr<U32>, +qtt: R.Tr<U32>, +natn: U32,
+              +wm: R.Tr<U32>, +nt: R.Tr<U32>, +cty: U32, +np: U32,
+              +ns: List<&2, U32>, +hcb: U32)
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
+  km(fuel, KCon{POc{Nil{}, np, ns, cty}, KNil{}}, lnt, nlx, mt, lp, vt, qtt,
+     natn, wm, nt, hcb, knoop(fs, 0))
 
 def kwhd(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
          +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
