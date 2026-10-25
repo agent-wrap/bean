@@ -9,7 +9,7 @@ set -euo pipefail
 OUT="$1"; LO="$2"; HI="$3"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 TMP="$(mktemp -d)"
-/bin/cp -Rf "$DIR/../src" "$TMP/src"
+/bin/cp -Rf "${SRC:-$DIR/../src}" "$TMP/src"   # SRC=DIR builds a copy
 python3 - "$TMP/src/fcheck.bend" "$LO" "$HI" <<'PY'
 import sys
 p, lo, hi = sys.argv[1:]; s = open(p).read()
