@@ -554,6 +554,7 @@ type KF is Data:
   DIr5z{t: L.Tri, rx: U32, ry: U32, wx: U32, ctx: List<&2, U32>}
   DIr7{pz: Bool, t: L.Tri, both: Bool, sq: L.Tri}
   # BVar/BVar with type analysis (proof irrelevance, unit eta, denial)
+  DBv0{same: Bool, a: U32, b: U32, ctx: List<&2, U32>}
   DBv1{a: U32, b: U32, tb: U32, taok: Bool, tbok: Bool,
        ctx: List<&2, U32>}
   DBv2{a: U32, b: U32, la: U32, taok: Bool, tbok: Bool,
@@ -3411,6 +3412,38 @@ def kbump2(pr: Array<T.Ex> & T.Ex, +base: U32) -> Array<T.Ex>:
 def kbump(a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
   kg_decl(kfl_clear(kbump2(Array.get(T.Ex, a, kep_slot(base)), base), base),
           khalf(base))
+
+# The epoch retires the previous declarations' entries but leaves them in
+# their slots, and a probe stops only at a NEVER-USED slot: after a few
+# thousand declarations every chain ran its 24 steps (std's
+# blastUdiv.go.eq_def: 147 s alone, 571 s after 3800 declarations, 897 s
+# inside the full export). Once the declarations since the last clear
+# allocated a quarter of the table, the table is cleared to EBad (slot 7
+# counts the allocations; kbump_n is called with the previous
+# declaration's node count).
+def kclr(n: Nat, +j: U32, a: Array<T.Ex>) -> Array<T.Ex>:
+  match n:
+    case 0n:
+      a
+    case 1n+p:
+      kclr(p, (j + 1 : U32), Array.set(T.Ex, a, j, T.EBad{}))
+
+def kbump_c(+go: Bool, a: Array<T.Ex>, +base: U32, +c: U32) -> Array<T.Ex>:
+  match go:
+    case True{}:
+      Array.set(T.Ex, kclr(U32.to_nat(ktbl(base)), base, a), kfl_slot(base, 7),
+                T.EBVar{0})
+    case False{}:
+      Array.set(T.Ex, a, kfl_slot(base, 7), T.EBVar{c})
+
+def kbump_n2(pr: Array<T.Ex> & T.Ex, +base: U32, +n: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, e}:
+      +c : U32 = (kfl_v(e) + n : U32)
+      kbump_c(U32.is_ge(c, (ktbl(base) / 4 : U32)), a, base, c)
+
+def kbump_n(a: Array<T.Ex>, +base: U32, +n: U32) -> Array<T.Ex>:
+  kbump_n2(Array.get(T.Ex, kbump(a, base), kfl_slot(base, 7)), base, n)
 
 def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
            +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -6584,8 +6617,21 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                             R.get(L.LN, 64n, lnt, b, L.LNun{}))))
     # -- BVar/BVar: equal indices are equal; otherwise decide from the
     #    (lifted, reduced) types: proof irrelevance, unit eta, or denial --
+    # the same variable on both sides is equal whatever the context holds
+    # (Lean's quick_is_def_eq on identical fvars): without this, a context
+    # shorter than the index denied `#5 =?= #5`, and every comparison above
+    # it (`Decl #11 =?= Decl #11`, ..) fell to unfolding -- std's
+    # blastDivSubtractShift._proof_7 did 108k unfolds against Lean's 99
     case 1n+p KCon{DEy{T.EBVar{a}, xi, yi, ctx, fu}, k}
          Tuple{Tuple{fs, MX{T.EBVar{b}}}, ri}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DBv0{U32.is_eq(a2, b2), a2, b2, c2}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DBv0{True{}, a, b, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DBv0{False{}, a, b, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +a2 : U32 = a
       +b2 : U32 = b
       +c2 : List<&2, U32> = ctx

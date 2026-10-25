@@ -32,7 +32,11 @@ def parse(t,i,depth=0):
         ty,i=parse(t,i+1); v,i=parse(t,i); b,i=parse(t,i); return "(let %s := %s; %s)"%(ty,v,b),i
     if k==5:
         tn,ix=t[i+1],t[i+2]; s,i=parse(t,i+3); return "%s.%d"%(s,ix),i
-    if k==6: return nm(t[i+1]),i+2
+    if k==6:
+        name=nm(t[i+1]); i+=2; ls=[]
+        while i<len(t) and t[i]==15: ls.append("L%d"%t[i+1]); i+=2
+        if i<len(t) and t[i]==16: i+=1
+        return (name + ("{%s}"%",".join(ls) if ls else "")), i
     if k==7: return "#%d"%t[i+1],i+2
     if k==8: return "Sort",i+1
     if k==12: return "Sort@%d"%t[i+1],i+2

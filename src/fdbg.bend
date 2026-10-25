@@ -78,6 +78,15 @@ def vcode(+v: C.V) -> U32:
 # term dump for probes: preorder tokens of a node (fuel-bounded)
 # App 1, Lam 2, Pi 3, Let 4, Proj 5 tn i, Const 6 n, BVar 7 i, Sort 8,
 # Nat 9 value, Str 10, Bad 11
+# a constant's level ids after its name: `l, 15` pairs (the level pass
+# prints them as LV lines like a Sort's), closed by 16
+def dmp_us(us: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match us:
+    case Nil{}:
+      Con{16, acc}
+    case Con{h, t}:
+      dmp_us(t, Con{h, Con{15, acc}})
+
 def dmp(fuel: Nat, pr: Array<T.Ex> & T.Ex, work: List<&2, U32>,
         acc: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
   match fuel pr:
@@ -98,9 +107,9 @@ def dmp(fuel: Nat, pr: Array<T.Ex> & T.Ex, work: List<&2, U32>,
         case T.EConst{n, us}:
           match work:
             case Nil{}:
-              (a, Con{n, Con{6, acc}})
+              (a, dmp_us(us, Con{n, Con{6, acc}}))
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{n, Con{6, acc}})
+              dmp(p, Array.get(T.Ex, a, h), t, dmp_us(us, Con{n, Con{6, acc}}))
         case T.EBVar{i}:
           match work:
             case Nil{}:
@@ -189,7 +198,7 @@ def lvl_recs(toks: List<&2, U32>, +lt: R.Tr<L.LN>,
       +a2 : U32 = a
       +b2 : U32 = b
       +lt2 : R.Tr<L.LN> = lt
-      lvl_recs(Con{b2, rest}, lt2, lvl_rec1(U32.is_eq(b2, 12), a2, lt2, acc))
+      lvl_recs(Con{b2, rest}, lt2, lvl_rec1(U32.is_eq(b2, 12) || U32.is_eq(b2, 15), a2, lt2, acc))
     case _:
       acc
 
@@ -287,7 +296,8 @@ def done(fs: Array<T.Ex> & U32, +c: U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
 def krestart(fs: Array<T.Ex> & U32, +basenx: U32) -> Array<T.Ex> & U32:
   match fs:
     case Tuple{ex, nx}:
-      (M.kbump(ex, basenx), (basenx + M.ktbl(basenx) + 2 : U32))
+      (M.kbump_n(ex, basenx, (nx - (basenx + M.ktbl(basenx) + 2 : U32) : U32)),
+       (basenx + M.ktbl(basenx) + 2 : U32))
 
 def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,

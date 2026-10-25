@@ -186,7 +186,8 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
               # a new epoch, which retires every pointer it left)
               fck_sel(U32.is_ge(ix, krange_lo()) && U32.is_lt(ix, krange_hi()),
                       st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                      (M.kbump(ex, basenx), (basenx + M.ktbl(basenx) + 2 : U32))))
+                      (M.kbump_n(ex, basenx, (nx2 - (basenx + M.ktbl(basenx) + 2 : U32) : U32)),
+                       (basenx + M.ktbl(basenx) + 2 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:
