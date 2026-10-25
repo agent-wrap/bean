@@ -1484,9 +1484,14 @@ def sdepth(+base: U32) -> Nat:
 def khalf(+base: U32) -> U32:
   U32.shln(1, sdepth(base))
 
+# The hash-cons table's size: 2^22 slots, whatever the store. Scaling it
+# with the store (an eighth of it: 8M-16M slots on a large export) made
+# the checks on large exports pathologically slow: the 48 s unitOfList_cons
+# slice did not finish in 1500 s with a four-times store, and returned to
+# 53 s with the table pinned (2026-10-25); the same mechanism as
+# con-leche's hours-long declarations and cedar's run-state declines
 def ktbl(+base: U32) -> U32:
-  +e : U32 = (khalf(base) / 8 : U32)
-  S.pick(U32.is_gt(e, ktbl0()), e, ktbl0())
+  ktbl0()
 
 def kmask(+base: U32) -> U32:
   (ktbl(base) - 1 : U32)
