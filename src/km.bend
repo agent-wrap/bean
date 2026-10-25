@@ -606,6 +606,15 @@ type KF is Data:
   # the structural catch-all: spines, swap, structure eta or denial
   DC1{xn: T.Ex, yn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DCYes{}
+  DCArg{xs: List<&2, U32>, ys: List<&2, U32>, ctx: List<&2, U32>, fu: U32}
+  DCArg2{at: List<&2, U32>, bt: List<&2, U32>, ctx: List<&2, U32>, fu: U32}
+  DCArgF{}
+  DCArgR{pxi: U32, pyi: U32, pxn: T.Ex, pyn: T.Ex, hd: T.Ex, hdy: T.Ex,
+         spx: List<&2, U32>, spy: List<&2, U32>, cp: U32, cnf: U32, cind: U32,
+         ctx: List<&2, U32>, fu: U32}
+  DCGoD{pxi: U32, pyi: U32, pxn: T.Ex, pyn: T.Ex, hd: T.Ex, hdy: T.Ex,
+        spx: List<&2, U32>, spy: List<&2, U32>, cp: U32, cnf: U32, cind: U32,
+        ctx: List<&2, U32>, fu: U32}
   DC2x{xn: T.Ex, yn: T.Ex, hx: T.Ex, sx: List<&2, U32>, xi: U32, yi: U32,
        ctx: List<&2, U32>, fu: U32}
   DCGo{eok: Bool, pxi: U32, pyi: U32, pxn: T.Ex, pyn: T.Ex, hd: T.Ex,
@@ -7827,10 +7836,58 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +t2 : L.Tri = t
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.pick_tri(L.tri_is_no(t2), L.TUnk{}, t2)))
-    # no structure eta: rigidity, denial, delta retry, irrelevance
+    # Lean's is_def_eq_app before the denial: two applications of the SAME
+    # constant (equal levels, equal arity) are equal when their arguments
+    # are, pairwise -- the rigidity denial compared two stuck recursors
+    # without looking at their arguments and REJECTED
+    # Std.Internal.List.getKey?_ext (std) once a K-like index comparison
+    # settled as NO instead of running out of budget
     case 1n+p KCon{DCGo{False{}, pxi, pyi, pxn, pyn, hd, hdy, spx, spy,
                         cp, cnf, cind, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +hd2 : T.Ex = hd
+      +hy2 : T.Ex = hdy
+      +sx2 : List<&2, U32> = spx
+      +sy2 : List<&2, U32> = spy
+      +n1 : U32 = I.const_nm2(hd2)
+      +same : Bool = U32.is_ne(n1, 4294967295) && U32.is_eq(n1, I.const_nm2(hy2))
+                     && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
+                     && L.tri_is_yes(I.eq_lvls(kcus(hd2), kcus(hy2), lnt))
+      km(p, KCon{pick_kf(same, DCArg{sx2, sy2, ctx, fu},
+                         DCGoD{pxi, pyi, pxn, pyn, hd2, hy2, sx2, sy2, cp, cnf,
+                               cind, ctx, fu}),
+                 KCon{DCArgR{pxi, pyi, pxn, pyn, hd2, hy2, sx2, sy2, cp, cnf, cind,
+                             ctx, fu}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCArg{Nil{}, Nil{}, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TYes{}))
+    case 1n+p KCon{DCArg{Con{a, at}, Con{b, bt}, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      +f2 : U32 = fu
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DSub{U32.is_eq((f2 - 1 : U32), 4294967295), U32.is_eq(a2, b2),
+                      a2, b2, c2, (f2 - 1 : U32)},
+                 KCon{DCArg2{at, bt, c2, f2}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCArg{xs, ys, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{DCArg2{at, bt, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{pick_kf(L.tri_is_yes(t), DCArg{at, bt, ctx, fu}, DCArgF{}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCArgF{}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, L.TUnk{}))
+    # the arguments all equal: YES; otherwise the denial as before
+    case 1n+p KCon{DCArgR{pxi, pyi, pxn, pyn, hd, hdy, spx, spy, cp, cnf, cind,
+                          ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      +t2 : L.Tri = t
+      km(p, KCon{pick_kf(L.tri_is_yes(t2), DCYes{},
+                         DCGoD{pxi, pyi, pxn, pyn, hd, hdy, spx, spy, cp, cnf,
+                               cind, ctx, fu}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DCGoD{pxi, pyi, pxn, pyn, hd, hdy, spx, spy, cp, cnf, cind,
+                         ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +px2 : T.Ex = pxn
       +hd2 : T.Ex = hd
       +cx : Bool = krigid(px2, hd2) || kctor_headed(px2, hd2, mt)
