@@ -185,25 +185,61 @@ def add_vt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
 # References may point forward (`other/level-index-out-of-order` declares
 # il 1 = succ 2 before il 2), so this is a bounded fixpoint: an unresolved
 # child propagates as LNun and a later round fills it in.
-def lv_one(+i: U32, +lv: R.Tr<T.Lvl>, +ln: R.Tr<L.LN>) -> R.Tr<L.LN>:
-  +l = R.get(T.Lvl, 64n, lv, i, T.LZero{})
-  +old = R.get(L.LN, 64n, ln, i, L.LNun{})
-  +v = L.combine(L.op_of(l), L.c1_of(l),
-                 R.get(L.LN, 64n, ln, L.c1_of(l), L.LNun{}),
-                 R.get(L.LN, 64n, ln, L.c2_of(l), L.LNun{}))
-  R.set(L.LN, 64n, ln, i, L.pick_ln(L.is_un(old), v, old), L.LNun{})
+# A resolved level is left alone (no trie write: every R.set copies a path
+# and drops the old one -- term_drop dominated init's 60 s load with 32
+# full passes over its levels), and the passes stop once one of them
+# leaves nothing unresolved: an in-order export resolves in one pass.
+def lv_one2(+known: Bool, +i: U32, +lv: R.Tr<T.Lvl>,
+            +ln: R.Tr<L.LN>) -> R.Tr<L.LN> & U32:
+  match known:
+    case True{}:
+      (ln, 0)
+    case False{}:
+      +l = R.get(T.Lvl, 64n, lv, i, T.LZero{})
+      +v : L.LN = L.combine(L.op_of(l), L.c1_of(l),
+                            R.get(L.LN, 64n, ln, L.c1_of(l), L.LNun{}),
+                            R.get(L.LN, 64n, ln, L.c2_of(l), L.LNun{}))
+      +v2 : L.LN = v
+      +un : Bool = L.is_un(v2)
+      (R.set_if(L.LN, Bool.not(un), ln, i, v2, L.LNun{}), S.pick(un, 1, 0))
 
-def lv_pass(n: Nat, +i: U32, +lv: R.Tr<T.Lvl>, +ln: R.Tr<L.LN>) -> R.Tr<L.LN>:
-  match n:
-    case 0n:
+def lv_one(+i: U32, +lv: R.Tr<T.Lvl>, +ln: R.Tr<L.LN>) -> R.Tr<L.LN> & U32:
+  +ln2 : R.Tr<L.LN> = ln
+  lv_one2(Bool.not(L.is_un(R.get(L.LN, 64n, ln2, i, L.LNun{}))), i, lv, ln2)
+
+def lv_acc(+pend: U32, r: R.Tr<L.LN> & U32) -> R.Tr<L.LN> & U32:
+  match r:
+    case Tuple{ln, u}:
+      (ln, (pend + u : U32))
+
+def lv_pass(n: Nat, +i: U32, +lv: R.Tr<T.Lvl>,
+            st: R.Tr<L.LN> & U32) -> R.Tr<L.LN> & U32:
+  match n st:
+    case 0n _:
+      st
+    case 1n+p Tuple{ln, pend}:
+      lv_pass(p, (i + 1 : U32), lv, lv_acc(pend, lv_one(i, lv, ln)))
+
+def lv_pass_if(+go: Bool, +n: Nat, +lv: R.Tr<T.Lvl>,
+               st: R.Tr<L.LN> & U32) -> R.Tr<L.LN> & U32:
+  match go:
+    case True{}:
+      lv_pass(n, 0, lv, st)
+    case False{}:
+      st
+
+# state: the table and the count of levels still unresolved after the
+# last pass (1 before any pass)
+def lv_resolve_s(rounds: Nat, +n: Nat, +lv: R.Tr<T.Lvl>,
+                 st: R.Tr<L.LN> & U32) -> R.Tr<L.LN>:
+  match rounds st:
+    case 0n Tuple{ln, pend}:
       ln
-    case 1n+p:
-      lv_pass(p, (i + 1 : U32), lv, lv_one(i, lv, ln))
+    case 1n+p Tuple{ln, pend}:
+      +go : Bool = U32.is_ne(pend, 0)
+      lv_resolve_s(p, n, lv, lv_pass_if(go, n, lv, (ln, S.pick(go, 0, 0))))
 
 def lv_resolve(rounds: Nat, +n: Nat, +lv: R.Tr<T.Lvl>,
                +ln: R.Tr<L.LN>) -> R.Tr<L.LN>:
-  match rounds:
-    case 0n:
-      ln
-    case 1n+p:
-      lv_resolve(p, n, lv, lv_pass(n, 0, lv, ln))
+  lv_resolve_s(rounds, n, lv, (ln, 1))
+
