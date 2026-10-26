@@ -98,9 +98,12 @@ type KF is Data:
   # instantiate several bound variables at once (Lean's instantiate with a
   # substitution): vs[j] replaces #(c+j), lifted by c; #i >= c+|vs| drops by
   # |vs|. Beta of `(fun x1..xk => b) a1..ak` is ONE walk of b, not k
-  KEvM{c: U32, vs: List<&2, U32>, e: U32, fu: U32}
+  KEvM{c: U32, v: U32, vs: List<&2, U32>, e: U32, fu: U32}
   KBvM{inr: Bool, isgt: Bool, i: U32, m: U32, e: U32}
   # beta: the leading lambdas taken so far (innermost argument first)
+  WBtC{taken: List<&2, U32>, rest: List<&2, U32>, delta: Bool, fu: U32,
+       cur: U32, ctx: List<&2, U32>}
+  WPlBC{taken: List<&2, U32>, rest: List<&2, U32>, cur: U32, ctx: List<&2, U32>}
   WBt{taken: List<&2, U32>, rest: List<&2, U32>, delta: Bool, fu: U32,
       cur: U32, ctx: List<&2, U32>}
   KEvS{ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, fu: U32}
@@ -1160,7 +1163,7 @@ def kev3(+op: U32, +c: U32, +d: U32, +v: U32, ps: List<&2, U32>,
     case 1:
       KEvI{c, v, e, fu}
     case 3:
-      KEvM{c, ps, e, fu}
+      KEvM{c, v, ps, e, fu}
     case _:
       KEvS{ps, qs, e, fu}
 
@@ -2287,7 +2290,7 @@ def kwl_h5(pr: Array<T.Ex> & T.Ex, +hb: U32, +gc: U32, +okr: Bool, +r: U32,
            +dv: U32, +op: U32) -> Array<T.Ex> & U32:
   match pr:
     case Tuple{a, e}:
-      +isv : Bool = U32.is_eq(op, 1)
+      +isv : Bool = U32.is_eq(op, 1) || U32.is_eq(op, 3)
       kwl_h6(Array.get(T.Ex, a, (S.pick(isv, dv, 0) + hb : U32)), gc,
              okr && U32.is_le(kyst(e), gc), r)
 
@@ -2306,7 +2309,7 @@ def kwl_h4(pr: Array<T.Ex> & T.Ex, +hb: U32, +nx: U32, +gc: U32, +r: U32,
   match pr:
     case Tuple{a, e}:
       +isnode : Bool = U32.is_lt(r, (hb - 2 : U32)) && U32.is_lt(r, nx)
-      +vok : Bool = Bool.not(U32.is_eq(op, 1))
+      +vok : Bool = Bool.not(U32.is_eq(op, 1) || U32.is_eq(op, 3))
                     || (U32.is_lt(dv, (hb - 2 : U32)) && U32.is_lt(dv, nx))
       kwl_h5b(isnode && vok, a, hb, gc, U32.is_le(kyst(e), gc), r, dv, op)
 
@@ -2566,7 +2569,7 @@ def kwl_rec(+w: WP, +e: U32, +base: U32,
   match w:
     case WP{op, c, d, v, ps, qs, fu}:
       +o2 : U32 = op
-      +dv : U32 = S.pick(U32.is_eq(o2, 1), v,
+      +dv : U32 = S.pick(U32.is_eq(o2, 1) || U32.is_eq(o2, 3), v,
                          S.pick(U32.is_eq(o2, 0) || U32.is_eq(o2, 4), d,
                                 4294967295))
       kwl_rec3(U32.is_eq(dv, 4294967295), dv, o2, c, e, base, t)
@@ -2898,7 +2901,7 @@ def kwd_set(+go: Bool, fs: Array<T.Ex> & U32, +i: U32, +r: U32,
 def kwl_dv(+w: WP) -> U32:
   match w:
     case WP{op, c, d, v, ps, qs, fu}:
-      S.pick(U32.is_eq(op, 1), v,
+      S.pick(U32.is_eq(op, 1) || U32.is_eq(op, 3), v,
              S.pick(U32.is_eq(op, 0) || U32.is_eq(op, 4), d, 4294967295))
 
 def kfcm3(+miss: Bool, a: Array<T.Ex>, +x: U32, +nx: U32, +ri: U32,
@@ -4315,6 +4318,22 @@ def khc(fs: Array<T.Ex> & U32, +node: T.Ex,
         +base: U32) -> (Array<T.Ex> & U32) & U32:
   kstrip(kalloc(fs, node, base))
 
+# the canonical node of a value list (instantiate-several, op 3):
+# EApp{v, rest} chains over root 0, hash-consed. It names the substitution
+# in the walk memo's key (dv), validated on a hit as op 1 validates its
+# value node (below the pointer, stamp at most the entry's G) -- so the
+# multi-argument walk is memoised per node like lift and instantiate. It
+# had no memo at all (kwl_dv answered "none" for op 3): a shared body was
+# walked as a tree -- 1.35G KEvM steps in 120 s on std's
+# blastDivSubtractShift_denote_mem_prefix, 3.8G steps for 597 betas.
+def kvchain(xs: List<&2, U32>, r: (Array<T.Ex> & U32) & U32,
+            +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match xs r:
+    case Nil{} _:
+      r
+    case Con{v, rest} Tuple{fs, acc}:
+      kvchain(rest, khc(fs, T.EApp{v, acc}, base), base)
+
 # structure eta for iota (Lean's to_cnstr_when_structure): the fields of a
 # major premise x of a structure-like inductive are its projections
 # x.0 .. x.(nf-1), returned as an MSP's argument list
@@ -4341,95 +4360,6 @@ def kpre_rev2(xs: List<&2, U32>, +stop: Bool, +n: U32,
 def kpre_rev(+n: U32, xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
   kpre_rev2(xs, U32.is_eq(n, 0), n, acc)
 
-# --- the context-id side table -------------------------------------------
-# The inferred-type cache keys a node by (x, cid), cid the hash-consed chain
-# of its context prefix (kctxid): lbr(x) chain nodes consed per lookup, each
-# a full 24-step probe once the table is saturated, and each re-allocated
-# when its chain had no free slot -- on std's blastAdd.go_denote_eq._unary
-# (1.57M cache hits in 120 s under ~35 binders) 80% of the time in the
-# probe and the store overflowed on chain nodes alone. The chain nodes are
-# looked up here first: a direct-mapped table of 2^17 entries at
-# kfl_slot(base, 3670016 + 4*h) -- EProj{t, prev, cid} and EBVar{G} -- hit
-# only when t and prev match, G is of this declaration, and the node at cid
-# still reads EApp{t, prev} (a freed slot may have been reused); a miss
-# conses the node (khc) and records it. One read per chain level.
-def kcx_key(+t: U32, +prev: U32) -> U32:
-  (3670016 + (4 * U32.and(((t * 2654435761 : U32) + (prev * 40503 : U32) : U32),
-                          131071) : U32) : U32)
-
-def kcx_w3(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +t: U32, +prev: U32,
-           +cid: U32) -> Array<T.Ex>:
-  match pr:
-    case Tuple{a, g}:
-      Array.set(T.Ex, Array.set(T.Ex, a, kfl_slot(base, k), T.EProj{t, prev, cid}),
-                kfl_slot(base, (k + 1 : U32)), T.EBVar{kg_v(g)})
-
-def kcx_miss(r: (Array<T.Ex> & U32) & U32, +base: U32, +k: U32, +t: U32,
-             +prev: U32) -> (Array<T.Ex> & U32) & U32:
-  match r:
-    case Tuple{Tuple{a, nx}, cid}:
-      +c2 : U32 = cid
-      ((kcx_w3(Array.get(T.Ex, a, kg_slot(khalf(base))), base, k, t, prev, c2),
-        nx), c2)
-
-def kcx_go(+hit: Bool, fs: Array<T.Ex> & U32, +base: U32, +k: U32, +t: U32,
-           +prev: U32, +cid: U32) -> (Array<T.Ex> & U32) & U32:
-  match hit:
-    case True{}:
-      (fs, cid)
-    case False{}:
-      kcx_miss(khc(fs, T.EApp{t, prev}, base), base, k, t, prev)
-
-def kcx_v2(pr: Array<T.Ex> & T.Ex, +nx: U32, +base: U32, +k: U32, +t: U32,
-           +prev: U32, +cid: U32, +ok: Bool) -> (Array<T.Ex> & U32) & U32:
-  match pr:
-    case Tuple{a, nd}:
-      kcx_go(ok && kexeq(nd, T.EApp{t, prev}), (a, nx), base, k, t, prev, cid)
-
-def kcx_d(pr: Array<T.Ex> & T.Ex, +nx: U32, +base: U32, +k: U32, +t: U32,
-          +prev: U32, +cid: U32, +ok: Bool,
-          +gen: U32) -> (Array<T.Ex> & U32) & U32:
-  match pr:
-    case Tuple{a, gde}:
-      +ok2 : Bool = ok && U32.is_ge(gen, kg_v(gde))
-      kcx_v2(Array.get(T.Ex, a, S.pick(ok2, cid, 0)), nx, base, k, t, prev,
-             cid, ok2)
-
-def kcx_g(pr: Array<T.Ex> & T.Ex, +nx: U32, +base: U32, +k: U32, +t: U32,
-          +prev: U32, +cid: U32, +ok: Bool) -> (Array<T.Ex> & U32) & U32:
-  match pr:
-    case Tuple{a, g}:
-      kcx_d(Array.get(T.Ex, a, kgd_slot(khalf(base))), nx, base, k, t, prev,
-            cid, ok, kg_v(g))
-
-def kcx_e(pr: Array<T.Ex> & T.Ex, +nx: U32, +base: U32, +k: U32, +t: U32,
-          +prev: U32) -> (Array<T.Ex> & U32) & U32:
-  match pr:
-    case Tuple{a, T.EProj{t2, p2, cid}}:
-      +c2 : U32 = cid
-      +ok : Bool = U32.is_eq(t2, t) && U32.is_eq(p2, prev)
-                   && U32.is_lt(c2, nx) && U32.is_lt(c2, (khalf(base) - 2 : U32))
-      kcx_g(Array.get(T.Ex, a, kfl_slot(base, (k + 1 : U32))), nx, base, k, t,
-            prev, c2, ok)
-    case Tuple{a, e}:
-      kcx_go(False{}, (a, nx), base, k, t, prev, 0)
-
-def kcx_hc(fs: Array<T.Ex> & U32, +t: U32, +prev: U32,
-           +base: U32) -> (Array<T.Ex> & U32) & U32:
-  match fs:
-    case Tuple{a, nx}:
-      +k : U32 = kcx_key(t, prev)
-      kcx_e(Array.get(T.Ex, a, kfl_slot(base, k)), nx, base, k, t, prev)
-
-# the canonical node of a context prefix (outermost first): EApp{t, rest}
-# chains over root 0, hash-consed
-def kctxid(xs: List<&2, U32>, r: (Array<T.Ex> & U32) & U32,
-           +base: U32) -> (Array<T.Ex> & U32) & U32:
-  match xs r:
-    case Nil{} _:
-      r
-    case Con{t, rest} Tuple{fs, acc}:
-      kctxid(rest, kcx_hc(fs, t, acc, base), base)
 
 def kdec(fuel: Nat, +n: U32, acc: List<&2, U32>) -> List<&2, U32>:
   match fuel:
@@ -6129,11 +6059,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     # ---- eval: instantiate several (op 3) ----
-    case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
+    case 1n+p KCon{KEvM{c, v, vs, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, r))
-    case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
+    case 1n+p KCon{KEvM{c, v, vs, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
-    case 1n+p KCon{KEvM{c, vs, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+    case 1n+p KCon{KEvM{c, v, vs, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:
         case T.EBVar{i}:
           +c2 : U32 = c
@@ -6148,27 +6078,27 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                           k}},
              lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, tgt, ri))
         case T.EApp{f, a}:
-          +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
+          +w : WP = WP{3, c, 0, v, vs, Nil{}, (fu - 1 : U32)}
           +f2 : U32 = f
           km(p, KCon{kev(w, f2), KCon{KAp2{w, e, f2, a}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, f2, ri, w, hcb))
         case T.ELam{n, t, b, bi}:
-          +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
+          +w : WP = WP{3, c, 0, v, vs, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLm2{w, e, n, t2, b, bi}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.EAll{n, t, b, bi}:
-          +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
+          +w : WP = WP{3, c, 0, v, vs, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KAl2{w, e, n, t2, b, bi}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.ELet{n, t, vv, b}:
-          +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
+          +w : WP = WP{3, c, 0, v, vs, Nil{}, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLt2{w, e, n, t2, vv, b}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.EProj{tn, i, s}:
-          +w : WP = WP{3, c, 0, 0, vs, Nil{}, (fu - 1 : U32)}
+          +w : WP = WP{3, c, 0, v, vs, Nil{}, (fu - 1 : U32)}
           +s2 : U32 = s
           km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
@@ -6269,8 +6199,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
     case 1n+p KCon{WBt{taken, rest, delta, fu, cur, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +tk : List<&2, U32> = taken
+      km(p, KCon{WBtC{tk, rest, delta, fu, cur, ctx}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, ktin_of(kvchain(tk, (fs, 0), hcb)))
+    case 1n+p KCon{WBtC{taken, rest, delta, fu, cur, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = cur
-      km(p, KCon{kev(WP{3, 0, 0, 0, taken, Nil{}, 2000000}, r2),
+      +ch : U32 = ri
+      km(p, KCon{kev(WP{3, 0, 0, ch, taken, Nil{}, 2000000}, r2),
                  KCon{WCont{delta, rest, (fu - 1 : U32), ctx}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, r2))
     case 1n+p KCon{WEv{delta, e, args, fu, ctx}, k}
@@ -6414,10 +6350,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{WPlB{Con{v, taken}, rest, b2, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
     case 1n+p KCon{WPlB{taken, rest, cur, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +tk : List<&2, U32> = taken
+      km(p, KCon{WPlBC{tk, rest, cur, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, ktin_of(kvchain(tk, (fs, 0), hcb)))
+    case 1n+p KCon{WPlBC{taken, rest, cur, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +c2 : U32 = cur
-      km(p, KCon{kev(WP{3, 0, 0, 0, taken, Nil{}, 2000000}, c2),
+      +ch : U32 = ri
+      km(p, KCon{kev(WP{3, 0, 0, ch, taken, Nil{}, 2000000}, c2),
                  KCon{WPlC{rest, ctx}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, c2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, c2, c2))
     case 1n+p KCon{WPlE{tyi, Con{v, rest}, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, 4294967295))
     case 1n+p KCon{WPlC{vals, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -9086,8 +9027,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{ISubC{xi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +l : U32 = ri
       +c2 : List<&2, U32> = ctx
-      # the context prefix is bounded only by the side table's chain cost
-      # (kcx_*): the old cap of 48 left 11,259 of blastAdd.go_denote_eq's
+      # the context prefix is bounded only by the key's per-level memo read
+      # (ksh_t): the old cap of 48 left 11,259 of blastAdd.go_denote_eq's
       # 33,997 value nodes (lbr up to 87) uncacheable, each re-evaluated
       # on every request -- 2.7M evaluations of 17k applications in 120 s
       +ok : Bool = U32.is_le(l, 4096) && U32.is_lt(xi, 134217728)
