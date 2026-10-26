@@ -2058,13 +2058,66 @@ def meta_nm(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
   R.set(I.Meta, 64n, pick_mt(nb, N.vr_mt(vr), t), ver_key(items),
         I.MVer{N.vr_v(vr)}, I.MNone{})
 
-def meta_any(+blk: Bool, +nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
-             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
-             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
-             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
-  match blk:
+# A block another worker checks (fmain's worker K of N): no derivation.
+# A mutual/nested block's recursors reduce by the export's own rules --
+# exactly what the owning worker verifies the derived ones against
+# (nested.bend's verdict 0: "the export's recursors are exactly the derived
+# ones"); a single inductive keeps the built-in iota metadata; the block
+# reads as verified. The derivation of every block was most of the eight
+# minutes every worker spent before its first declaration on con-leche
+# (the 25k declarations' trusting pass itself takes 0.2 s).
+def meta_tr_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
+                  +ex: R.Tr<T.Ex>, +nmin: U32,
+                  +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+  match items:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      match head:
+        case K.IRec{nm, lps, ty, rp, rni, nmo, kf}:
+          +pty = ty
+          +t2 = t
+          +al2 = allit
+          +rs : List<&2, U32> = rules_for(al2, al2, rr_major_head(ex, pty), t2,
+                                          Nil{})
+          meta_tr_items(tail, al2, ex, nmin,
+                        R.set(I.Meta, 64n, t2, nm, I.MRecR{rp, nmo, nmin, rni, rs},
+                              I.MNone{}))
+        case _:
+          meta_tr_items(tail, allit, ex, nmin, t)
+
+def meta_tr2(+nb: Bool, +items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+             +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+  match nb:
+    case True{}:
+      +its = items
+      meta_tr_items(its, its, ex, N.count_rules(its, 0), t)
+    case False{}:
+      t
+
+def meta_tr(+nb: Bool, +items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+            +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
+  +its = items
+  meta_tr2(nb, its, ex,
+           R.set(I.Meta, 64n, t, ver_key(its), I.MVer{0}, I.MNone{}))
+
+def meta_owned(+own: Bool, +nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+               +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
+               +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+               +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  match own:
     case True{}:
       meta_nm(nb, items, st, itab, ctab, t, nt, lp, vt, ann)
+    case False{}:
+      meta_tr(nb, items, I.is_ex(st), t)
+
+def meta_any(+blk: Bool, +nb: Bool, +own: Bool, +items: List<&2, K.IItem>,
+             +st: I.IS, +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>,
+             +t: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+             +vt: R.Tr<U32>, +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  match blk:
+    case True{}:
+      meta_owned(own, nb, items, st, itab, ctab, t, nt, lp, vt, ann)
     case False{}:
       t
 
@@ -2090,10 +2143,13 @@ def derive_or_ver(+items: List<&2, K.IItem>, +st: I.IS, +mt: R.Tr<I.Meta>,
                                   I.MNone{})), 0),
        its, st, m2, vt, ln, nt, lp)
 
+# ix counts declarations as fcheck's fck_all does; worker wk of wn owns
+# the ones with ix mod wn = wk (the others' inductive blocks are trusted)
 def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
                 +ctab: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
                 +vt: R.Tr<U32>, +ann: List<&2, U32>,
-                +t: R.Tr<I.Meta>, +nt: R.Tr<U32>) -> R.Tr<I.Meta>:
+                +t: R.Tr<I.Meta>, +nt: R.Tr<U32>, +ix: U32, +wk: U32,
+                +wn: U32) -> R.Tr<I.Meta>:
   match ds:
     case Nil{}:
       t
@@ -2108,8 +2164,9 @@ def build_meta2(ds: List<&2, K.Dcl>, +st: I.IS, +itab: R.Tr<K.IItem>,
       +t1 = meta_block(its, I.is_ex(st), I.is_lnt(st), t, nt2, lp2)
       build_meta2(tail, st, it2, ct2, lp2, vt2, ann,
                   meta_any(U32.is_gt(len_items(ind_only(its, Nil{}), 0), 0),
-                           is_nm_block(its), its, st, it2, ct2, t1, nt2, lp2, vt2,
-                           ann), nt2)
+                           is_nm_block(its), U32.is_eq(U32.mod(ix, wn), wk),
+                           its, st, it2, ct2, t1, nt2, lp2, vt2,
+                           ann), nt2, (ix + 1 : U32), wk, wn)
 
 def build_meta(ds: List<&2, K.Dcl>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                +t: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
