@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Print a declaration of an export: its type and value as readable terms.
-usage: decl_show.py EXPORT.ndjson NAME [DEPTH]"""
+usage: decl_show.py EXPORT.ndjson NAME|EXPR_ID [DEPTH]  (a numeric NAME prints that expression)"""
 import json,sys
 sys.setrecursionlimit(100000)
 src,name=sys.argv[1],sys.argv[2]; depth=int(sys.argv[3]) if len(sys.argv)>3 else 12
@@ -47,6 +47,8 @@ def show(i,d=0,lim=depth):
     if k=="proj": return "proj."+nm(v["typeName"])+"."+str(v["idx"])+"("+show(v["struct"],d+1,lim)+")"
     if k=="letE": return "let["+show(v.get("type"),d+1,lim)+" := "+show(v.get("value"),d+1,lim)+"]. "+show(v["body"],d+1,lim)
     return k+str(v)[:60]
+if name.lstrip("-").isdigit():   # a raw export expression id (store node id below the export size)
+    print("expr", name, ":", show(int(name))); sys.exit(0)
 for r in decls:
     k=list(r.keys())[0]; d=r[k]; n=d.get("name")
     if isinstance(n,int) and nm(n)==name:

@@ -217,7 +217,7 @@ def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            +cap: U32, +poison: Bool, +acc: C.V, +ix: U32,
+            +cap: U32, +poison: Bool, +acc: C.V, +ix: U32, +wk: U32, +wn: U32,
             fr: (Array<T.Ex> & U32) & C.V) -> C.V:
   match ds fr:
     case Nil{} Tuple{Tuple{ex, nx}, v}:
@@ -232,18 +232,19 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
       fck_all(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
               B.add_vt(h, vt), nmt, basenx, natn, qtt, cap, p2,
               C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cap, v)),
-              (ix + 1 : U32),
+              (ix + 1 : U32), wk, wn,
               # every declaration allocates from the region base again:
               # nothing a finished declaration allocated is referenced
               # later (its memo dies with it; kbump moves the hash table to
               # a new epoch, which retires every pointer it left)
-              fck_sel(U32.is_ge(ix, krange_lo()) && U32.is_lt(ix, krange_hi()),
+              fck_sel(U32.is_ge(ix, krange_lo()) && U32.is_lt(ix, krange_hi())
+                      && U32.is_eq(U32.mod(ix, wn), wk),
                       st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
                       (M.kbump_n(ex, basenx, (nx2 - (basenx + M.ktbl(basenx) + 2 : U32) : U32)),
                        (basenx + M.ktbl(basenx) + 2 : U32))))
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
-           +nlv: Nat, +rounds: Nat, +nx: U32) -> C.V:
+           +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
   +ex = B.build_ex(recs, R.TNil{})
   +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
@@ -268,7 +269,7 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                  # usable capacity; the array is twice that, its upper half
                  # holds the loose-bvar ranges (km's kput / khalf)
                  kpow2(M.sdepth(nx)), False{},
-                 C.VAccept{}, 0,
+                 C.VAccept{}, 0, wid, wcnt,
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
