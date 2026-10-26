@@ -16,7 +16,19 @@ CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
 SIZE=$(wc -c < "$IN" | tr -d " ")
 if [[ -n "${FBEAN_WORKERS:-}" ]]; then N=$FBEAN_WORKERS
 elif (( SIZE < 4000000 )); then N=1
-else N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N < 1 )) && N=1
+else
+  # memory-sized: a worker's RSS is ~1.9x its store, the store 2^(d+1)
+  # slots of 64 B with d = floor(log2(nx + 2^22 + 2^21)) + 2 (km's sdepth,
+  # nx the largest record index) -- init 6.7 GB,
+  # std 8.1 GB, cedar 14, navier-stokes 28 measured; 12 std workers would
+  # exceed the 96 GB machine. Budget 88 GB.
+  # the store's size follows the largest record index (ids increase in
+  # file order: read them from the tail), km's sdepth = log2(nx + 2^22 +
+  # 2^21) + 2
+  NX=$(tail -c 4000000 "$IN" | grep -o '"i[enl]":[0-9]*' | sed 's/.*://' | sort -n | tail -1); [[ -z "$NX" ]] && NX=$(( SIZE / 58 ))
+  M=$(( NX + 1 + 4194304 + 2097152 )); D=0; while (( (1 << (D + 1)) <= M )); do D=$(( D + 1 )); done
+  RSS=$(( (1 << (D + 2 + 1)) * 64 * 19 / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
+  N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir
 if [[ -n "${FBEAN_KEEP:-}" ]]; then TMP="$FBEAN_KEEP"; mkdir -p "$TMP"; /bin/rm -f "$TMP"/err.* "$TMP"/rc.* "$TMP"/out.*; CLEAN=0
