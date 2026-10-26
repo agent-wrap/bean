@@ -4723,6 +4723,31 @@ def kcus(+x: T.Ex) -> List<&2, U32>:
     case _:
       Nil{}
 
+# two level-index lists definitionally equal: by index, else by normal form
+# (Lean's is_def_eq on const_levels; the normal forms only on a mismatch,
+# which keeps the hot loop's cost -- normalising always cost 4x on
+# let-ladder, 2026-10-24)
+def klus_eq(+lnt: R.Tr<L.LN>, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{a, as} Con{b, bs}:
+      +a2 : U32 = a
+      +b2 : U32 = b
+      (U32.is_eq(a2, b2)
+       || L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, lnt, a2, L.LNun{}),
+                                R.get(L.LN, 64n, lnt, b2, L.LNun{}))))
+      && klus_eq(lnt, as, bs)
+    case _ _:
+      False{}
+
+def kis_bvar(+x: T.Ex) -> Bool:
+  match x:
+    case T.EBVar{i}:
+      True{}
+    case _:
+      False{}
+
 # list append, for the congruence worklist
 # a spine head that delta or projection reduction could still rewrite
 # a projection head is NOT counted: the pair reaches the App/App tail
@@ -5001,11 +5026,23 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # the levels by INDEX only: comparing normal forms here (tried
       # 2026-10-24 for the rebuilt twins of std's _proof_7, which it did
       # not help) costs the hot loop 4x on let-ladder and 1.6x on n21
-      +samehd : Bool = Bool.not(U32.is_eq(na, 4294967295))
-                       && U32.is_eq(na, nb) && cx && cy
-                       && U32.is_eq(hxh, hyh) && U32.is_ne(hxh, 4294967294)
-                       && I.eq_u32s(kcus(ha), kcus(hb))
-                       && U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
+      # ... and, at a STALL (neither head an unfoldable definition), Lean's
+      # is_def_eq_core tail at DefUnknown is is_def_eq_app: the same head
+      # by is_def_eq (a constant with definitionally equal levels, or the
+      # same variable) and the arguments pairwise. The probes answered UNK
+      # there and their callers evaluated both sides in full: on
+      # con-leche's checkSumTele_datF 540,194 of 540,707 stalls had the
+      # same stuck head (305k a bound variable, 80k Eq, then constructors
+      # and Decidable.rec), none ran out of fuel, none failed the args
+      # shortcut.
+      +stuck : Bool = Bool.not(cx) && Bool.not(cy)
+      +cst : Bool = Bool.not(U32.is_eq(na, 4294967295)) && U32.is_eq(na, nb)
+      +lus : Bool = cst && klus_eq(lnt, kcus(ha), kcus(hb))
+      +samehd : Bool = U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
+                       && ((lus && cx && cy
+                            && U32.is_eq(hxh, hyh) && U32.is_ne(hxh, 4294967294))
+                           || (lus && stuck)
+                           || (stuck && kis_bvar(ha) && kexeq(ha, hb)))
       +opx : Bool = klitop(na, I.len_u(sa, 0), q2)
       +opy : Bool = klitop(nb, I.len_u(sb, 0), q2)
       +x2 : U32 = x
