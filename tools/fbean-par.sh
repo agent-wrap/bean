@@ -20,13 +20,14 @@ else N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N < 1 )) && N=1
 fi
 TMP=$(mktemp -d)
 PIDS=()
-trap 'kill "${PIDS[@]}" 2>/dev/null; /bin/rm -rf "$TMP"' EXIT
+keep() { if [[ -n "${FBEAN_KEEP:-}" ]]; then mkdir -p "$FBEAN_KEEP"; /bin/cp -f "$TMP"/err.* "$TMP"/rc.* "$FBEAN_KEEP"/ 2>/dev/null; fi; }
+trap 'kill "${PIDS[@]}" 2>/dev/null; keep; /bin/rm -rf "$TMP"' EXIT
 for (( k=0; k<N; k++ )); do
   ( "$BIN" "$IN" "$k" "$N" >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
   PIDS+=($!)
 done
 wait "${PIDS[@]}"
-if [[ -n "${FBEAN_KEEP:-}" ]]; then mkdir -p "$FBEAN_KEEP"; /bin/cp -f "$TMP"/err.* "$TMP"/rc.* "$FBEAN_KEEP"/ 2>/dev/null; fi
+keep
 REJ=0; DEC=0; MSG=""
 for (( k=0; k<N; k++ )); do
   rc=$(cat "$TMP/rc.$k" 2>/dev/null || echo 2)

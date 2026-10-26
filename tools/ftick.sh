@@ -34,7 +34,7 @@ i = s.index('static void err_fail'); s = s[:i] + tick + s[i:]
 # unboxed: the verdict is the enum index in register _fr_2 (0 accept,
 # 1 reject, 2 decline) -- log every non-accept against that declaration
 import re
-m = re.search(r"    u32 _ix_0 = r(\d+);\n    Term _fr_0 = r\d+;\n    u32 _fr_1 = r\d+;\n    u32 _fr_2 = r\d+;\n", s)
+m = re.search(r"    u32 _ix_0 = r(\d+);\n(?:    u32 _w[a-z]+_0 = r\d+;\n)*    Term _fr_0 = r\d+;\n    u32 _fr_1 = r\d+;\n    u32 _fr_2 = r\d+;\n", s)
 assert m, 'fck_all registers moved'
 # the index fck_all carries is the NEXT declaration's; the verdict it
 # receives is the previous one's
