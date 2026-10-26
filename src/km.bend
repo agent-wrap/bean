@@ -3992,19 +3992,6 @@ def ksh_mix2(+h: U32, +v: U32) -> U32:
   +x : U32 = U32.xor(h, (v * 2654435761 : U32))
   ((x * 16777619 : U32) + (x / 65536 : U32) + 7 : U32)
 
-# the prefix of length n of the context, folded in order
-def kctxh_s(n: Nat, pr: Array<T.Ex> & U32, xs: List<&2, U32>) -> Array<T.Ex> & U32:
-  match n pr:
-    case 0n Tuple{a, h}:
-      (a, h)
-    case 1n+p Tuple{a, h}:
-      match xs:
-        case Nil{}:
-          (a, h)
-        case Con{head, tail}:
-          kctxh_s(p, ksh_node(64n, Array.get(T.Ex, a, head), Nil{},
-                              ((h * 31 : U32) + 1 : U32)), tail)
-
 def ksh_ids_a(xs: List<&2, U32>, +h: U32) -> U32:
   match xs:
     case Nil{}:
@@ -4288,16 +4275,33 @@ def kctxh2_tin(fs: Array<T.Ex> & U32, +l: U32, xs: List<&2, U32>, +base: U32,
       kctxh2_tin2(kctxh2(U32.to_nat(l), (a, (17 + which : U32)), xs, base, which),
                   nx)
 
+# the prefix of length n of the context, folded in order, each binder
+# type's hash from the per-node memo (ksh_t: exact beyond its budget;
+# ksh_node mixed a constant at the cutoff and ignored levels and sorts;
+# hashing afresh per lookup cost init 120 -> 151 s)
+def kctxh_s(n: Nat, pr: Array<T.Ex> & U32, xs: List<&2, U32>,
+            +base: U32) -> Array<T.Ex> & U32:
+  match n pr:
+    case 0n Tuple{a, h}:
+      (a, h)
+    case 1n+p Tuple{a, h}:
+      match xs:
+        case Nil{}:
+          (a, h)
+        case Con{head, tail}:
+          kctxh_s(p, kctxh2_s(ksh_t(a, head, base), ((h * 31 : U32) + 1 : U32), 0),
+                  tail, base)
+
 def kctxh_tin2(pr: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match pr:
     case Tuple{a, h}:
       (((a, nx), MN{}), h)
 
-def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32,
-              xs: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
+def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32, xs: List<&2, U32>,
+              +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fs:
     case Tuple{ex, nx}:
-      kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), xs), nx)
+      kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), xs, base), nx)
 
 def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
   match n xs:
@@ -4326,13 +4330,27 @@ def khc(fs: Array<T.Ex> & U32, +node: T.Ex,
 # had no memo at all (kwl_dv answered "none" for op 3): a shared body was
 # walked as a tree -- 1.35G KEvM steps in 120 s on std's
 # blastDivSubtractShift_denote_mem_prefix, 3.8G steps for 597 betas.
+def kvchain_go(xs: List<&2, U32>, r: (Array<T.Ex> & U32) & U32,
+               +base: U32) -> (Array<T.Ex> & U32) & U32:
+  match xs r:
+    case Nil{} _:
+      r
+    case Con{v, rest} Tuple{fs, acc}:
+      kvchain_go(rest, khc(fs, T.EApp{v, acc}, base), base)
+
+# a single value names itself (no cons: most betas apply one argument,
+# and the cons per beta root cost init 145.7 -> 171.9 s); two or more
+# are chained. The op in the key keeps a single-value op-3 entry apart
+# from op 1's.
 def kvchain(xs: List<&2, U32>, r: (Array<T.Ex> & U32) & U32,
             +base: U32) -> (Array<T.Ex> & U32) & U32:
   match xs r:
     case Nil{} _:
       r
+    case Con{v, Nil{}} Tuple{fs, acc}:
+      (fs, v)
     case Con{v, rest} Tuple{fs, acc}:
-      kvchain(rest, khc(fs, T.EApp{v, acc}, base), base)
+      kvchain_go(rest, khc(fs, T.EApp{v, acc}, base), base)
 
 # structure eta for iota (Lean's to_cnstr_when_structure): the fields of a
 # major premise x of a structure-like inductive are its projections
@@ -6895,7 +6913,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +c2 : List<&2, U32> = ctx
       +lm : U32 = ri
       km(p, KCon{DSc0h{lm, xi, yi, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kctxh_tin(fs, lm, c2))
+         wm, nt, hcb, kctxh_tin(fs, lm, c2, hcb))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
