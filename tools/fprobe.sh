@@ -99,5 +99,7 @@ PY2
 else
 "$ROOT/tools/fbuild.sh" "$TMP/src/fdbg.bend" "$TMP/fdbg" 2>&1 | grep -v '^$' | head -5 || true
 fi
-"$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg"
+# RUNCAP=SECONDS stops the run after that long (TRACE counts up to then)
+if [[ -n "${RUNCAP:-}" ]]; then timeout "$RUNCAP" "$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg" || true
+else "$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg"; fi
 python3 "$ROOT/tools/fdump.py" "$SLICE" "$TMP/dump.dbg" ""
