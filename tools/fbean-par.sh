@@ -18,16 +18,17 @@ if [[ -n "${FBEAN_WORKERS:-}" ]]; then N=$FBEAN_WORKERS
 elif (( SIZE < 4000000 )); then N=1
 else N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N < 1 )) && N=1
 fi
-TMP=$(mktemp -d)
+# the workers' files: in FBEAN_KEEP when set (kept), else a temp dir
+if [[ -n "${FBEAN_KEEP:-}" ]]; then TMP="$FBEAN_KEEP"; mkdir -p "$TMP"; /bin/rm -f "$TMP"/err.* "$TMP"/rc.* "$TMP"/out.*; CLEAN=0
+else TMP=$(mktemp -d); CLEAN=1; fi
 PIDS=()
-keep() { if [[ -n "${FBEAN_KEEP:-}" ]]; then mkdir -p "$FBEAN_KEEP"; /bin/cp -f "$TMP"/err.* "$TMP"/rc.* "$FBEAN_KEEP"/ 2>/dev/null; fi; }
-trap 'kill "${PIDS[@]}" 2>/dev/null; keep; /bin/rm -rf "$TMP"' EXIT
+trap 'kill "${PIDS[@]}" 2>/dev/null; (( CLEAN )) && /bin/rm -rf "$TMP"' EXIT
+echo "workers=$N bin=$BIN" >"$TMP/run.txt"
 for (( k=0; k<N; k++ )); do
   ( "$BIN" "$IN" "$k" "$N" >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
   PIDS+=($!)
 done
 wait "${PIDS[@]}"
-keep
 REJ=0; DEC=0; MSG=""
 for (( k=0; k<N; k++ )); do
   rc=$(cat "$TMP/rc.$k" 2>/dev/null || echo 2)
