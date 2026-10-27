@@ -17,7 +17,7 @@ SIZE=$(wc -c < "$IN" | tr -d " ")
 if [[ -n "${FBEAN_WORKERS:-}" ]]; then N=$FBEAN_WORKERS
 elif (( SIZE < 4000000 )); then N=1
 else
-  # memory-sized: a worker's RSS is ~1.9x its store, the store 2^(d+1)
+  # memory-sized: a worker's RSS is ~1.9-2.1x its store (2.2 used), the store 2^(d+1)
   # slots of 64 B with d = floor(log2(nx + 2^22 + 2^21)) + 2 (km's sdepth,
   # nx the largest record index) -- init 6.7 GB,
   # std 8.1 GB, cedar 14, navier-stokes 28 measured; 12 std workers would
@@ -27,7 +27,9 @@ else
   # 2^21) + 2
   NX=$(tail -c 4000000 "$IN" | grep -o '"i[enl]":[0-9]*' | sed 's/.*://' | sort -n | tail -1); [[ -z "$NX" ]] && NX=$(( SIZE / 58 ))
   M=$(( NX + 1 + 4194304 + 2097152 )); D=0; while (( (1 << (D + 1)) <= M )); do D=$(( D + 1 )); done
-  RSS=$(( (1 << (D + 2 + 1)) * 64 * 19 / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
+  # km's sdepth: one doubling of room, two when that leaves under 2^24 free
+  SD=$(( D + 2 )); (( (1 << (D + 1)) - M >= 16777216 )) && SD=$(( D + 1 ))
+  RSS=$(( (1 << (SD + 1)) * 64 * 22 / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir

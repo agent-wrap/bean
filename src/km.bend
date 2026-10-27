@@ -1535,8 +1535,26 @@ def kfetch(fs: Array<T.Ex> & U32, +i: U32,
 def ktbl0() -> U32:
   4194304
 
+# The store's depth: 2^d usable slots for the export, the table and the
+# allocation room. The room was always one more doubling (log2 + 2), so an
+# export just past a power of two got a store ~5x its size: navier-stokes
+# (27.7M records) and cslib (40M) 2^27 usable slots, 17 GB of store per
+# worker, mathlib 34 GB -- the memory that capped them at 2-3 workers.
+# Now one doubling fewer when that still leaves 2^24 slots free (std,
+# which passes, has 1.7e7 free): init, std, cedar and con-leche unchanged.
+# sdepth sits on a hot path (khalf): shifts only, no loop.
+def sd_pick(+one: Bool, l: Nat) -> Nat:
+  match one:
+    case True{}:
+      Nat.add(l, 1n)
+    case False{}:
+      Nat.add(l, 2n)
+
 def sdepth(+base: U32) -> Nat:
-  Nat.add(U32.log2(((base + ktbl0() : U32) + 2097152 : U32)), 2n)
+  +m : U32 = ((base + ktbl0() : U32) + 2097152 : U32)
+  +l : Nat = U32.log2(m)
+  +cap : U32 = U32.shln(1, Nat.add(l, 1n))
+  sd_pick(U32.is_ge((cap - m : U32), 16777216) && U32.is_lt(m, 2147483648), l)
 
 def khalf(+base: U32) -> U32:
   U32.shln(1, sdepth(base))
