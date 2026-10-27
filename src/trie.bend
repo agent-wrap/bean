@@ -69,33 +69,38 @@ def with(-A: Data, +j: U32, +v: A, +c0: Tr<A>, +c1: Tr<A>, +c2: Tr<A>,
   TNode{v, sub(A, U32.is_eq(j2, 0), n2, c0), sub(A, U32.is_eq(j2, 1), n2, c1),
         sub(A, U32.is_eq(j2, 2), n2, c2), sub(A, U32.is_eq(j2, 3), n2, c3)}
 
-def set(-A: Data, fuel: Nat, +t: Tr<A>, +k: U32, +x: A,
-        +dflt: A) -> Tr<A>:
-  match fuel t:
-    case 0n _:
+# Insert x at key k. `hz` is k == 0, passed in so that a match can stop at
+# the target node: the earlier form computed the child's recursive call
+# strictly even at the target, with k - 1 underflowed to 2^32 - 1, and the
+# key cycled back to 0 every ~16 levels -- so every insert built and freed
+# a garbage path until its 64 levels of fuel ran out (term_drop was 64% of
+# a navier-stokes worker's busy time in the inductive-block phase).
+def set2(-A: Data, fuel: Nat, +t: Tr<A>, +k: U32, +x: A, +dflt: A,
+         +hz: Bool) -> Tr<A>:
+  match fuel t hz:
+    case 0n _ _:
       TNil{}
-    case 1n+p TNil{}:
-      set(A, p, TNode{dflt, TNil{}, TNil{}, TNil{}, TNil{}}, k, x, dflt)
-    case 1n+p TNode{v, c0, c1, c2, c3}:
-      # Exactly one recursive call. Bend evaluates arguments strictly, so
-      # putting a `set` in each branch of a choice would descend both sides
-      # and cost 4^depth instead of depth.
-      +here = U32.is_eq(k, 0)
+    case 1n+p TNil{} _:
+      set2(A, p, TNode{dflt, TNil{}, TNil{}, TNil{}, TNil{}}, k, x, dflt, hz)
+    case 1n+p TNode{v, c0, c1, c2, c3} True{}:
+      TNode{x, c0, c1, c2, c3}
+    case 1n+p TNode{v, c0, c1, c2, c3} False{}:
       +k1 = (k - 1 : U32)
       +j = (k1 % 4 : U32)
+      +k2 = (k1 / 4 : U32)
       +p0 = c0
       +p1 = c1
       +p2 = c2
       +p3 = c3
       +pv = v
-      +nc = set(A, p, kid(A, j, p0, p1, p2, p3), (k1 / 4 : U32), x, dflt)
-      sub(A, here,
-          TNode{x, p0, p1, p2, p3},
-          with(A, j, pv, p0, p1, p2, p3, nc))
+      with(A, j, pv, p0, p1, p2, p3,
+           set2(A, p, kid(A, j, p0, p1, p2, p3), k2, x, dflt, U32.is_eq(k2, 0)))
 
-# a set only when `go`. `sub(go, set(..), t)` computes the set either way --
-# arguments are strict -- which made every whole-export table pass pay a
-# trie insertion per RECORD (init: 6.4M) instead of per relevant record
+def set(-A: Data, fuel: Nat, +t: Tr<A>, +k: U32, +x: A,
+        +dflt: A) -> Tr<A>:
+  +k0 : U32 = k
+  set2(A, fuel, t, k0, x, dflt, U32.is_eq(k0, 0))
+
 def set_if(-A: Data, +go: Bool, +t: Tr<A>, +k: U32, +x: A,
            +dflt: A) -> Tr<A>:
   match go:
