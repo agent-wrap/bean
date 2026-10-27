@@ -141,6 +141,22 @@ type KF is Data:
       rules: List<&2, U32>, ps: List<&2, U32>, qs: List<&2, L.LN>, ctx: List<&2, U32>}
   RI3{hit: Bool, rhs: U32, delta: Bool, e: U32, args: List<&2, U32>,
       fu: U32, ps: List<&2, U32>, qs: List<&2, L.LN>, ctx: List<&2, U32>}
+  # structure eta on a non-constructor major of a rule-based recursor
+  RIse1{c0: U32, sind: U32, rr: U32, delta: Bool, e: U32, args: List<&2, U32>,
+        fu: U32, mj: U32, pre: U32, rules: List<&2, U32>, ps: List<&2, U32>,
+        qs: List<&2, L.LN>, ctx: List<&2, U32>}
+  RIse2{c0: U32, sind: U32, rr: U32, delta: Bool, e: U32, args: List<&2, U32>,
+        fu: U32, mj: U32, pre: U32, rules: List<&2, U32>, ps: List<&2, U32>,
+        qs: List<&2, L.LN>, ctx: List<&2, U32>}
+  RIse3{tok: Bool, c0: U32, sind: U32, rr: U32, delta: Bool, e: U32,
+        args: List<&2, U32>, fu: U32, mj: U32, pre: U32, rules: List<&2, U32>,
+        ps: List<&2, U32>, qs: List<&2, L.LN>, ctx: List<&2, U32>}
+  RIse4{tok: Bool, c0: U32, sind: U32, rr: U32, delta: Bool, e: U32,
+        args: List<&2, U32>, fu: U32, mj: U32, pre: U32, rules: List<&2, U32>,
+        ps: List<&2, U32>, qs: List<&2, L.LN>, ctx: List<&2, U32>}
+  RIse5{ok: Bool, c0: U32, delta: Bool, e: U32, args: List<&2, U32>, fu: U32,
+        mj: U32, pre: U32, rules: List<&2, U32>, ps: List<&2, U32>,
+        qs: List<&2, L.LN>, ctx: List<&2, U32>}
   # a substitution walk finished; whnf its result under the spine
   WCont{delta: Bool, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
   # branch point for delta: unfold (lsubst the value) or rebuild
@@ -177,6 +193,26 @@ type KF is Data:
       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
       fu: U32, ctx: List<&2, U32>}
   WI3c{isct: Bool, se: Bool, fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
+       ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
+       us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, ind: U32, ctx: List<&2, U32>}
+  WSeT{fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
+       ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
+       us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, ind: U32, ctx: List<&2, U32>}
+  WSeT2{tok: Bool, fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
+       ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
+       us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, ind: U32, ctx: List<&2, U32>}
+  WSeT3{tok: Bool, fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
+       ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
+       us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
+       ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
+       fu: U32, ind: U32, ctx: List<&2, U32>}
+  WSeT4{go: Bool, fields: List<&2, U32>, recsl: List<&2, U32>, ci: U32,
        ccty: U32, need: U32, pp: U32, mk: U32, cn: U32,
        us: List<&2, U32>, can: Bool, delta: Bool, vi: U32,
        ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, args: List<&2, U32>,
@@ -511,6 +547,13 @@ type KF is Data:
   DIr2{t: L.Tri, hx: T.Ex, nx: U32, yi: U32, xi: U32, ctx: List<&2, U32>}
   DIrEt{eta: Bool, gate: Bool, t: L.Tri, xi: U32, yi: U32,
         ctx: List<&2, U32>}
+  DIrEta0{eta: Bool, gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>,
+          oth: U32, indc: U32}
+  DIrEta1{gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>, indc: U32}
+  DIrEta2{tok: Bool, gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>,
+          indc: U32}
+  DIrEta3{tok: Bool, gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>,
+          indc: U32}
   DIrE1{gate: Bool, t: L.Tri, xi: U32, yi: U32, ctx: List<&2, U32>}
   DIrE2{xn: T.Ex, gate: Bool, t: L.Tri, xi: U32, yi: U32,
         ctx: List<&2, U32>}
@@ -4151,8 +4194,8 @@ def ksh_b(fuel: Nat, pr: Array<T.Ex> & T.Ex, todo: List<&2, U32>,
           ksh_b(p, ksh_pick(a, t2), t2, ksh_mix2(h, 11))
 
 # --- a binder type's structural hashes, memoised per node --------------
-# Two bounded tree hashes of node t (ksh_node, 64 and 40 nodes, different
-# seeds), in the former chain-node side table's range: 2^17 entries at
+# Two bounded tree hashes of node t (ksh_a/ksh_b, 64 nodes each, exact
+# beyond the budget by the frontier's indices), in the former chain-node side table's range: 2^17 entries at
 # kfl_slot(base, 3670016 + 4*h), EProj{t, h1, h2} and EBVar{G}; valid
 # while G is of this declaration and t's slot was not rewritten since
 # (its stamp at most G). The inferred-type cache's context key folds
@@ -4178,13 +4221,13 @@ def ksh_t_c1(pr: Array<T.Ex> & U32, +base: U32, +k: U32,
              +t: U32) -> Array<T.Ex> & (U32 & U32):
   match pr:
     case Tuple{a, h1}:
-      ksh_t_c2(ksh_b(256n, Array.get(T.Ex, a, t), Con{t, Nil{}}, 2166136261),
+      ksh_t_c2(ksh_b(64n, Array.get(T.Ex, a, t), Con{t, Nil{}}, 2166136261),
                base, k, t, h1)
 
 # miss: compute both hashes (256-node budget each), record them
 def ksh_t_miss(a: Array<T.Ex>, +base: U32, +k: U32,
                +t: U32) -> Array<T.Ex> & (U32 & U32):
-  ksh_t_c1(ksh_a(256n, Array.get(T.Ex, a, t), Con{t, Nil{}}, 1), base, k, t)
+  ksh_t_c1(ksh_a(64n, Array.get(T.Ex, a, t), Con{t, Nil{}}, 1), base, k, t)
 
 def kctxh_pick(+hit: Bool, a: Array<T.Ex>, +base: U32, +k: U32, +t: U32,
                +h1: U32, +h2: U32) -> Array<T.Ex> & (U32 & U32):
@@ -6318,8 +6361,83 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # different arity, and the comparison with the other side answered NO
       # -- cedar's four eq_def/match-equation REJECTS (Lean 4.34's
       # _sparseCasesOn over a nested inductive with a variable scrutinee)
-      km(p, KCon{RI3{hit, rhs, delta, e,
-                     pick_us(hit, kri_args(a3, pre, mj, s2, nf), a3), fu, ps,
+      # Lean's inductive_reduce_rec eta-expands a non-constructor major of a
+      # structure (to_cnstr_when_structure: its inferred type, whnf'd, is an
+      # application of that structure) before looking up the rule. A nested
+      # auxiliary recursor's major is of the NESTED type (TermType.rec_1 on
+      # m : Map ..): without this, `below (record m)` stayed `rec_1 .. m`
+      # and the projections of the IH had no type (Cedar's TermType.lt_trans)
+      +c0 : U32 = I.nth_u(rs, 0, 4294967295)
+      +sind : U32 = I.meta_ind(R.get(I.Meta, 64n, mt, c0, I.MNone{}))
+      +tryse : Bool = Bool.not(hit) && U32.is_ne(c0, 4294967295)
+                      && Bool.not(I.meta_is_ctor(R.get(I.Meta, 64n, mt, c,
+                                                       I.MNone{})))
+                      && kse_ok(mt, sind)
+      +rr : U32 = ri
+      +cx9 : List<&2, U32> = ctx
+      +d2 : Bool = delta
+      +e2 : U32 = e
+      +f2 : U32 = fu
+      +m3 : U32 = mj
+      +p3 : U32 = pre
+      +ps2 : List<&2, U32> = ps
+      +qs2 : List<&2, L.LN> = qs
+      km(p, KCon{pick_kf(tryse,
+                         RIse1{c0, sind, rr, d2, e2, a3, f2, m3, p3, rs, ps2,
+                               qs2, cx9},
+                         RI3{hit, rhs, d2, e2,
+                             pick_us(hit, kri_args(a3, p3, m3, s2, nf), a3),
+                             f2, ps2, qs2, cx9}), k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, rr))
+    case 1n+p KCon{RIse1{c0, sind, rr, delta, e, args, fu, mj, pre, rules, ps,
+                         qs, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +r2 : U32 = rr
+      km(p, KCon{ISub{r2, cx9, 4096},
+                 KCon{RIse2{c0, sind, r2, delta, e, args, fu, mj, pre, rules,
+                            ps, qs, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{RIse2{c0, sind, rr, delta, e, args, fu, mj, pre, rules, ps,
+                         qs, ctx}, k} Tuple{Tuple{fs, MIR{t, ok}}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +t2 : U32 = t
+      +tok : Bool = ok && Bool.not(U32.is_ge(t2, 4294967294))
+      km(p, KCon{DWhd{S.pick(tok, t2, 0), cx9},
+                 KCon{RIse3{tok, c0, sind, rr, delta, e, args, fu, mj, pre,
+                            rules, ps, qs, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{RIse3{tok, c0, sind, rr, delta, e, args, fu, mj, pre, rules,
+                         ps, qs, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{RIse4{tok, c0, sind, rr, delta, e, args, fu, mj, pre, rules,
+                       ps, qs, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+    case 1n+p KCon{RIse4{tok, c0, sind, rr, delta, e, args, fu, mj, pre, rules,
+                         ps, qs, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +s2 : U32 = sind
+      +ok2 : Bool = tok && U32.is_eq(I.const_nm2(hd), s2)
+      +rs2 : List<&2, U32> = rules
+      +c2 : U32 = c0
+      +r2 : U32 = rr
+      km(p, KCon{RIse5{ok2, c2, delta, e, args, fu, mj, pre, rs2, ps, qs, ctx},
+                 k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kprojs_tin(kprojs_go(U32.to_nat(S.pick(ok2, krule_nf(rs2, c2), 0)), 0,
+                              s2, r2, hcb, (fs, Nil{}))))
+    case 1n+p KCon{RIse4{tok, c0, sind, rr, delta, e, args, fu, mj, pre, rules,
+                         ps, qs, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{RI3{False{}, 4294967295, delta, e, args, fu, ps, qs, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{RIse5{ok, c0, delta, e, args, fu, mj, pre, rules, ps, qs,
+                         ctx}, k} Tuple{Tuple{fs, MSP{hd, fields}}, ri}:
+      +rs2 : List<&2, U32> = rules
+      +c2 : U32 = c0
+      +a3 : List<&2, U32> = args
+      +fl : List<&2, U32> = fields
+      +nf : U32 = krule_nf(rs2, c2)
+      +ok2 : Bool = ok
+      km(p, KCon{RI3{ok2, krule_rhs(rs2, c2), delta, e,
+                     pick_us(ok2, kri_args(a3, pre, mj, fl, nf), a3), fu, ps,
                      qs, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{RI3{True{}, rhs, delta, e, args, fu, ps, qs, ctx}, k}
@@ -6811,7 +6929,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +r2 : U32 = ri
       km(p, KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                      args, fu, ctx}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, 0))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
     case 1n+p KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                        e, args, fu, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +p2 : U32 = pp
@@ -6846,6 +6964,59 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WI3c{False{}, True{}, fields, recsl, ci, ccty, need, pp,
                         mk, cn, us, can, delta, vi, ps, qs, e, args, fu,
                         ind, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      # Lean's to_cnstr_when_structure: the major's type, whnf'd, must be an
+      # application of this inductive, else the recursor stays stuck. The
+      # register carries the major's node (WI2b). Without the check a major
+      # typed by a stuck nested recursor (Cedar's TermType.rec_1 on a
+      # variable) was expanded into projections no inference could type:
+      # an argument-type check against an unknown, and the decline of
+      # Cedar.Thm.TermType.lt_trans._f.
+      +mj : U32 = ri
+      +cx9 : List<&2, U32> = ctx
+      km(p, KCon{ISub{mj, cx9, 4096},
+                 KCon{WSeT{fields, recsl, ci, ccty, need, pp, mk, cn, us, can,
+                           delta, vi, ps, qs, e, args, fu, ind, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{WSeT{fields, recsl, ci, ccty, need, pp, mk, cn, us, can,
+                        delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +t2 : U32 = t
+      +tok : Bool = ok && Bool.not(U32.is_ge(t2, 4294967294))
+      km(p, KCon{DWhd{S.pick(tok, t2, 0), cx9},
+                 KCon{WSeT2{tok, fields, recsl, ci, ccty, need, pp, mk, cn, us,
+                            can, delta, vi, ps, qs, e, args, fu, ind, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{WSeT2{tok, fields, recsl, ci, ccty, need, pp, mk, cn, us,
+                         can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{WSeT3{tok, fields, recsl, ci, ccty, need, pp, mk, cn, us, can,
+                       delta, vi, ps, qs, e, args, fu, ind, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+    case 1n+p KCon{WSeT3{tok, fields, recsl, ci, ccty, need, pp, mk, cn, us,
+                         can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +i2 : U32 = ind
+      km(p, KCon{WSeT4{tok && U32.is_eq(I.const_nm2(hd), i2), fields, recsl,
+                       ci, ccty, need, pp, mk, cn, us, can, delta, vi, ps, qs,
+                       e, args, fu, i2, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSeT3{tok, fields, recsl, ci, ccty, need, pp, mk, cn, us,
+                         can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WSeT4{False{}, fields, recsl, ci, ccty, need, pp, mk, cn, us,
+                       can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSeT4{False{}, fields, recsl, ci, ccty, need, pp, mk, cn,
+                         us, can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WIGo{False{}, fields, recsl, ci, ccty, need, pp, mk, cn,
+                      us, can, delta, vi, ps, qs, e, args, fu, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WSeT4{True{}, fields, recsl, ci, ccty, need, pp, mk, cn,
+                         us, can, delta, vi, ps, qs, e, args, fu, ind, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +a2 : List<&2, U32> = args
       +n2 : U32 = need
       +i2 : U32 = ind
@@ -9695,11 +9866,53 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                                          I.MNone{}))
       +cyh : Bool = I.meta_is_ctor(R.get(I.Meta, 64n, mt, I.const_nm2(hy2),
                                          I.MNone{}))
-      +eta : Bool = L.tri_is_no(t2)
-                    && ((kseta(hx2, nx, mt) && Bool.not(cyh))
-                        || (kseta(hy2, ny, mt) && Bool.not(cxh)))
-      km(p, KCon{DIrEt{eta, gate, t2, xi, yi, ctx}, k}, lnt, nlx, mt, lp, vt,
-         qtt, natn, wm, nt, hcb, knoop(fs, ri))
+      # Lean's try_eta_struct also whnf's the OTHER side's inferred type and
+      # expands only when it is an application of the constructor's
+      # inductive; without that, a variable typed by a stuck nested
+      # recursor (Cedar's TermType.rec_1 on a variable) was expanded into
+      # projections no inference could type (TermType.lt_trans._f declined)
+      +ex1 : Bool = kseta(hx2, nx, mt) && Bool.not(cyh)
+      +ex2 : Bool = kseta(hy2, ny, mt) && Bool.not(cxh)
+      +eta : Bool = L.tri_is_no(t2) && (ex1 || ex2)
+      +ix : U32 = I.meta_ind(R.get(I.Meta, 64n, mt, I.const_nm2(hx2), I.MNone{}))
+      +iy : U32 = I.meta_ind(R.get(I.Meta, 64n, mt, I.const_nm2(hy2), I.MNone{}))
+      +x3 : U32 = xi
+      +y3 : U32 = yi
+      km(p, KCon{DIrEta0{eta, gate, t2, x3, y3, ctx, S.pick(ex1, y3, x3),
+                         S.pick(ex1, ix, iy)}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIrEta0{False{}, gate, t, xi, yi, ctx, oth, indc}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DIrEt{False{}, gate, t, xi, yi, ctx}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIrEta0{True{}, gate, t, xi, yi, ctx, oth, indc}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{ISub{oth, c2, 4096}, KCon{DIrEta1{gate, t, xi, yi, c2, indc}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DIrEta1{gate, t, xi, yi, ctx, indc}, k}
+         Tuple{Tuple{fs, MIR{ty, ok}}, ri}:
+      +c2 : List<&2, U32> = ctx
+      +ty2 : U32 = ty
+      +tok : Bool = ok && Bool.not(U32.is_ge(ty2, 4294967294))
+      km(p, KCon{DWhd{S.pick(tok, ty2, 0), c2},
+                 KCon{DIrEta2{tok, gate, t, xi, yi, c2, indc}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DIrEta2{tok, gate, t, xi, yi, ctx, indc}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DIrEta3{tok, gate, t, xi, yi, ctx, indc}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+    case 1n+p KCon{DIrEta3{tok, gate, t, xi, yi, ctx, indc}, k}
+         Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +i2 : U32 = indc
+      km(p, KCon{DIrEt{tok && U32.is_eq(I.const_nm2(hd), i2), gate, t, xi, yi,
+                       ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DIrEta3{tok, gate, t, xi, yi, ctx, indc}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DIrEt{False{}, gate, t, xi, yi, ctx}, k}, lnt, nlx, mt, lp,
+         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DIrEt{False{}, gate, t, xi, yi, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DIrGo{gate, t, xi, yi, ctx}, k}, lnt, nlx, mt, lp, vt,

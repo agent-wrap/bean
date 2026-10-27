@@ -1743,13 +1743,21 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
                                0)
           +t2 : R.Tr<I.Meta> = t
           +al2 : List<&2, K.IItem> = allit
+          # a nested recursor of an OWNED block reduces by the exported
+          # rules too (rules_for, as a trusted block's does): with an empty
+          # rule list it never fired, every structural recursion over the
+          # nested occurrence (Cedar's TermType.rec_1 on List.cons) stayed
+          # stuck, and the projections in its unfolded body (`f.1.0` for
+          # `f : below (a :: l)`) had no type -- an argument-type check met
+          # the sentinel and the declaration declined (TermType.lt_trans._f)
           meta_items(tail, al2, ex, ind, np, ni, nc,
                      R.set(I.Meta, 64n, t2, nm,
                            I.pick_meta(nested,
                              I.MRecR{prp, nmo2,
                                      (tot - 1 - prp - nmo2 - prni : U32),
                                      prni,
-                                     Nil{}},
+                                     rules_for(al2, al2, rr_major_head(ex, pty),
+                                               t2, Nil{})},
                              I.MRec{np, ni, nc, ind, pkf,
                                     ctor_ty_by_cidx(al2, ind, 0,
                                                     4294967295)}),
