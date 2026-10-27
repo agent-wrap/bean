@@ -1679,6 +1679,98 @@ def ctor_ind_items(items: List<&2, K.IItem>, +ct: U32) -> U32:
         case _:
           ctor_ind_items(tail, ct)
 
+# --- a trusted nested block: each exported rule bound to its own recursor ---
+# Picking a recursor's rules by the constructor's inductive alone is wrong
+# when the block nests one external type twice (Cedar.Spec.Value nests List
+# for List Value and for List (String x Value)): both auxiliary recursors
+# have List.nil/List.cons rules, and the first match won -- a wrong reduct
+# and WRONG REJECTS of Value.brecOn.go and 33 more cedar declarations in a
+# worker that trusts the block. Lean keeps each recursor's own rules. Here:
+# the rule's rhs applies minor k (its body's head variable); minor k's
+# conclusion is `motive_s ..`; the recursor's own conclusion is
+# `motive_j ..`; the rule is the recursor's iff s = j.
+def pi_count(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +acc: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      acc
+    case 1n+p T.EAll{n, t, b, bi}:
+      pi_count(p, ex, U.ex_at(ex, b), (acc + 1 : U32))
+    case 1n+p _:
+      acc
+
+def pi_concl(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.EAll{n, t, b, bi}:
+      pi_concl(p, ex, U.ex_at(ex, b))
+    case 1n+p y:
+      y
+
+def lam_concl(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.ELam{n, t, b, bi}:
+      lam_concl(p, ex, U.ex_at(ex, b))
+    case 1n+p y:
+      y
+
+def bv_ix(+x: T.Ex) -> U32:
+  match x:
+    case T.EBVar{i}:
+      i
+    case _:
+      4294967295
+
+def hd_bvar(+ex: R.Tr<T.Ex>, +x: T.Ex) -> U32:
+  bv_ix(I.spine_hd(4096n, ex, x))
+
+# the motive index minor k targets (doms: the recursor's binder domains,
+# outermost first; the minor's own telescope has f binders)
+def minor_spec(+ex: R.Tr<T.Ex>, +doms: List<&2, U32>, +rp: U32, +nmo: U32,
+               +k: U32) -> U32:
+  +d : U32 = I.nth_u(doms, (rp + nmo + k : U32), 4294967295)
+  +e2 = ex
+  +dx : T.Ex = U.ex_at(e2, d)
+  +f : U32 = pi_count(4096n, e2, dx, 0)
+  +b : U32 = hd_bvar(e2, pi_concl(4096n, e2, dx))
+  S.pick(U32.is_eq(b, 4294967295) || U32.is_eq(d, 4294967295), 4294967295,
+         ((nmo + k : U32) + f - 1 - b : U32))
+
+def rules_own(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+              +doms: List<&2, U32>, +rp: U32, +nmo: U32, +nmin: U32,
+              +j: U32, +acc: List<&2, U32>) -> List<&2, U32>:
+  match items:
+    case Nil{}:
+      acc
+    case Con{h, tail}:
+      match h:
+        case K.IRule{ct, nf, rhs}:
+          +e2 = ex
+          +nf2 : U32 = nf
+          +rh : U32 = rhs
+          +ct2 : U32 = ct
+          +i : U32 = hd_bvar(e2, lam_concl(4096n, e2, U.ex_at(e2, rh)))
+          +k : U32 = ((nf2 + nmin : U32) - 1 - i : U32)
+          +mine : Bool = U32.is_ne(i, 4294967295)
+                         && U32.is_eq(minor_spec(e2, doms, rp, nmo, k), j)
+          rules_own(tail, e2, doms, rp, nmo, nmin, j,
+                    S.pick_l(mine, Con{ct2, Con{nf2, Con{rh, acc}}}, acc))
+        case _:
+          rules_own(tail, ex, doms, rp, nmo, nmin, j, acc)
+
+# a recursor's own rules: j from its conclusion `motive_j ..`
+def rules_of_rec(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +ty: U32,
+                 +rp: U32, +nmo: U32, +nmin: U32) -> List<&2, U32>:
+  +e2 = ex
+  +tx : T.Ex = U.ex_at(e2, ty)
+  +tot : U32 = pi_count(4096n, e2, tx, 0)
+  +b : U32 = hd_bvar(e2, pi_concl(4096n, e2, tx))
+  +j : U32 = ((tot - 1 : U32) - rp - b : U32)
+  rules_own(items, e2, I.rev_u(tele_doms(4096n, e2, tx, Nil{}), Nil{}), rp, nmo,
+            nmin, j, Nil{})
+
 def rule_ind(+ct: U32, +items: List<&2, K.IItem>, +t: R.Tr<I.Meta>) -> U32:
   +c2 : U32 = ct
   +own : U32 = ctor_ind_items(items, c2)
@@ -1756,8 +1848,8 @@ def meta_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
                              I.MRecR{prp, nmo2,
                                      (tot - 1 - prp - nmo2 - prni : U32),
                                      prni,
-                                     rules_for(al2, al2, rr_major_head(ex, pty),
-                                               t2, Nil{})},
+                                     rules_of_rec(al2, ex, pty, prp, nmo2,
+                                                  (tot - 1 - prp - nmo2 - prni : U32))},
                              I.MRec{np, ni, nc, ind, pkf,
                                     ctor_ty_by_cidx(al2, ind, 0,
                                                     4294967295)}),
@@ -2086,10 +2178,11 @@ def meta_tr_items(items: List<&2, K.IItem>, +allit: List<&2, K.IItem>,
           +pty = ty
           +t2 = t
           +al2 = allit
-          +rs : List<&2, U32> = rules_for(al2, al2, rr_major_head(ex, pty), t2,
-                                          Nil{})
+          +rp2 : U32 = rp
+          +nmo2 : U32 = nmo
+          +rs : List<&2, U32> = rules_of_rec(al2, ex, pty, rp2, nmo2, nmin)
           meta_tr_items(tail, al2, ex, nmin,
-                        R.set(I.Meta, 64n, t2, nm, I.MRecR{rp, nmo, nmin, rni, rs},
+                        R.set(I.Meta, 64n, t2, nm, I.MRecR{rp2, nmo2, nmin, rni, rs},
                               I.MNone{}))
         case _:
           meta_tr_items(tail, allit, ex, nmin, t)
