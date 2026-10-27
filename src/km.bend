@@ -324,7 +324,7 @@ type KF is Data:
         fu: U32}
   DSc1{hit: Bool, cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>,
        fu: U32}
-  DSRec{cl: Bool, ch: U32, xi: U32, yi: U32}
+  DSRec{cl: Bool, ch: U32, xi: U32, yi: U32, ctx: List<&2, U32>}
   # Lean's proof-by-reflection path (is_def_eq_core): a closed `t =?= true`
   # first evaluates t fully -- `Eq.refl true : decide p = true`, the shape
   # of every omega/decide certificate. YES if it reaches `true`, else the
@@ -980,6 +980,8 @@ type KF is Data:
   LZ1n{hit: Bool, h: U32, wx: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ2{x: U32, y0: U32, fu: U32, ctx: List<&2, U32>}
   LZ3{same: Bool, x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
+  LZ3q{x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
+  LZ3r{yes: Bool, x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ4{x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   # Lean's is_def_eq_offset at the top of every lazy-delta iteration:
   # `0 =?= Nat.zero` is YES, `succ a =?= succ b` (a literal n > 0 counts as
@@ -1364,8 +1366,8 @@ def klsub_lvls(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +nlx: U32,
 # equal-index pair answers TYes without reading (TUnk at dep 0) -- exactly
 # the trie semantics. eq_ex never answers TNo, so TUnk absorbs.
 type QI is Data:
-  QA{a: U32, b: U32, dep: U32}
-  QB{an: T.Ex, b: U32, dep: U32}
+  QA{a: U32, b: U32, dep: U32, bd: U32}
+  QB{an: T.Ex, b: U32, dep: U32, bd: U32}
 
 type QR is Data:
   QR{t: L.Tri, kids: List<&2, QI>}
@@ -1392,18 +1394,20 @@ def keq_same(+cdep: U32) -> L.Tri:
   L.pick_tri(U32.is_eq(cdep, 0), L.TUnk{}, L.TYes{})
 
 # fold one child pair: equal indices contribute directly, unequal ones queue
-def kq1(+x: U32, +y: U32, +cdep: U32, +t: L.Tri,
+def kq1(+x: U32, +y: U32, +cdep: U32, +bd: U32, +t: L.Tri,
         kids: List<&2, QI>) -> QR:
   +k2 : List<&2, QI> = kids
   QR{I.tri_and(t, L.pick_tri(U32.is_eq(x, y), keq_same(cdep), L.TYes{})),
-     pick_qis(U32.is_eq(x, y), k2, Con{QA{x, y, cdep}, k2})}
+     pick_qis(U32.is_eq(x, y), k2, Con{QA{x, y, cdep, bd}, k2})}
 
-def kq2(+x1: U32, +y1: U32, +x2: U32, +y2: U32, +cdep: U32) -> QR:
-  +r : QR = kq1(x2, y2, cdep, L.TYes{}, Nil{})
-  kq1(x1, y1, cdep, qr_t(r), qr_kids(r))
+# bd1 / bd2: the binder depth of each child (a binder's body is one deeper)
+def kq2(+x1: U32, +y1: U32, +x2: U32, +y2: U32, +cdep: U32, +bd1: U32,
+        +bd2: U32) -> QR:
+  +r : QR = kq1(x2, y2, cdep, bd2, L.TYes{}, Nil{})
+  kq1(x1, y1, cdep, bd1, qr_t(r), qr_kids(r))
 
 # compare two fetched nodes; levels resolve through the level trie
-def keq_cmp(x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
+def keq_cmp(x: T.Ex, y: T.Ex, +dep: U32, +bd: U32, +lnt: R.Tr<L.LN>) -> QR:
   match x y:
     case T.ESort{a} T.ESort{b}:
       QR{L.ln_cmp(R.get(L.LN, 64n, lnt, a, L.LNun{}),
@@ -1414,14 +1418,14 @@ def keq_cmp(x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
       QR{L.pick_tri(U32.is_eq(a, b), I.eq_lvls(us, vs, lnt), L.TUnk{}),
          Nil{}}
     case T.EApp{f1, a1} T.EApp{f2, a2}:
-      kq2(f1, f2, a1, a2, (dep - 1 : U32))
+      kq2(f1, f2, a1, a2, (dep - 1 : U32), bd, bd)
     case T.EAll{n1, t1, b1, i1} T.EAll{n2, t2, b2, i2}:
-      kq2(t1, t2, b1, b2, (dep - 1 : U32))
+      kq2(t1, t2, b1, b2, (dep - 1 : U32), bd, (bd + 1 : U32))
     case T.ELam{n1, t1, b1, i1} T.ELam{n2, t2, b2, i2}:
-      kq2(t1, t2, b1, b2, (dep - 1 : U32))
+      kq2(t1, t2, b1, b2, (dep - 1 : U32), bd, (bd + 1 : U32))
     case T.EProj{tn1, i1, s1} T.EProj{tn2, i2, s2}:
       +sc : Bool = U32.is_eq(tn1, tn2) && U32.is_eq(i1, i2)
-      +r : QR = kq1(s1, s2, (dep - 1 : U32), L.TYes{}, Nil{})
+      +r : QR = kq1(s1, s2, (dep - 1 : U32), bd, L.TYes{}, Nil{})
       QR{L.pick_tri(sc, qr_t(r), L.TUnk{}),
          pick_qis(sc, qr_kids(r), Nil{})}
     case T.ENat{d1} T.ENat{d2}:
@@ -1432,24 +1436,25 @@ def keq_cmp(x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
       QR{L.TUnk{}, Nil{}}
 
 # a dep-0 pair answers TUnk without comparing (the trie's fuel-0 entry)
-def keq_cmp0b(z: Bool, x: T.Ex, y: T.Ex, +dep: U32, +lnt: R.Tr<L.LN>) -> QR:
+def keq_cmp0b(z: Bool, x: T.Ex, y: T.Ex, +dep: U32, +bd: U32,
+              +lnt: R.Tr<L.LN>) -> QR:
   match z:
     case True{}:
       QR{L.TUnk{}, Nil{}}
     case False{}:
-      keq_cmp(x, y, dep, lnt)
+      keq_cmp(x, y, dep, bd, lnt)
 
-def keq_cmp0(+dep: U32, x: T.Ex, y: T.Ex, +lnt: R.Tr<L.LN>) -> QR:
-  keq_cmp0b(U32.is_eq(dep, 0), x, y, dep, lnt)
+def keq_cmp0(+dep: U32, +bd: U32, x: T.Ex, y: T.Ex, +lnt: R.Tr<L.LN>) -> QR:
+  keq_cmp0b(U32.is_eq(dep, 0), x, y, dep, bd, lnt)
 
 # the next index the worklist's head needs fetched
 def keq_next(wl: List<&2, QI>) -> U32:
   match wl:
     case Nil{}:
       0
-    case Con{QA{a, b, dep}, tail}:
+    case Con{QA{a, b, dep, bd}, tail}:
       a
-    case Con{QB{an, b, dep}, tail}:
+    case Con{QB{an, b, dep, bd}, tail}:
       b
 
 def keq_go(fuel: Nat, +lnt: R.Tr<L.LN>, wl: List<&2, QI>, +acc: L.Tri,
@@ -1460,12 +1465,12 @@ def keq_go(fuel: Nat, +lnt: R.Tr<L.LN>, wl: List<&2, QI>, +acc: L.Tri,
       (((a, nx), MTri{L.TUnk{}}), 0)
     case 1n+p Nil{} Tuple{a, nd}:
       (((a, nx), MTri{acc}), 0)
-    case 1n+p Con{QA{x, y, dep}, tail} Tuple{a, nd}:
+    case 1n+p Con{QA{x, y, dep, bd}, tail} Tuple{a, nd}:
       +y2 : U32 = y
-      keq_go(p, lnt, Con{QB{nd, y2, dep}, tail}, acc, nx,
+      keq_go(p, lnt, Con{QB{nd, y2, dep, bd}, tail}, acc, nx,
              Array.get(T.Ex, a, y2))
-    case 1n+p Con{QB{an, y, dep}, tail} Tuple{a, nd}:
-      +r : QR = keq_cmp0(dep, an, nd, lnt)
+    case 1n+p Con{QB{an, y, dep, bd}, tail} Tuple{a, nd}:
+      +r : QR = keq_cmp0(dep, bd, an, nd, lnt)
       +t2 : L.Tri = I.tri_and(acc, qr_t(r))
       # the first mismatch ends the walk (Lean's == stops there too)
       +w : List<&2, QI> = pick_qis(L.tri_is_yes(t2),
@@ -1481,7 +1486,7 @@ def kzip(xs: List<&2, U32>, ys: List<&2, U32>, +acc: L.Tri,
     case Nil{} Nil{}:
       QR{acc, kids}
     case Con{x, tx} Con{y, ty}:
-      +r : QR = kq1(x, y, 256, acc, kids)
+      +r : QR = kq1(x, y, 256, 0, acc, kids)
       kzip(tx, ty, qr_t(r), qr_kids(r))
     case _ _:
       QR{L.TUnk{}, kids}
@@ -4364,6 +4369,385 @@ def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32, xs: List<&2, U32>,
     case Tuple{ex, nx}:
       kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), xs, base), nx)
 
+# --- the equivalence manager (Lean's equiv_manager) ----------------------
+# Lean records every is_def_eq success in a union-find and its quick check
+# (is_equiv, no hash) compares two terms structurally MODULO those
+# classes: `F (update m i v) = ..` against `G (update m i v) = ..` is
+# settled at once when F =?= G succeeded before. Lean's open terms carry
+# free variables (fvars), so F is the same expression under any number of
+# further binders; ours are de Bruijn, and F under four more binders is
+# lift(F, 4), another node. So the table is keyed by a structural hash
+# that ignores bound-variable indices (lift-invariant), and a hit is
+# verified exactly: the looked-up pair must be the recorded pair lifted by
+# the context-length difference K (a walk, no allocation), and the
+# recorded context prefix (its structural hash, as the YES cache keys it)
+# must sit at the same place in the current context. Entries: 2^17
+# two-slot entries at kfl_slot(base, 1050624 + 2*(hash & mask)),
+# ELet{x0, y0, ctxhash, ctxlen} and EBVar{G}, valid like the YES cache's.
+def kbh_go(fuel: Nat, pr: Array<T.Ex> & T.Ex, todo: List<&2, U32>,
+           +h: U32) -> Array<T.Ex> & U32:
+  match fuel pr:
+    case 0n Tuple{a, nd}:
+      (a, ksh_mix(h, (I.len_u(todo, 0) + 7 : U32)))
+    case 1n+p Tuple{a, nd}:
+      match nd:
+        case T.EBad{}:
+          (a, h)
+        case T.EApp{f, x}:
+          +t2 : List<&2, U32> = Con{f, Con{x, ksh_tail(todo)}}
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 19))
+        case T.EAll{n, t, b, bi}:
+          +t2 : List<&2, U32> = Con{t, Con{b, ksh_tail(todo)}}
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 23))
+        case T.ELam{n, t, b, bi}:
+          +t2 : List<&2, U32> = Con{t, Con{b, ksh_tail(todo)}}
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 29))
+        case T.ELet{n, t, v, b}:
+          +t2 : List<&2, U32> = Con{t, Con{v, Con{b, ksh_tail(todo)}}}
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 31))
+        case T.EProj{tn, ix, e}:
+          +t2 : List<&2, U32> = Con{e, ksh_tail(todo)}
+          kbh_go(p, ksh_pick(a, t2), t2,
+                 ksh_mix(ksh_mix(h, 37), ((tn * 131 : U32) + ix : U32)))
+        case T.EConst{n, us}:
+          +t2 : List<&2, U32> = ksh_tail(todo)
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, ((n * 2654435761 : U32) + 3 : U32)))
+        case T.EBVar{i}:
+          +t2 : List<&2, U32> = ksh_tail(todo)
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 5))
+        case _:
+          +t2 : List<&2, U32> = ksh_tail(todo)
+          kbh_go(p, ksh_pick(a, t2), t2, ksh_mix(h, 11))
+
+def kbh(a: Array<T.Ex>, +x: U32) -> Array<T.Ex> & U32:
+  kbh_go(24n, Array.get(T.Ex, a, x), Con{x, Nil{}}, 1)
+
+def keqv_key(+hx: U32, +hy: U32) -> U32:
+  +lo : U32 = S.pick(U32.is_lt(hx, hy), hx, hy)
+  +hi : U32 = S.pick(U32.is_lt(hx, hy), hy, hx)
+  (1050624 + (2 * U32.and(((lo * 2654435761 : U32) + (hi * 40503 : U32) : U32),
+                          131071) : U32) : U32)
+
+# -- s == lift(t, K) (cutoff 0), structurally; e counts t's own binders --
+type LCI is Data:
+  LC{s: U32, t: U32, e: U32}
+
+type LS is Data:
+  LS{ok: Bool, wl: List<&2, LCI>}
+
+def klc_cmp(sn: T.Ex, tn: T.Ex, +e: U32, tail: List<&2, LCI>, +K: U32) -> LS:
+  match sn tn:
+    case T.EBVar{i} T.EBVar{j}:
+      +j2 : U32 = j
+      LS{U32.is_eq(i, S.pick(U32.is_lt(j2, e), j2, (j2 + K : U32))), tail}
+    case T.EApp{f1, x1} T.EApp{f0, x0}:
+      LS{True{}, Con{LC{f1, f0, e}, Con{LC{x1, x0, e}, tail}}}
+    case T.EAll{n1, t1, b1, i1} T.EAll{n0, t0, b0, i0}:
+      LS{True{}, Con{LC{t1, t0, e}, Con{LC{b1, b0, (e + 1 : U32)}, tail}}}
+    case T.ELam{n1, t1, b1, i1} T.ELam{n0, t0, b0, i0}:
+      LS{True{}, Con{LC{t1, t0, e}, Con{LC{b1, b0, (e + 1 : U32)}, tail}}}
+    case T.ELet{n1, t1, v1, b1} T.ELet{n0, t0, v0, b0}:
+      LS{True{}, Con{LC{t1, t0, e}, Con{LC{v1, v0, e},
+                                         Con{LC{b1, b0, (e + 1 : U32)}, tail}}}}
+    case T.EProj{tn1, i1, s1} T.EProj{tn0, i0, s0}:
+      LS{U32.is_eq(tn1, tn0) && U32.is_eq(i1, i0), Con{LC{s1, s0, e}, tail}}
+    case _ _:
+      LS{False{}, Nil{}}
+
+def klc_s4(pr: Array<T.Ex> & T.Ex, sn: T.Ex, +e: U32, tail: List<&2, LCI>,
+           +K: U32) -> Array<T.Ex> & LS:
+  match pr:
+    case Tuple{a, tn}:
+      (a, klc_cmp(sn, tn, e, tail, K))
+
+def klc_s3(pr: Array<T.Ex> & T.Ex, +t: U32, +e: U32, tail: List<&2, LCI>,
+           +K: U32) -> Array<T.Ex> & LS:
+  match pr:
+    case Tuple{a, sn}:
+      klc_s4(Array.get(T.Ex, a, t), sn, e, tail, K)
+
+# t has no loose variable at or above its depth e (lbr <= e): lift leaves
+# it alone, so s must be t itself; likewise s == t when K is 0
+def klc_s2(+settled: Bool, +same: Bool, a: Array<T.Ex>, +s: U32, +t: U32,
+           +e: U32, tail: List<&2, LCI>, +K: U32) -> Array<T.Ex> & LS:
+  match settled:
+    case True{}:
+      (a, LS{same, tail})
+    case False{}:
+      klc_s3(Array.get(T.Ex, a, s), t, e, tail, K)
+
+def klc_s1(pr: Array<T.Ex> & U32, +s: U32, +t: U32, +e: U32,
+           tail: List<&2, LCI>, +K: U32) -> Array<T.Ex> & LS:
+  match pr:
+    case Tuple{a, l}:
+      +same : Bool = U32.is_eq(s, t)
+      klc_s2(U32.is_le(l, e) || (same && U32.is_eq(K, 0)), same, a, s, t, e,
+             tail, K)
+
+def klc_go(fuel: Nat, pr: Array<T.Ex> & LS, +K: U32, +hb: U32) -> Array<T.Ex> & Bool:
+  match fuel pr:
+    case 0n Tuple{a, st}:
+      (a, False{})
+    case 1n+p Tuple{a, LS{False{}, wl}}:
+      (a, False{})
+    case 1n+p Tuple{a, LS{True{}, Nil{}}}:
+      (a, True{})
+    case 1n+p Tuple{a, LS{True{}, Con{LC{s, t, e}, tail}}}:
+      +t2 : U32 = t
+      klc_go(p, klc_s1(klb_get(a, t2, hb), s, t2, e, tail, K), K, hb)
+
+def klc(a: Array<T.Ex>, +s: U32, +t: U32, +K: U32, +hb: U32) -> Array<T.Ex> & Bool:
+  klc_go(4096n, (a, LS{True{}, Con{LC{s, t, 0}, Nil{}}}), K, hb)
+
+def kdrop(n: Nat, xs: List<&2, U32>) -> List<&2, U32>:
+  match n xs:
+    case 0n _:
+      xs
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{head, tail}:
+      kdrop(p, tail)
+
+# -- lookup: hash, entry, validity, lift check (both orientations), context
+def keqv_cc2(pr: Array<T.Ex> & U32, +ch0: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, h}:
+      (a, U32.is_eq(h, ch0))
+
+def keqv_cc(+ok: Bool, a: Array<T.Ex>, +base: U32, +lm0: U32, +ch0: U32,
+            +dr: U32, +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match ok:
+    case True{}:
+      keqv_cc2(kctxh_s(U32.to_nat(lm0), (a, 0), kdrop(U32.to_nat(dr), C), base),
+               ch0)
+    case False{}:
+      (a, False{})
+
+def keqv_o4(pr: Array<T.Ex> & Bool, +base: U32, +lm0: U32, +ch0: U32,
+            +dr: U32, +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, r}:
+      keqv_cc(r, a, base, lm0, ch0, dr, C)
+
+def keqv_o3(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32, +y0: U32,
+            +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+            +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match go:
+    case True{}:
+      keqv_o4(klc(a, y, x0, K, khalf(base)), base, lm0, ch0, dr, C)
+    case False{}:
+      (a, False{})
+
+def keqv_o2b(pr: Array<T.Ex> & Bool, +x: U32, +y: U32, +x0: U32, +y0: U32,
+             +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, r}:
+      keqv_o3(r, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
+
+# the second orientation: x against y0, then y against x0
+def keqv_o2(+done: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
+            +y0: U32, +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+            +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match done:
+    case True{}:
+      (a, True{})
+    case False{}:
+      keqv_o2b(klc(a, x, y0, K, khalf(base)), x, y, x0, y0, K, base, lm0, ch0,
+               dr, C)
+
+def keqv_o1c(pr: Array<T.Ex> & Bool, +x: U32, +y: U32, +x0: U32, +y0: U32,
+             +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, r}:
+      keqv_o2(r, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
+
+def keqv_o1b(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
+             +y0: U32, +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match go:
+    case True{}:
+      keqv_o1c(keqv_o4(klc(a, y, y0, K, khalf(base)), base, lm0, ch0, dr, C),
+               x, y, x0, y0, K, base, lm0, ch0, dr, C)
+    case False{}:
+      keqv_o2(False{}, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
+
+def keqv_o1(pr: Array<T.Ex> & Bool, +x: U32, +y: U32, +x0: U32, +y0: U32,
+            +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+            +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, r}:
+      keqv_o1b(r, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
+
+def keqv_h10(+ok: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
+             +y0: U32, +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
+             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+  match ok:
+    case True{}:
+      keqv_o1(klc(a, x, x0, K, khalf(base)), x, y, x0, y0, K, base, lm0, ch0,
+              dr, C)
+    case False{}:
+      (a, False{})
+
+def keqv_h9(pr: Array<T.Ex> & T.Ex, +okx: Bool, +lx: U32, +gc: U32,
+            +x: U32, +y: U32, +x0: U32, +y0: U32, +ch0: U32, +L0: U32,
+            +bd: U32, +C: List<&2, U32>, +L: U32,
+            +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, ey}:
+      +e2 : T.Ex = ey
+      +ly : U32 = klb_l(e2)
+      +lm0 : U32 = S.pick(U32.is_lt(lx, ly), ly, lx)
+      keqv_h10(okx && U32.is_le(kyst(e2), gc) && U32.is_ne(lm0, 4294967295),
+               a, x, y, x0, y0, ((L + bd : U32) - L0 : U32), base, lm0, ch0,
+               (L - L0 : U32), C)
+
+def keqv_h8(pr: Array<T.Ex> & T.Ex, +gc: U32, +x: U32, +y: U32, +x0: U32,
+            +y0: U32, +ch0: U32, +L0: U32, +bd: U32, +C: List<&2, U32>,
+            +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, ex}:
+      +e2 : T.Ex = ex
+      keqv_h9(Array.get(T.Ex, a, (y0 + khalf(base) : U32)),
+              U32.is_le(kyst(e2), gc), klb_l(e2), gc, x, y, x0, y0, ch0, L0,
+              bd, C, L, base)
+
+def keqv_h7(+ok: Bool, a: Array<T.Ex>, +gc: U32, +x: U32, +y: U32,
+            +x0: U32, +y0: U32, +ch0: U32, +L0: U32, +bd: U32,
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match ok:
+    case True{}:
+      keqv_h8(Array.get(T.Ex, a, (x0 + khalf(base) : U32)), gc, x, y, x0, y0,
+              ch0, L0, bd, C, L, base)
+    case False{}:
+      (a, False{})
+
+def keqv_h6(pr: Array<T.Ex> & T.Ex, +gc: U32, +x: U32, +y: U32, +x0: U32,
+            +y0: U32, +ch0: U32, +L0: U32, +bd: U32, +C: List<&2, U32>,
+            +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, gde}:
+      keqv_h7(U32.is_ge(gc, kg_v(gde)), a, gc, x, y, x0, y0, ch0, L0, bd, C,
+              L, base)
+
+def keqv_h5(pr: Array<T.Ex> & T.Ex, +x: U32, +y: U32, +x0: U32, +y0: U32,
+            +ch0: U32, +L0: U32, +bd: U32, +C: List<&2, U32>, +L: U32,
+            +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, g}:
+      keqv_h6(Array.get(T.Ex, a, kgd_slot(khalf(base))), kfl_v(g), x, y, x0,
+              y0, ch0, L0, bd, C, L, base)
+
+def keqv_h4(+ok: Bool, a: Array<T.Ex>, +k: U32, +x: U32, +y: U32, +x0: U32,
+            +y0: U32, +ch0: U32, +L0: U32, +bd: U32, +C: List<&2, U32>,
+            +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match ok:
+    case True{}:
+      keqv_h5(Array.get(T.Ex, a, kfl_slot(base, (k + 1 : U32))), x, y, x0, y0,
+              ch0, L0, bd, C, L, base)
+    case False{}:
+      (a, False{})
+
+def keqv_h3(pr: Array<T.Ex> & T.Ex, +k: U32, +x: U32, +y: U32, +bd: U32,
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, T.ELet{x0, y0, ch0, L0}}:
+      +l2 : U32 = L0
+      keqv_h4(U32.is_le(l2, L), a, k, x, y, x0, y0, ch0, l2, bd, C, L, base)
+    case Tuple{a, e}:
+      (a, False{})
+
+def keqv_h2(pr: Array<T.Ex> & U32, +hx: U32, +x: U32, +y: U32, +bd: U32,
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, hy}:
+      +k : U32 = keqv_key(hx, hy)
+      keqv_h3(Array.get(T.Ex, a, kfl_slot(base, k)), k, x, y, bd, C, L, base)
+
+def keqv_h1(pr: Array<T.Ex> & U32, +x: U32, +y: U32, +bd: U32,
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, hx}:
+      keqv_h2(kbh(a, y), hx, x, y, bd, C, L, base)
+
+# x, y at binder depth bd below a context C of length L
+def keqv_hit(a: Array<T.Ex>, +base: U32, +x: U32, +y: U32, +bd: U32,
+             +C: List<&2, U32>, +L: U32) -> Array<T.Ex> & Bool:
+  keqv_h1(kbh(a, x), x, y, bd, C, L, base)
+
+# -- record a YES (the originals, as Lean's add_equiv does) --
+def keqv_w(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +x: U32, +y: U32,
+           +ch: U32, +L0: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, g}:
+      Array.set(T.Ex, Array.set(T.Ex, a, kfl_slot(base, k), T.ELet{x, y, ch, L0}),
+                kfl_slot(base, (k + 1 : U32)), T.EBVar{kg_v(g)})
+
+def keqv_s2(pr: Array<T.Ex> & U32, +hx: U32, +base: U32, +x: U32, +y: U32,
+            +ch: U32, +L0: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, hy}:
+      keqv_w(Array.get(T.Ex, a, kg_slot(khalf(base))), base, keqv_key(hx, hy),
+             x, y, ch, L0)
+
+def keqv_s1(pr: Array<T.Ex> & U32, +base: U32, +x: U32, +y: U32, +ch: U32,
+            +L0: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, hx}:
+      keqv_s2(kbh(a, y), hx, base, x, y, ch, L0)
+
+def keqv_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
+             +ch: U32, ctx: List<&2, U32>) -> Array<T.Ex>:
+  match go:
+    case True{}:
+      keqv_s1(kbh(a, x), base, x, y, ch, I.len_u(ctx, 0))
+    case False{}:
+      a
+
+# -- is_equiv: the structural walk (keq_go) with each unequal pair first
+# looked up in the table
+def keqc_qa(pr: Array<T.Ex> & Bool, nd: T.Ex, +y: U32, +dep: U32, +bd: U32,
+            tail: List<&2, QI>) -> (Array<T.Ex> & T.Ex) & List<&2, QI>:
+  match pr:
+    case Tuple{a, True{}}:
+      +t2 : List<&2, QI> = tail
+      (Array.get(T.Ex, a, keq_next(t2)), t2)
+    case Tuple{a, False{}}:
+      (Array.get(T.Ex, a, y), Con{QB{nd, y, dep, bd}, tail})
+
+def keqc_go(fuel: Nat, +lnt: R.Tr<L.LN>,
+            st: (Array<T.Ex> & T.Ex) & List<&2, QI>, +acc: L.Tri, +nx: U32,
+            +base: U32, +C: List<&2, U32>,
+            +L: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fuel st:
+    case 0n Tuple{Tuple{a, nd}, wl}:
+      (((a, nx), MTri{L.TUnk{}}), 0)
+    case 1n+p Tuple{Tuple{a, nd}, Nil{}}:
+      (((a, nx), MTri{acc}), 0)
+    case 1n+p Tuple{Tuple{a, nd}, Con{QA{x, y, dep, bd}, tail}}:
+      +y2 : U32 = y
+      +b2 : U32 = bd
+      keqc_go(p, lnt, keqc_qa(keqv_hit(a, base, x, y2, b2, C, L), nd, y2, dep,
+                              b2, tail),
+              acc, nx, base, C, L)
+    case 1n+p Tuple{Tuple{a, nd}, Con{QB{an, y, dep, bd}, tail}}:
+      +r : QR = keq_cmp0(dep, bd, an, nd, lnt)
+      +t2 : L.Tri = I.tri_and(acc, qr_t(r))
+      +w : List<&2, QI> = pick_qis(L.tri_is_yes(t2),
+                                   List.append(&2, QI, qr_kids(r), tail),
+                                   Nil{})
+      keqc_go(p, lnt, (Array.get(T.Ex, a, keq_next(w)), w), t2, nx, base, C, L)
+
+def keqc_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lnt: R.Tr<L.LN>,
+             +base: U32, +C: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      +r : QR = kq1(x, y, 256, 0, L.TYes{}, Nil{})
+      +wl : List<&2, QI> = qr_kids(r)
+      keqc_go(100000000n, lnt, (Array.get(T.Ex, ex, keq_next(wl)), wl), qr_t(r),
+              nx, base, C, I.len_u(C, 0))
+
 def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
   match n xs:
     case 0n _:
@@ -5564,7 +5948,22 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{LZ3{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TYes{}))
+    # Lean's lazy_delta_reduction_step continues through quick_is_def_eq
+    # (is_equiv WITHOUT the hash shortcut): structural equality modulo the
+    # recorded equivalences, after every unfolding
     case 1n+p KCon{LZ3{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{LZ3q{x2, y2, fu, c2}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+         nt, hcb, keqc_tin(fs, x2, y2, lnt, hcb, c2))
+    case 1n+p KCon{LZ3q{x, y, fu, ctx}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
+      km(p, KCon{LZ3r{L.tri_is_yes(t), x, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{LZ3r{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TYes{}))
+    case 1n+p KCon{LZ3r{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       km(p, KCon{LZOx{x2, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
          nt, hcb, kfetch(fs, x2, 0))
@@ -7153,7 +7552,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{kwev(False{}, x2, Nil{}, 65536, cx9),
-                 KCon{DE2{y2, cx9, fu}, KCon{DSRec{cl, ch, x2, y2}, k}}},
+                 KCon{DE2{y2, cx9, fu}, KCon{DSRec{cl, ch, x2, y2, cx9}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DE2{yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
@@ -7176,8 +7575,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = wx
       +y2 : U32 = wy
-      km(p, KCon{DE3c{x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, keq_lists_tin(fs, Con{x2, Nil{}}, Con{y2, Nil{}}, lnt))
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DE3c{x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, keqc_tin(fs, x2, y2, lnt, hcb, c2))
     case 1n+p KCon{DE3c{wx, wy, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
       km(p, KCon{DE3d{L.tri_is_yes(t), wx, wy, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
@@ -7535,9 +7935,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
-      km(p, KCon{DEx{x2, y2, ctx, fu}, KCon{DSRec{True{}, 0, x2, y2}, k}}, lnt,
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DEx{x2, y2, c2, fu}, KCon{DSRec{True{}, 0, x2, y2, c2}, k}}, lnt,
          nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
-    case 1n+p KCon{DSRec{cl, ch, xi, yi}, k}
+    case 1n+p KCon{DSRec{cl, ch, xi, yi, ctx}, k}
          Tuple{Tuple{Tuple{ex, nx}, MTri{t}}, ri}:
       +t2 : L.Tri = t
       +w0 : R.Tr<U32> = wm
@@ -7548,7 +7949,9 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
          R.set_if(U32, c3 && yes, w0, (x2 + 2147483648 : U32), y2,
                   4294967295),
-         nt, hcb, kmtri((kyc_set(yes, ex, hcb, x2, y2, S.pick(c3, 0, ch)), nx),
+         nt, hcb, kmtri((keqv_set(yes, kyc_set(yes, ex, hcb, x2, y2,
+                                                S.pick(c3, 0, ch)),
+                                  hcb, x2, y2, S.pick(c3, 0, ch), ctx), nx),
                         t2))
     case 1n+p KCon{DEx{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       +y2 : U32 = yi

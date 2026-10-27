@@ -6,7 +6,8 @@
 #     SLOW decl=<index> blk=<0|1> dt=<seconds> at=<since first decl>
 # for every declaration over 0.3 s, PROG every 5000 declarations, and
 #     VERD decl=<index> v=<1 reject | 2 decline> fl=<OVF|CORRUPT<<1|INCOMPLETE<<2> mv=<raw machine register>
-# for every declaration that does not accept. The
+# for every declaration that does not accept (FTICK_ENTER=1 in the environment
+# also logs ENTER decl=<index> at=<s> as each declaration starts). The
 # index counts declaration records (axiom/def/thm/opaque/quot/inductive) in
 # file order from 0 (fck_all's own counter). SRC=DIR builds a copy. Verdicts are unchanged. Found the init hang
 # (String.Pos.Raw.IsValid) after prefix bisection proved timing-dependent.
@@ -26,7 +27,8 @@ static unsigned dbg_fl=0, dbg_mv=0; /* the last typed check's flag bits (OVF|COR
 static void dbg_tick(int kind){
   double n=dbg_now(); if(dbg_t0==0){dbg_t0=n;dbg_last=n;}
   if(kind==0){ double dt=n-dbg_last; if(dt>0.3 && dbg_decl>=0) fprintf(stderr,"SLOW decl=%ld blk=%d dt=%.2f at=%.1f\n",dbg_decl,dbg_isblk,dt,n-dbg_t0);
-    dbg_decl=dbg_cur; dbg_last=n; dbg_isblk=0; if(dbg_decl%5000==0) fprintf(stderr,"PROG decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);}
+    dbg_decl=dbg_cur; dbg_last=n; dbg_isblk=0; if(dbg_decl%5000==0) fprintf(stderr,"PROG decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);
+    if(getenv("FTICK_ENTER")) fprintf(stderr,"ENTER decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);}
   else { dbg_isblk=1; }
 }
 '''
