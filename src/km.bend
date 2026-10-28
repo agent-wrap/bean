@@ -9150,8 +9150,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +hy2 : T.Ex = hdy
       +sx2 : List<&2, U32> = spx
       +sy2 : List<&2, U32> = spy
-      +n1 : U32 = I.const_nm2(hd2)
-      +same : Bool = U32.is_ne(n1, 4294967295) && U32.is_eq(n1, I.const_nm2(hy2))
+      # kcn, not I.const_nm2: const_nm2 answers 0 for a non-constant head,
+      # so two projections / variables with as many arguments read as the
+      # same head and only their arguments were compared -- `p.0 =?= q.0`
+      # answered YES (cslib Sym2.pmap._proof_1 rejected through it)
+      +n1 : U32 = kcn(hd2)
+      +same : Bool = U32.is_ne(n1, 4294967295) && U32.is_eq(n1, kcn(hy2))
                      && U32.is_eq(I.len_u(sx2, 0), I.len_u(sy2, 0))
                      && L.tri_is_yes(I.eq_lvls(kcus(hd2), kcus(hy2), lnt))
       km(p, KCon{pick_kf(same, DCArg{sx2, sy2, ctx, fu},

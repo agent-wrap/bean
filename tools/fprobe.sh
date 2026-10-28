@@ -94,12 +94,30 @@ c = [v for v in regs if v.startswith("_c_")][0]; x = [v for v in regs if v.start
 line = '    if (%s) fprintf(stderr, "TRC %%u %%u\\n", (unsigned)%s, (unsigned)%s);\n' % (
     "term_aux(%s) == CID_TRUE" % c if "Term %s" % c in m.group(1) else "%s" % c, x, y)
 s = s[:m.end()] + line + s[m.end():]
+import os
+if os.environ.get("TRAIL"):
+    # TRAIL=N: every TRC line is followed by `TRL f1 f2 ..`, the last N km
+    # frames dispatched (oldest first) -- the path that produced the hit
+    n = int(os.environ["TRAIL"])
+    cids = re.findall(r"#define (CID_[A-Z0-9_]+) (\d+)", s)
+    mx = max(int(v) for _, v in cids) + 1
+    names = ["?"] * mx
+    for nm_, v in cids: names[int(v)] = nm_[7:] if nm_.startswith("CID_KM_") else nm_[4:]
+    hdr = "static const char* trl_nm[%d] = {%s};\nstatic unsigned trl_buf[%d]; static unsigned trl_i = 0;\n" % (mx, ",".join('"%s"' % x for x in names), n)
+    hdr += "static void trl_dump(void){ fprintf(stderr, \"TRL\"); for (unsigned j = 0; j < %d; j++) { unsigned c = trl_buf[(trl_i + j) %% %d]; fprintf(stderr, \" %%s\", c < %d ? trl_nm[c] : \"?\"); } fprintf(stderr, \"\\n\"); }\n" % (n, n, mx)
+    i = s.index("static void err_fail"); s = s[:i] + hdr + s[i:]
+    a = "  WL_CASE(FID_KM_KM)\n  {\n"
+    assert s.count(a) == 1
+    s = s.replace(a, a + "    { Term _ps = r1; if (term_aux(_ps) == CID_KM_KCON) { u64 _pl = term_peek(e.mem, _ps); Term _pf = e.mem[_pl]; trl_buf[trl_i] = (unsigned)term_aux(_pf); trl_i = (trl_i + 1) %% %d; } }\n" % n)
+    s = s.replace(line, line.replace('\\n", (unsigned)', '\\n", (unsigned)').rstrip("\n").rstrip(";") + "; if (" + line.split("if (")[1].split(") fprintf")[0] + ") trl_dump();\n")
 open(p, "w").write(s)
 PY2
   /nix/store/fy71z4s85kl6114vz7ksp3m5z4fz275k-clang-wrapper-21.1.8/bin/clang -O2 -o "$TMP/fdbg" "$TMP/gen.c" -lpthread 2>&1 | grep -i error | head -5 || true
 else
 "$ROOT/tools/fbuild.sh" "$TMP/src/fdbg.bend" "$TMP/fdbg" 2>&1 | grep -v '^$' | head -5 || true
 fi
+# TRAIL=N (with TRACE=1): after each TRC line, `TRL ...` lists the last N km
+# frames dispatched -- which arms produced the hit
 # RUNCAP=SECONDS stops the run after that long (TRACE counts up to then)
 if [[ -n "${RUNCAP:-}" ]]; then timeout "$RUNCAP" "$TMP/fdbg" "$SLICE" ${ARGS:-} > "$TMP/dump.dbg" || true
 else "$TMP/fdbg" "$SLICE" ${ARGS:-} > "$TMP/dump.dbg"; fi
