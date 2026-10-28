@@ -1127,6 +1127,8 @@ type KF is Data:
   DWhdFM{i: U32, fu: U32, ctx: List<&2, U32>}
   DWhdFG{hit: Bool, h: U32, i: U32, fu: U32, ctx: List<&2, U32>}
   WIhNext{ic: IC, ctx: List<&2, U32>}
+  # the constructor type, level-instantiated, before the telescope peel
+  WIhLv{h: U32, ic: IC, ctx: List<&2, U32>}
   WIhPe{h: U32, ic: IC, ctx: List<&2, U32>}
   WIhFty{h: U32, ic: IC, ctx: List<&2, U32>}
   WIhScanned{h: U32, ic: IC, ctx: List<&2, U32>}
@@ -11277,13 +11279,31 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +fl2 : List<&2, U32> = fields
       +cc2 : U32 = ccty
       +p2 : U32 = pp
-      km(p, KCon{WPlE{cc2,
-                      List.append(&2, U32, I.take_u(pr2, p2, Nil{}),
-                                  I.take_u(fl2, (h2 - 1 : U32), Nil{})), cx9},
-                 KCon{WIhPe{h2, IC{t, cn, us, pr2, fl2, cc2, p2, ni, acc,
+      +cn2 : U32 = cn
+      +us2 : List<&2, U32> = us
+      # the constructor type speaks of the inductive's universe parameters;
+      # the recursor's list holds them under the same names (after its
+      # motive universe), so instantiate with the recursor's -- without it
+      # an index taken from a recursive field (`Pf α (x :: l)`) kept the
+      # constructor's own `u` (`List.cons{u}`) in the inductive hypothesis
+      # (cslib's CLL.Proof equations rejected)
+      km(p, KCon{kev(WP{2, 0, 0, 0, R.get(List<&2, U32>, 64n, lp, cn2, Nil{}),
+                        klns_of(us2, lnt), 2000000}, cc2),
+                 KCon{WIhLv{h2, IC{t, cn2, us2, pr2, fl2, cc2, p2, ni, acc,
                                    ci, need, can, delta, vi, ps, qs, e,
                                    args, fu}, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, cc2, ri))
+    case 1n+p KCon{WIhLv{h, ic, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +ic2 : IC = ic
+      +h2 : U32 = h
+      +r2 : U32 = ri
+      +cx9 : List<&2, U32> = ctx
+      km(p, KCon{WPlE{r2,
+                      List.append(&2, U32, I.take_u(ic_pre(ic2), ic_pp(ic2), Nil{}),
+                                  I.take_u(ic_fields(ic2), (h2 - 1 : U32), Nil{})),
+                      cx9},
+                 KCon{WIhPe{h2, ic2, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, r2))
     case 1n+p KCon{WIhPe{h, ic, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       km(p, KCon{WIhFty{h, ic, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,

@@ -7,3 +7,7 @@ Regression exports beyond the arena's suite, run by tools/regress.sh BIN.
 - accept/: miniatures Lean accepts that once failed here.
   - eqndrec_quot_sound(_nat): an Eq.ndrec over Quot.sound against its
     Sym2-style unfolding (cslib Sym2.pmap._proof_1; rejected, then declined).
+  - indexed_rec_universe_ih: `isAx.eq_def` for a universe-polymorphic
+    indexed family `Pf (α : Type u) : List α → Type u` with a recursive
+    constructor; the iota rule's inductive hypothesis kept the
+    constructor's own universe `u` (cslib's CLL.Proof equations).
