@@ -5859,7 +5859,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # no failure cache at the loop's entry: a stall is not a failure (the
       # tail may still prove the pair), and Lean caches only is_def_eq_args
       # failures (LZF5)
-      km(p, KCon{LZ0g{U32.is_ge(used, 1000000), x2, y2, fu, ctx}, k},
+      km(p, KCon{LZ0g{U32.is_ge(used, 8000000), x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -5874,7 +5874,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = x
       +y2 : U32 = y
       +used : U32 = ri
-      km(p, KCon{LZ0g{U32.is_ge(used, 1000000), x2, y2, fu, ctx}, k},
+      km(p, KCon{LZ0g{U32.is_ge(used, 8000000), x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
