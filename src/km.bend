@@ -839,6 +839,11 @@ type KF is Data:
         ctx: List<&2, U32>, fu: U32}
   IApRr{a0: U32, a: U32, node: T.Ex, rf: U32, rfok: Bool,
         ctx: List<&2, U32>, fu: U32}
+  # a recorded argument type is reused only for a CLOSED argument: a bound
+  # variable's type depends on the context (cslib's Language.mul_sub_one
+  # read `#0 : Language #1` recorded one binder further out)
+  IApRl{hit: Bool, rt: U32, a: U32, node: T.Ex, rf: U32, rfok: Bool,
+        ctx: List<&2, U32>, fu: U32}
   IAp4{a: U32, node: T.Ex, rf: U32, rfok: Bool, ctx: List<&2, U32>,
        fu: U32}
   IAp5{a: U32, node: T.Ex, ra: U32, raok: Bool, rf: U32, rfok: Bool,
@@ -9964,12 +9969,17 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, krec_read(fs, hcb, ri))
     case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
-         Tuple{Tuple{fs, MX{T.EApp{ra, rt}}}, ri}:
+         Tuple{Tuple{Tuple{ex, nx}, MX{T.EApp{ra, rt}}}, ri}:
       +a2 : U32 = a
       +hit : Bool = U32.is_eq(a0, a2) && U32.is_eq(ra, a2)
-      +rt2 : U32 = rt
-      km(p, KCon{IApR2{hit, a2, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt,
+      km(p, KCon{IApRl{hit, rt, a2, node, rf, rfok, ctx, fu}, k}, lnt, nlx, mt,
          lp, vt, qtt, natn, wm, nt, hcb,
+         klb_tin(klb_get(ex, a2, khalf(hcb)), nx))
+    case 1n+p KCon{IApRl{hit, rt, a, node, rf, rfok, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +rt2 : U32 = rt
+      km(p, KCon{IApR2{hit && U32.is_eq(ri, 0), a, node, rf, rfok, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmir(fs, U32.and(rt2, 2147483647), U32.is_ge(rt2, 2147483648)))
     case 1n+p KCon{IApRr{a0, a, node, rf, rfok, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
