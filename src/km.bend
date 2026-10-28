@@ -582,6 +582,13 @@ type KF is Data:
   # types themselves, which climbs Sort u, Sort u+1, .. without end
   DIr5p{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5q{zero: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  # Lean's is_def_eq_unit_like (the last rule of is_def_eq_core): x's type,
+  # whnf'd, a structure whose one constructor has no fields -- then x and y
+  # are equal when their types are
+  DUl0{t: L.Tri, ry: U32, ctx: List<&2, U32>}
+  DUl1{t: L.Tri, wx: U32, ry: U32, ctx: List<&2, U32>}
+  DUlGo{unit: Bool, t: L.Tri, wx: U32, ry: U32, ctx: List<&2, U32>}
+  DUl3{t: L.Tri}
   DIr5r{unk: Bool, zy: Bool, t: L.Tri, rx: U32, ry: U32,
         ctx: List<&2, U32>}
   DIr5s{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
@@ -10549,7 +10556,40 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DIr5q{False{}, t, rx, ry, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +t2 : L.Tri = t
+      +rx2 : U32 = rx
+      +ry2 : U32 = ry
+      +cx9 : List<&2, U32> = ctx
+      +go : Bool = Bool.not(L.tri_is_yes(t2))
+                   && Bool.not(U32.is_ge(rx2, 4294967294))
+                   && Bool.not(U32.is_ge(ry2, 4294967294))
+      km(p, KCon{pick_kf(go, DWhd{rx2, cx9}, DUl3{t2}),
+                 KCon{pick_kf(go, DUl0{t2, ry2, cx9}, DUl3{t2}), k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TUnk{}))
+    case 1n+p KCon{DUl0{t, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wx : U32 = ri
+      km(p, KCon{DUl1{t, wx, ry, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
+         nt, hcb, kspine_tin(fs, wx, wx))
+    case 1n+p KCon{DUl1{t, wx, ry, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +hd2 : T.Ex = hd
+      +n1 : U32 = kcn(hd2)
+      +um : I.Meta = R.get(I.Meta, 64n, mt, n1, I.MNone{})
+      +unit : Bool = U32.is_ne(n1, 4294967295) && I.meta_is_ind(um)
+                     && U32.is_eq(I.meta_nf(um), 0)
+      km(p, KCon{DUlGo{unit, t, wx, ry, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DUlGo{True{}, t, wx, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +wx2 : U32 = wx
+      +ry2 : U32 = ry
+      km(p, KCon{DSub{False{}, U32.is_eq(wx2, ry2), wx2, ry2, ctx, 4096},
+                 KCon{DUl3{t}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DUlGo{False{}, t, wx, ry, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kmtri(fs, t))
+    case 1n+p KCon{DUl3{t}, k} Tuple{Tuple{fs, MTri{sq}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.pick_tri(L.tri_is_yes(sq), L.TYes{}, t)))
     case 1n+p KCon{DIr5q{True{}, t, rx, ry, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
