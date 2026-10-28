@@ -174,10 +174,19 @@ def add_lp(+d: K.Dcl, +t: R.Tr<List<&2, U32>>) -> R.Tr<List<&2, U32>>:
       +nm = K.dcl_name(d)
       R.set_if(List<&2, U32>, U32.is_gt(nm, 0), t, nm, K.dcl_lparams(d), Nil{})
 
+# a constant's value for delta: definitions, and theorems -- Lean 4's
+# is_delta takes any constant with has_value(), so an iota major
+# `thm a b : And p q` unfolds to `And.intro ..` (cslib's
+# Rat.instEncodable._proof_3). A theorem's value is kept under n + 2^31 and
+# read ONLY by iota on a major premise (km WIth): unfolding proofs in delta,
+# projections or the lazy loop made std run past 44 min and turned two
+# rejects of the bugs/ suite (proj-/rec-of-subst-prop) into declines
 def add_vt(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
   match d:
     case K.DDef{n, lps, ty, v}:
       R.set(U32, 64n, t, n, v, 4294967295)
+    case K.DThm{n, lps, ty, v}:
+      R.set(U32, 64n, t, (n + 2147483648 : U32), v, 4294967295)
     case _:
       t
 

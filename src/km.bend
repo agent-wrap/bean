@@ -304,6 +304,23 @@ type KF is Data:
   WI2b{need: U32, ind: U32, pp: U32, mk: U32, cn: U32, us: List<&2, U32>,
        can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>,
        qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  # iota's major premise headed by a theorem: Lean's whnf unfolds it
+  # (has_value), here only for a major premise (WIth: instantiate the value's
+  # levels, apply the spine, whnf again)
+  WIth{need: U32, ind: U32, pp: U32, mk: U32, cn: U32, us: List<&2, U32>,
+       can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>, qs: List<&2, L.LN>,
+       e: U32, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  WIth3{need: U32, ind: U32, pp: U32, mk: U32, cn: U32, us: List<&2, U32>,
+        can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>, qs: List<&2, L.LN>,
+        e: U32, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  WIthD{isth: Bool, tv: U32, hd: T.Ex, sargs: List<&2, U32>, need: U32,
+        ind: U32, pp: U32, mk: U32, cn: U32, us: List<&2, U32>, can: Bool,
+        delta: Bool, vi: U32, ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32,
+        args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  WIth2{sargs: List<&2, U32>, need: U32, ind: U32, pp: U32, mk: U32, cn: U32,
+        us: List<&2, U32>, can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>,
+        qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32,
+        ctx: List<&2, U32>}
   WI3{need: U32, ind: U32, pp: U32, mk: U32, cn: U32, us: List<&2, U32>,
       can: Bool, delta: Bool, vi: U32, ps: List<&2, U32>,
       qs: List<&2, L.LN>, e: U32, args: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
@@ -7389,9 +7406,58 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WI2b{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                         e, args, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
+      km(p, KCon{WIth{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
+                      args, fu, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+    case 1n+p KCon{WIth{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
+                        args, fu, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +hd2 : T.Ex = hd
+      +n1 : U32 = kcn(hd2)
+      +v2 : R.Tr<U32> = vt
+      +tv : U32 = S.pick(U32.is_eq(n1, 4294967295), 4294967295,
+                         R.get(U32, 64n, v2, (n1 + 2147483648 : U32), 4294967295))
+      +f2 : U32 = fu
+      # only a non-indexed family (And, Exists-like structures): an indexed
+      # K-like major (Eq) keeps Lean's stuck/K behaviour -- unfolding a closed
+      # proof of `a = c` there let bugs/(proj|rec)-of-subst-prop decline
+      +mk2 : U32 = mk
+      km(p, KCon{WIthD{U32.is_ne(tv, 4294967295) && U32.is_gt(f2, 0)
+                       && U32.is_eq(mk2, 0), tv, hd2,
+                       sargs, need, ind, pp, mk2, cn, us, can, delta, vi, ps, qs,
+                       e, args, f2, ctx}, k},
+         lnt, nlx, mt, lp, v2, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{WIthD{True{}, tv, hd, sargs, need, ind, pp, mk, cn, us, can,
+                         delta, vi, ps, qs, e, args, fu, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +hd2 : T.Ex = hd
+      +n1 : U32 = kcn(hd2)
+      +tv2 : U32 = tv
+      km(p, KCon{kev(WP{2, 0, 0, 0, R.get(List<&2, U32>, 64n, lp, n1, Nil{}),
+                        klns_of(kcus(hd2), lnt), 2000000}, tv2),
+                 KCon{WIth2{sargs, need, ind, pp, mk, cn, us, can, delta, vi, ps,
+                            qs, e, args, (fu - 1 : U32), ctx}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, tv2, ri))
+    case 1n+p KCon{WIthD{False{}, tv, hd, sargs, need, ind, pp, mk, cn, us, can,
+                         delta, vi, ps, qs, e, args, fu, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
                      args, fu, ctx}, k},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, r2, r2))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         ((fs, MSP{hd, sargs}), ri))
+    case 1n+p KCon{WIth2{sargs, need, ind, pp, mk, cn, us, can, delta, vi, ps,
+                         qs, e, args, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{WIth3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
+                       args, fu, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         ktin_of(kapargs(hcb, sargs, (fs, ri))))
+    case 1n+p KCon{WIth3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
+                         args, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +cx9 : List<&2, U32> = ctx
+      +r2 : U32 = ri
+      km(p, KCon{DWhd{r2, cx9},
+                 KCon{WI2b{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs, e,
+                           args, fu, cx9}, k}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
     case 1n+p KCon{WI3{need, ind, pp, mk, cn, us, can, delta, vi, ps, qs,
                        e, args, fu, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       +p2 : U32 = pp
