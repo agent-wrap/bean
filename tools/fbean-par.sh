@@ -29,7 +29,11 @@ else
   M=$(( NX + 1 + 4194304 + 2097152 )); D=0; while (( (1 << (D + 1)) <= M )); do D=$(( D + 1 )); done
   # km's sdepth: one doubling of room, two when that leaves under 2^24 free
   SD=$(( D + 2 )); (( (1 << (D + 1)) - M >= 16777216 )) && SD=$(( D + 1 ))
-  RSS=$(( (1 << (SD + 1)) * 64 * 22 / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
+  # measured peak RSS / store: con-leche 1.82 (2^26 slots), navier-stokes
+  # 2.1 (2^27): 2.0 up to 2^26 slots, 2.2 above. con-leche's wall time is
+  # set by the worker count (8: 808 s, 9: 725-759, 10: 644, 11: 647; limit 720)
+  RF=22; (( SD <= 25 )) && RF=20
+  RSS=$(( (1 << (SD + 1)) * 64 * RF / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir
