@@ -2097,7 +2097,8 @@ def kyc_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
 # --- the inference memo, in the store ------------------------------------
 # The same scheme for infer(x) under a context: the hash-consed pair node
 # pk = EApp{x, cid} names (x, context) exactly; 2^17 two-slot entries at
-# kfl_slot(base, 263168 + 2*(hash & mask)): EProj{pk, infer_only, value}
+# kfl_slot(base, 787456 + 2*(hash & mask)), 2^18 entries (2^17 thrashed:
+# fixCtorData_of 614 -> 494 s at 4x): EProj{pk, infer_only, value}
 # and EBVar{gc}; valid while gc is of this declaration and neither pk nor
 # the type node (value & 0x7FFFFFFF, unless the ill-typed marker) was
 # freed and rewritten since. Lean's infer cache is never discarded; km's
@@ -2111,9 +2112,9 @@ def kyc_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
 # 3.81M distinct keys, 3.4M seen once). Lean's cache is keyed by the
 # expression; this is the same with the prefix verified by two hashes.
 def kyi_key(+x: U32, +h1: U32, +h2: U32, +io: U32) -> U32:
-  (263168 + (2 * U32.and(((((x * 2654435761 : U32) + (h1 * 40503 : U32) : U32)
+  (787456 + (2 * U32.and(((((x * 2654435761 : U32) + (h1 * 40503 : U32) : U32)
                            + (h2 * 97 : U32) : U32) + (io * 7919 : U32) : U32),
-                         131071) : U32) : U32)
+                         262143) : U32) : U32)
 
 def kyi_h5(pr: Array<T.Ex> & T.Ex, +gc: U32, +okp: Bool,
            +v: U32) -> Array<T.Ex> & U32:
@@ -2221,14 +2222,14 @@ def kyi_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +h1: U32, +h2: U32,
 # A constant's instantiated body under one node (WDelGo: keyed by the node
 # e, or by the body alone for a constant without level parameters, and
 # checked against the body vi): 2^18 two-slot entries at kfl_slot(base,
-# 525312 + 2*(hash & mask)), EProj{e, vi, h} and EBVar{gc}. Valid like the
+# 263168 + 2*(hash & mask)), EProj{e, vi, h} and EBVar{gc}. Valid like the
 # inference memo: gc of this declaration, neither e nor h freed and
 # rewritten since, h below the pointer. It lived in the memo trie, which
 # every region's end restores to its snapshot -- so a compaction (and a
 # rollback) dropped the whole cache made inside the region, and
 # magma-string-pair-n9 re-unfolded 60% of its evaluation (66 -> 100 s).
 def kuf_key(+e: U32) -> U32:
-  (525312 + (2 * U32.and((e * 2654435761 : U32), 262143) : U32) : U32)
+  (263168 + (2 * U32.and((e * 2654435761 : U32), 262143) : U32) : U32)
 
 def kuf_h5(pr: Array<T.Ex> & T.Ex, +gc: U32, +okp: Bool,
            +h: U32) -> Array<T.Ex> & U32:
@@ -4394,7 +4395,7 @@ def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32, xs: List<&2, U32>,
 # the context-length difference K (a walk, no allocation), and the
 # recorded context prefix (its structural hash, as the YES cache keys it)
 # must sit at the same place in the current context. Entries: 2^17
-# two-slot entries at kfl_slot(base, 1050624 + 2*(hash & mask)),
+# 2^16 two-slot entries at kfl_slot(base, 1312768 + 2*(hash & mask)),
 # ELet{x0, y0, ctxhash, ctxlen} and EBVar{G}, valid like the YES cache's.
 def kbh_go(fuel: Nat, pr: Array<T.Ex> & T.Ex, todo: List<&2, U32>,
            +h: U32) -> Array<T.Ex> & U32:
@@ -4437,8 +4438,8 @@ def kbh(a: Array<T.Ex>, +x: U32) -> Array<T.Ex> & U32:
 def keqv_key(+hx: U32, +hy: U32) -> U32:
   +lo : U32 = S.pick(U32.is_lt(hx, hy), hx, hy)
   +hi : U32 = S.pick(U32.is_lt(hx, hy), hy, hx)
-  (1050624 + (2 * U32.and(((lo * 2654435761 : U32) + (hi * 40503 : U32) : U32),
-                          131071) : U32) : U32)
+  (1312768 + (2 * U32.and(((lo * 2654435761 : U32) + (hi * 40503 : U32) : U32),
+                          65535) : U32) : U32)
 
 # -- s == lift(t, K) (cutoff 0), structurally; e counts t's own binders --
 type LCI is Data:
