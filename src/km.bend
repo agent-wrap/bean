@@ -380,6 +380,12 @@ type KF is Data:
   DPr3{left: Bool, chg: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr2b{same: Bool, left: Bool, chg: Bool, tn: U32, i: U32, s: U32,
         sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  # the structure's whnf is a different node: changed only if it differs
+  # STRUCTURALLY (a region's rollback re-mints an unchanged one as a twin)
+  DPr2c{same: Bool, left: Bool, chg: Bool, tn: U32, i: U32, s: U32, s0: U32,
+        sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  DPr2s{left: Bool, chg: Bool, tn: U32, i: U32, s: U32,
+        sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr3b{left: Bool, chg: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr4{left: Bool, chg: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   # binders: domains (DSub), then bodies under the binder (DSub)
@@ -1056,6 +1062,12 @@ type KF is Data:
   LZR3{same: Bool, wx: U32, wy: U32, nxt: KF, fu: U32, ctx: List<&2, U32>}
   LZQ2{left: Bool, tn: U32, i: U32, s: U32, sargs: List<&2, U32>,
        other: U32, fu: U32, nxt: KF, ctx: List<&2, U32>}
+  # whnf returned a different node: reduced only if it differs STRUCTURALLY
+  # (a region's rollback re-mints an unchanged structure as a fresh twin)
+  LZQ2s{left: Bool, tn: U32, i: U32, s: U32, sargs: List<&2, U32>,
+       other: U32, fu: U32, nxt: KF, ctx: List<&2, U32>}
+  LZQ2c{same: Bool, left: Bool, tn: U32, i: U32, s: U32, s0: U32,
+        sargs: List<&2, U32>, other: U32, fu: U32, nxt: KF, ctx: List<&2, U32>}
   LZQ3{same: Bool, left: Bool, tn: U32, i: U32, s: U32,
        sargs: List<&2, U32>, other: U32, fu: U32, nxt: KF, ctx: List<&2, U32>}
   LZQ4{left: Bool, other: U32, fu: U32, ctx: List<&2, U32>}
@@ -6336,9 +6348,27 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       +s2 : U32 = s
-      km(p, KCon{LZQ3{U32.is_eq(r2, s2) || U32.is_eq(fu, 0), left, tn, i,
-                      r2, sargs, other, fu, nxt, ctx}, k},
+      +f2 : U32 = fu
+      km(p, KCon{LZQ2c{U32.is_eq(r2, s2) || U32.is_eq(f2, 0), left, tn, i, r2,
+                       s2, sargs, other, f2, nxt, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{LZQ2c{True{}, left, tn, i, s, s0, sargs, other, fu, nxt, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{LZQ3{True{}, left, tn, i, s, sargs, other, fu, nxt, ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZQ2c{False{}, left, tn, i, s, s0, sargs, other, fu, nxt, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = s
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{LZQ2s{left, tn, i, r2, sargs, other, fu, nxt, c2}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         keqc_tin(fs, r2, s0, lnt, hcb, c2))
+    case 1n+p KCon{LZQ2s{left, tn, i, s, sargs, other, fu, nxt, ctx}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      +s2 : U32 = s
+      km(p, KCon{LZQ3{L.tri_is_yes(t), left, tn, i, s2, sargs, other, fu, nxt,
+                      ctx}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, s2))
     # the structure did not reduce: carry on with the unfold decision
     case 1n+p KCon{LZQ3{True{}, left, tn, i, s, sargs, other, fu, nxt, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -7795,8 +7825,25 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +r2 : U32 = ri
       +s2 : U32 = s
-      km(p, KCon{DPr2b{U32.is_eq(r2, s2), left, chg, tn, i, r2, sargs, x, y,
-                       ctx, fu}, k},
+      km(p, KCon{DPr2c{U32.is_eq(r2, s2), left, chg, tn, i, r2, s2, sargs, x,
+                       y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DPr2c{True{}, left, chg, tn, i, s, s0, sargs, x, y, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DPr2b{True{}, left, chg, tn, i, s, sargs, x, y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DPr2c{False{}, left, chg, tn, i, s, s0, sargs, x, y, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = s
+      +c2 : List<&2, U32> = ctx
+      km(p, KCon{DPr2s{left, chg, tn, i, r2, sargs, x, y, c2, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         keqc_tin(fs, r2, s0, lnt, hcb, c2))
+    case 1n+p KCon{DPr2s{left, chg, tn, i, s, sargs, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, MTri{t}}, ri}:
+      +r2 : U32 = s
+      km(p, KCon{DPr2b{L.tri_is_yes(t), left, chg, tn, i, r2, sargs, x, y, ctx,
+                       fu}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
     case 1n+p KCon{DPr2b{True{}, left, chg, tn, i, s, sargs, x, y, ctx, fu},
                    k} Tuple{Tuple{fs, msg}, ri}:

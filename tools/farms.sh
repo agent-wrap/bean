@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Per-arm step histogram of the flat machine: builds fmain with a counter at
-# km's dispatch (the frame constructor) and dumps the top 40 arms on SIGTERM
+# km's dispatch (the frame constructor) and dumps the top 40 arms (ARMS_TOP=N at run time) on SIGTERM
 # or at exit, so a run capped with `timeout` still reports.
 #
 #     tools/farms.sh OUT            # then: timeout 120 OUT EXPORT [K N] 2>arms.txt
@@ -29,7 +29,7 @@ static const char* dbg_arm_names[%d] = {%s};
 static void dbg_dump_arms(void){
   unsigned long tot = 0; for (int i = 0; i < %d; i++) tot += dbg_arm[i];
   fprintf(stderr, "ARMS total %%lu\\n", tot);
-  for (int r = 0; r < 40; r++) { int bi = -1; unsigned long bv = 0;
+  for (int r = 0; r < (getenv("ARMS_TOP") ? atoi(getenv("ARMS_TOP")) : 40); r++) { int bi = -1; unsigned long bv = 0;
     for (int i = 0; i < %d; i++) if (dbg_arm[i] > bv) { bv = dbg_arm[i]; bi = i; }
     if (bi < 0 || bv == 0) break; fprintf(stderr, "ARM %%s %%lu\\n", dbg_arm_names[bi], bv); dbg_arm[bi] = 0; }
   fflush(stderr);

@@ -82,7 +82,8 @@ if [[ "${TRACE:-}" == "1" ]]; then
   # TRACE=1: every recording (COND true) also prints "TRC x y" to stderr as
   # it happens -- all hits in order, rollbacks or not (with KEEP=1 the
   # indices stay valid for a later targeted probe of one pair)
-  "$ROOT/tools/bend.sh" "$TMP/src/fdbg.bend" -o "$TMP/gen.c"
+  # MAIN=1 traces the checker itself (fmain: worker mode, ARGS="K N")
+  "$ROOT/tools/bend.sh" "$TMP/src/$([[ "${MAIN:-}" == "1" ]] && echo fmain || echo fdbg).bend" -o "$TMP/gen.c"
   python3 - "$TMP/gen.c" <<'PY2'
 import sys, re
 p = sys.argv[1]; s = open(p).read()
@@ -100,6 +101,6 @@ else
 "$ROOT/tools/fbuild.sh" "$TMP/src/fdbg.bend" "$TMP/fdbg" 2>&1 | grep -v '^$' | head -5 || true
 fi
 # RUNCAP=SECONDS stops the run after that long (TRACE counts up to then)
-if [[ -n "${RUNCAP:-}" ]]; then timeout "$RUNCAP" "$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg" || true
-else "$TMP/fdbg" "$SLICE" > "$TMP/dump.dbg"; fi
+if [[ -n "${RUNCAP:-}" ]]; then timeout "$RUNCAP" "$TMP/fdbg" "$SLICE" ${ARGS:-} > "$TMP/dump.dbg" || true
+else "$TMP/fdbg" "$SLICE" ${ARGS:-} > "$TMP/dump.dbg"; fi
 python3 "$ROOT/tools/fdump.py" "$SLICE" "$TMP/dump.dbg" ""
