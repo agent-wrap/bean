@@ -39,6 +39,11 @@ def build_ex(rs: List<&2, D.Rec>, +t: R.Tr<T.Ex>) -> R.Tr<T.Ex>:
           build_ex(tail,
             ex_step(K.is_ex_kind(k), t, ix, k, ((b1 * 256 : U32) + b2 : U32),
                     flds, sb))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          build_ex(tail,
+            R.set(T.Ex, 64n, t, ix,
+                  T.mk_exk(kind, ((b1 * 256 : U32) + b2 : U32), ka, kb, kc, kd),
+                  T.EBad{}))
 
 def lv_step(+go: Bool, +t: R.Tr<T.Lvl>, +ix: U32, +k: U32,
             +flds: List<&2, D.Fld>) -> R.Tr<T.Lvl>:
@@ -57,6 +62,8 @@ def build_lv(rs: List<&2, D.Rec>, +t: R.Tr<T.Lvl>) -> R.Tr<T.Lvl>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           build_lv(tail, lv_step(K.is_lvl_kind(k), t, ix, k, flds))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          build_lv(tail, t)
 
 # Name index 0 is `Name.anonymous` and level index 0 is `Level.zero`; neither
 # is ever emitted, and the tries' defaults supply them.

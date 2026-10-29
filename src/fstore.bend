@@ -52,6 +52,10 @@ def fb_ex(rs: List<&2, D.Rec>, a: Array<T.Ex>) -> Array<T.Ex>:
                 fset_ex(K.is_ex_kind(k), ix,
                         T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb),
                         a))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          fb_ex(tail, Array.set(T.Ex, a, ix,
+                                T.mk_exk(kind, ((b1 * 256 : U32) + b2 : U32),
+                                         ka, kb, kc, kd)))
 
 def fset_lv(z: Bool, +ix: U32, +v: T.Lvl, a: Array<T.Lvl>) -> Array<T.Lvl>:
   match z:
@@ -69,6 +73,8 @@ def fb_lv(rs: List<&2, D.Rec>, a: Array<T.Lvl>) -> Array<T.Lvl>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           fb_lv(tail, fset_lv(K.is_lvl_kind(k), ix, T.mk_lvl(k, flds), a))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          fb_lv(tail, a)
 
 def fset_nm(z: Bool, +ix: U32, +v: T.Nm, a: Array<T.Nm>) -> Array<T.Nm>:
   match z:
@@ -86,6 +92,8 @@ def fb_nm(rs: List<&2, D.Rec>, a: Array<T.Nm>) -> Array<T.Nm>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           fb_nm(tail, fset_nm(K.is_nm_kind(k), ix, T.mk_nm(k, flds, sb), a))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          fb_nm(tail, a)
 
 # --- level normal forms, flat --------------------------------------------
 # The same bounded fixpoint as tables.bend's lv_resolve, over Arrays. The

@@ -254,3 +254,20 @@ def ex_bvar(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
 
 def mk_ex(+k: U32, +bi: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> Ex:
   ex_bvar(U32.is_eq(k, 3036037), k, bi, flds, sb)
+
+# a compact record (D.RecK): fields a..d in decode's kg1..kg4 order
+def pick_x(+z: Bool, +x: Ex, +y: Ex) -> Ex:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def mk_exk(+k: U32, +bi: U32, +a: U32, +b: U32, +c: U32, +d: U32) -> Ex:
+  pick_x(U32.is_eq(k, 3036037), EBVar{a},
+   pick_x(U32.is_eq(k, 3536286), ESort{a},
+    pick_x(U32.is_eq(k, 96801), EApp{a, b},
+     pick_x(U32.is_eq(k, 106904), ELam{a, b, c, bi},
+      pick_x(U32.is_eq(k, 3617176333), EAll{a, b, c, bi},
+       pick_x(U32.is_eq(k, 3318154), ELet{a, b, c, d},
+        pick_x(U32.is_eq(k, 3449693), EProj{a, b, c}, EBad{})))))))

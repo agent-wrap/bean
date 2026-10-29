@@ -32,7 +32,10 @@ else
   # measured peak RSS / store: con-leche 1.82 (2^26 slots), navier-stokes
   # 2.1 (2^27): 2.0 up to 2^26 slots, 2.2 above. con-leche's wall time is
   # set by the worker count (8: 808 s, 9: 725-759, 10: 644, 11: 647; limit 720)
-  RF=22; (( SD <= 25 )) && RF=20
+  # compact expression records (decode.bend RecK, 2026-10-29): a worker's
+  # peak is its load's -- std 6.77 GB (1.58x, the whole run), navier-stokes
+  # 14.5 GB (1.69x) -- so 1.7x up to 2^26 slots, 1.8x above
+  RF=18; (( SD <= 25 )) && RF=17
   RSS=$(( (1 << (SD + 1)) * 64 * RF / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi

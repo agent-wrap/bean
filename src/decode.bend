@@ -154,6 +154,10 @@ type Rec is Data:
     b2: U32,
     sb: List<&2, U32>,
   }
+  # an expression record of fixed arity (bvar, sort, app, lam, forallE,
+  # letE, proj) with its fields in place: a..d in T.mk_exk's order. 27.7M
+  # navier-stokes records as field lists were 7 GB per worker
+  RecK{kind: U32, ix: U32, b1: U32, b2: U32, a: U32, b: U32, c: U32, d: U32}
 
 def rev_u32(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
   match xs:
@@ -169,10 +173,50 @@ def rev_pair(xs: List<&2, Fld>, acc: List<&2, Fld>) -> List<&2, Fld>:
     case Con{head, tail}:
       rev_pair(tail, Con{head, acc})
 
+def d_fld(xs: List<&2, Fld>, +g: U32, +dflt: U32) -> U32:
+  match xs:
+    case Nil{}:
+      dflt
+    case Con{Fld{fg, fv, fo}, tail}:
+      d_fld(tail, g, S.pick(U32.is_eq(fg, g), fv, dflt))
+
+def is_k_kind(+k: U32) -> Bool:
+  U32.is_eq(k, 3036037) || U32.is_eq(k, 3536286) || U32.is_eq(k, 96801)
+  || U32.is_eq(k, 106904) || U32.is_eq(k, 3617176333)
+  || U32.is_eq(k, 3318154) || U32.is_eq(k, 3449693)
+
+# the field keys of a..d per kind (see T.mk_exk)
+def kg1(+k: U32) -> U32:
+  S.pick(U32.is_eq(k, 3036037), 3036037,
+         S.pick(U32.is_eq(k, 3536286), 3536286,
+                S.pick(U32.is_eq(k, 96801), 3272,
+                       S.pick(U32.is_eq(k, 3449693), 3618459877, 3373707))))
+
+def kg2(+k: U32) -> U32:
+  S.pick(U32.is_eq(k, 96801), 96854,
+         S.pick(U32.is_eq(k, 3449693), 104125, 3575610))
+
+def kg3(+k: U32) -> U32:
+  S.pick(U32.is_eq(k, 3449693), 3402992597,
+         S.pick(U32.is_eq(k, 3318154), 111972721, 3029410))
+
+def kg4(+k: U32) -> U32:
+  S.pick(U32.is_eq(k, 3318154), 3029410, 0)
+
+def mk_rec2(+fixed: Bool, +kind: U32, +ix: U32, flds: List<&2, Fld>,
+            sb: List<&2, U32>, +b1: U32, +b2: U32) -> Rec:
+  match fixed:
+    case True{}:
+      +f : List<&2, Fld> = flds
+      RecK{kind, ix, b1, b2, d_fld(f, kg1(kind), 0), d_fld(f, kg2(kind), 0),
+           d_fld(f, kg3(kind), 0), d_fld(f, kg4(kind), 0)}
+    case False{}:
+      Rec{kind, ix, rev_pair(flds, Nil{}), b1, b2, rev_u32(sb, Nil{})}
+
 def mk_rec(+kind: U32, acc: Acc) -> Rec:
   match acc:
     case Acc{ix, cur, innum, flds, sb, b1, b2}:
-      Rec{kind, ix, rev_pair(flds, Nil{}), b1, b2, rev_u32(sb, Nil{})}
+      mk_rec2(is_k_kind(kind), kind, ix, flds, sb, b1, b2)
 
 # Every record ends with `}` before its newline, and `}` is a non-digit, so
 # the pending integer is already flushed by the time the newline arrives.
@@ -207,10 +251,14 @@ def Rec.kind(+r: Rec) -> U32:
   match r:
     case Rec{kind, ix, flds, b1, b2, sb}:
       kind
+    case RecK{kind, ix, b1, b2, a, b, c, d}:
+      kind
 
 def Rec.ix(+r: Rec) -> U32:
   match r:
     case Rec{kind, ix, flds, b1, b2, sb}:
+      ix
+    case RecK{kind, ix, b1, b2, a, b, c, d}:
       ix
 
 # Streaming variant of `decode`: consumes one chunk and returns the carried

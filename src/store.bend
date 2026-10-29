@@ -252,6 +252,9 @@ def place(+r: D.Rec, st: Store) -> Store:
     case D.Rec{kind, ix, flds, b1, b2, sb}:
       place_cat(is_nm_kind(kind), is_lvl_kind(kind), is_ex_kind(kind),
                 kind, ix, ((b1 * 256 : U32) + b2 : U32), flds, sb, st)
+    case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+      set_ex(ix, T.mk_exk(kind, ((b1 * 256 : U32) + b2 : U32), ka, kb, kc, kd),
+             st)
 
 def is_dcl_kind(+k: U32) -> Bool:
   U32.is_eq(k, 99333) || U32.is_eq(k, 114809) || U32.is_eq(k, 93260912)
@@ -268,6 +271,8 @@ def add_dcl(+r: D.Rec, ds: List<&2, Dcl>) -> List<&2, Dcl>:
   match r:
     case D.Rec{kind, ix, flds, b1, b2, sb}:
       cons_dcl(is_dcl_kind(kind), mk_dcl(kind, flds), ds)
+    case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+      ds
 
 # Just the declarations, with no Array store: the checker reads terms from
 # tries instead, so nothing here needs an Array.
@@ -290,6 +295,8 @@ def build_nm(rs: List<&2, D.Rec>, +t: R2.Tr<T.Nm>) -> R2.Tr<T.Nm>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           build_nm(tail, nm_step(is_nm_kind(k), t, ix, k, flds, sb))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          build_nm(tail, t)
 
 # --- reducibility heights ------------------------------------------------
 # Lean's `ReducibilityHints`, which the export carries in a `def`'s `hints`
@@ -330,6 +337,8 @@ def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           build_ht(tail, ht_step(U32.is_eq(k, 99333), t, 0, flds))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          build_ht(tail, t)
 
 # --- finding a name by its text ------------------------------------------
 # `Nat` and `String` have to be named to type a literal: `infer` on
@@ -365,6 +374,8 @@ def find_name(+rs: List<&2, D.Rec>, +want: List<&2, U32>,
                            && U32.is_eq(T.fld(fs, 111267, 1), 0)
                            && bytes_eq(sb, want),
                            pix, acc))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          find_name(tail, want, acc)
 
 # The quotient package's four names, which the kernel needs by identity to
 # implement `Quot.lift` and `Quot.ind` reduction. The export declares them as
@@ -390,6 +401,8 @@ def find_under(+rs: List<&2, D.Rec>, +pre: U32, +want: List<&2, U32>,
                             && U32.is_eq(T.fld(fs, 111267, 4294967295), pre)
                             && bytes_eq(sb, want),
                             pix, acc))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          find_under(tail, pre, want, acc)
 
 def build_quot(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   +q = find_name(rs, [81, 117, 111, 116], 4294967295)
@@ -460,6 +473,8 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
           +k = kind
           +fs = flds
           add_hts(tail, ht_step(U32.is_eq(k, 99333), t, 2147483648, fs))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          add_hts(tail, t)
 
 # --- every well-known name in two passes ---------------------------------
 # find_name / find_under each walk the whole record list (6.4M records in
@@ -516,6 +531,8 @@ def find_many(rs: List<&2, D.Rec>, +wants: List<&2, List<&2, U32>>,
           find_many(tail, wants, pres,
                     fm_step(U32.is_eq(k, 114225), wants, pres,
                             T.fld(fs, 111267, 4294967295), sb, ix, acc))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          find_many(tail, wants, pres, acc)
 
 def nth_or(xs: List<&2, U32>, +i: U32) -> U32:
   match xs:
@@ -746,6 +763,21 @@ def max_any_ix(rs: List<&2, D.Rec>, +acc: U32) -> U32:
           +pix = ix
           +a1 = S.pick(U32.is_gt(pix, acc), pix, acc)
           max_any_ix(tail, max_fld(flds, a1))
+        case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
+          +k = kind
+          +pix = ix
+          +a1 = S.pick(U32.is_gt(pix, acc), pix, acc)
+          # references only: a bvar's and a projection's index are not ids
+          +a2 : U32 = ka
+          +b2x : U32 = kb
+          +ra : U32 = S.pick(U32.is_eq(k, 3036037), 0, a2)
+          +rb : U32 = S.pick(U32.is_eq(k, 3449693), 0, b2x)
+          +m1 : U32 = S.pick(U32.is_gt(ra, a1), ra, a1)
+          +m2 : U32 = S.pick(U32.is_gt(rb, m1), rb, m1)
+          +c2 : U32 = kc
+          +d2 : U32 = kd
+          +m3 : U32 = S.pick(U32.is_gt(c2, m2), c2, m2)
+          max_any_ix(tail, S.pick(U32.is_gt(d2, m3), d2, m3))
 
 def nat_pick(+z: Bool, +a: Nat, +b: Nat) -> Nat:
   match z:
