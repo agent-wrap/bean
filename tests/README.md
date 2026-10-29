@@ -20,3 +20,4 @@ Regression exports beyond the arena's suite, run by tools/regress.sh BIN.
     `P X X` where MP is a definition of a Pi; the field's universe needs a
     whnf the cheap oracle `sl` does not do (mathlib's
     CategoryTheory.MorphismProperty.* classes declined).
+  - relhomclass_outparam: a RelHomClass-shaped Prop class whose relation parameters are typed `outParam (α → α → Prop)` (outParam is a definition); declined in cslib, navier-stokes and mathlib before d00c399.
