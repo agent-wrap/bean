@@ -1361,3 +1361,605 @@ def verify_block(+items: List<&2, K.IItem>, +st0: I.IS,
   VR{S.pick(good, 0, 2),
      rr_metas(specs, 0, rnames, rw_per(rw), np, nmot, nmin, items, itab, mt)}
 
+
+# =========================================================================
+# Simple blocks, compared on the export's DAG
+# =========================================================================
+# One inductive, no indices, not nested, no constructor field mentioning it.
+# Lean's recursor (inductive.cpp mk_rec_infos / declare_recursors) is then
+#   rec : Π params, Π (motive : T params -> Sort u),
+#         Π (minor_k : Π fields_k, motive (c_k params fields_k)),
+#         Π (t : T params), motive t
+# with the rules  c_k := fun params motive minors fields_k => minor_k fields_k
+# (params and fields with their head annotations dropped). Compared with the
+# export's directly: a field's type inside minor_k is the constructor's with
+# its parameter references shifted past the motive and the earlier minors.
+# The comparison is memoised on (node, node, cutoff, shift), so a shared
+# subterm is compared once: navier-stokes's structures are ~10^3 DAG nodes
+# and ~10^6 tree nodes, and the derivation above rebuilds the trees.
+# A mismatch is no verdict: the derivation above decides.
+type MH is Data:
+  MHnone{}
+  MHyes{}
+  MHno{}
+
+type SM is Data:
+  SM{ok: Bool, m: R.Tr<List<&2, U32>>}
+
+def sm_ok(+r: SM) -> Bool:
+  match r:
+    case SM{ok, m}:
+      ok
+
+def sm_m(+r: SM) -> R.Tr<List<&2, U32>>:
+  match r:
+    case SM{ok, m}:
+      m
+
+# memo entries per left node: flat [b, c, s, ok]
+def pick_mh(+z: Bool, +a: MH, +b: MH) -> MH:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
+def memo_go(xs: List<&2, U32>, +b: U32, +c: U32, +s: U32, +acc: MH) -> MH:
+  match xs:
+    case Con{x, Con{y, Con{z, Con{v, t}}}}:
+      memo_go(t, b, c, s,
+              pick_mh(U32.is_eq(x, b) && U32.is_eq(y, c) && U32.is_eq(z, s),
+                      pick_mh(U32.is_eq(v, 1), MHyes{}, MHno{}), acc))
+    case _:
+      acc
+
+def memo_of(+m: R.Tr<List<&2, U32>>, +a: U32, +b: U32, +c: U32,
+            +s: U32) -> MH:
+  memo_go(R.get(List<&2, U32>, 64n, m, a, Nil{}), b, c, s, MHnone{})
+
+def memo_put(+ok: Bool, +m: R.Tr<List<&2, U32>>, +a: U32, +b: U32,
+             +c: U32, +s: U32) -> SM:
+  +old : List<&2, U32> = R.get(List<&2, U32>, 64n, m, a, Nil{})
+  SM{ok, R.set(List<&2, U32>, 64n, m, a,
+               Con{b, Con{c, Con{s, Con{S.pick(ok, 1, 0), old}}}}, Nil{})}
+
+def bv_eq(+lt: Bool, +i: U32, +j: U32, +s: U32) -> Bool:
+  match lt:
+    case True{}:
+      U32.is_eq(i, j)
+    case False{}:
+      U32.is_eq(j, (i + s : U32))
+
+# `a` (constructor side, nodes x) against `b` (export side, nodes y): a
+# loose bvar i >= c of `a` is i + s in `b`; binder names and info ignored,
+# levels by normal form
+def sh_eq(+fuel: Nat, +st: I.IS, +a: U32, +b: U32, +c: U32, +s: U32,
+          +h: MH, +x: T.Ex, +y: T.Ex, +m: R.Tr<List<&2, U32>>) -> SM:
+  match fuel h x y:
+    case 0n _ _ _:
+      SM{False{}, m}
+    case 1n+p MHyes{} _ _:
+      SM{True{}, m}
+    case 1n+p MHno{} _ _:
+      SM{False{}, m}
+    case 1n+p MHnone{} T.EBVar{i} T.EBVar{j}:
+      SM{bv_eq(U32.is_lt(i, c), i, j, s), m}
+    case 1n+p MHnone{} T.ESort{l} T.ESort{k}:
+      SM{L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, I.is_lnt(st), l, L.LNun{}),
+                               R.get(L.LN, 64n, I.is_lnt(st), k, L.LNun{}))),
+         m}
+    case 1n+p MHnone{} T.EConst{n, us} T.EConst{n2, vs}:
+      SM{U32.is_eq(n, n2) && lvls_eq(I.is_lnt(st), us, vs), m}
+    case 1n+p MHnone{} T.ENat{d} T.ENat{e}:
+      SM{I.eq_u32s(d, e), m}
+    case 1n+p MHnone{} T.EStr{d} T.EStr{e}:
+      SM{I.eq_u32s(d, e), m}
+    case 1n+p MHnone{} T.EApp{f, a1} T.EApp{g, b1}:
+      +r1 = sh_eq(p, st, f, g, c, s, memo_of(m, f, g, c, s), node(st, f),
+                  node(st, g), m)
+      +m1 = sm_m(r1)
+      +r2 = sh_eq(p, st, a1, b1, c, s, memo_of(m1, a1, b1, c, s),
+                  node(st, a1), node(st, b1), m1)
+      memo_put(sm_ok(r1) && sm_ok(r2), sm_m(r2), a, b, c, s)
+    case 1n+p MHnone{} T.ELam{n, t, b1, bi} T.ELam{n2, u, b2, bj}:
+      +r1 = sh_eq(p, st, t, u, c, s, memo_of(m, t, u, c, s), node(st, t),
+                  node(st, u), m)
+      +m1 = sm_m(r1)
+      +c1 : U32 = (c + 1 : U32)
+      +r2 = sh_eq(p, st, b1, b2, c1, s, memo_of(m1, b1, b2, c1, s),
+                  node(st, b1), node(st, b2), m1)
+      memo_put(sm_ok(r1) && sm_ok(r2), sm_m(r2), a, b, c, s)
+    case 1n+p MHnone{} T.EAll{n, t, b1, bi} T.EAll{n2, u, b2, bj}:
+      +r1 = sh_eq(p, st, t, u, c, s, memo_of(m, t, u, c, s), node(st, t),
+                  node(st, u), m)
+      +m1 = sm_m(r1)
+      +c1 : U32 = (c + 1 : U32)
+      +r2 = sh_eq(p, st, b1, b2, c1, s, memo_of(m1, b1, b2, c1, s),
+                  node(st, b1), node(st, b2), m1)
+      memo_put(sm_ok(r1) && sm_ok(r2), sm_m(r2), a, b, c, s)
+    case 1n+p MHnone{} T.ELet{n, t, v, b1} T.ELet{n2, u, w, b2}:
+      +r1 = sh_eq(p, st, t, u, c, s, memo_of(m, t, u, c, s), node(st, t),
+                  node(st, u), m)
+      +m1 = sm_m(r1)
+      +r2 = sh_eq(p, st, v, w, c, s, memo_of(m1, v, w, c, s), node(st, v),
+                  node(st, w), m1)
+      +m2 = sm_m(r2)
+      +c1 : U32 = (c + 1 : U32)
+      +r3 = sh_eq(p, st, b1, b2, c1, s, memo_of(m2, b1, b2, c1, s),
+                  node(st, b1), node(st, b2), m2)
+      memo_put(sm_ok(r1) && sm_ok(r2) && sm_ok(r3), sm_m(r3), a, b, c, s)
+    case 1n+p MHnone{} T.EProj{tn, i, s1} T.EProj{tn2, j, s2}:
+      +r1 = sh_eq(p, st, s1, s2, c, s, memo_of(m, s1, s2, c, s),
+                  node(st, s1), node(st, s2), m)
+      memo_put(U32.is_eq(tn, tn2) && U32.is_eq(i, j) && sm_ok(r1),
+               sm_m(r1), a, b, c, s)
+    case 1n+p MHnone{} _ _:
+      SM{False{}, m}
+
+def sq(+st: I.IS, +a: U32, +b: U32, +c: U32, +s: U32,
+       +m: R.Tr<List<&2, U32>>) -> SM:
+  sh_eq(4096n, st, a, b, c, s, memo_of(m, a, b, c, s), node(st, a),
+        node(st, b), m)
+
+# the walk's state: verdict so far, memo, two cursors
+type WK is Data:
+  WK{ok: Bool, m: R.Tr<List<&2, U32>>, x: U32, y: U32}
+
+def wk_ok(+w: WK) -> Bool:
+  match w:
+    case WK{ok, m, x, y}:
+      ok
+
+def wk_m(+w: WK) -> R.Tr<List<&2, U32>>:
+  match w:
+    case WK{ok, m, x, y}:
+      m
+
+def wk_x(+w: WK) -> U32:
+  match w:
+    case WK{ok, m, x, y}:
+      x
+
+def wk_y(+w: WK) -> U32:
+  match w:
+    case WK{ok, m, x, y}:
+      y
+
+def is_pi(+x: T.Ex) -> Bool:
+  match x:
+    case T.EAll{n, t, b, bi}:
+      True{}
+    case _:
+      False{}
+
+def is_lam(+x: T.Ex) -> Bool:
+  match x:
+    case T.ELam{n, t, b, bi}:
+      True{}
+    case _:
+      False{}
+
+def bnd_dom(+x: T.Ex) -> U32:
+  match x:
+    case T.EAll{n, t, b, bi}:
+      t
+    case T.ELam{n, t, b, bi}:
+      t
+    case _:
+      4294967295
+
+def bnd_body(+x: T.Ex) -> U32:
+  match x:
+    case T.EAll{n, t, b, bi}:
+      b
+    case T.ELam{n, t, b, bi}:
+      b
+    case _:
+      4294967295
+
+# one binder of each side: x a Pi (its domain stripped, compared at cutoff c
+# and shift s), y a Pi (ylam False) or a lambda (ylam True)
+def wk_step(+st: I.IS, +ann: List<&2, U32>, +c: U32, +s: U32,
+            +ylam: Bool, +w: WK) -> WK:
+  +nx : T.Ex = node(st, wk_x(w))
+  +ny : T.Ex = node(st, wk_y(w))
+  +r = sq(st, strip_ann(st, bnd_dom(nx), ann), bnd_dom(ny), c, s, wk_m(w))
+  WK{wk_ok(w) && is_pi(nx) && S.pick_b(ylam, is_lam(ny), is_pi(ny))
+       && sm_ok(r),
+     sm_m(r), bnd_body(nx), bnd_body(ny)}
+
+# k binders; the cutoff counts the binders already passed (cb: the cutoff
+# grows with them, for fields; params compare unshifted)
+def wk_n(fuel: Nat, +go: Bool, +st: I.IS, +ann: List<&2, U32>, +k: U32,
+         +c: U32, +cb: Bool, +s: U32, +ylam: Bool, +w: WK) -> WK:
+  match fuel go:
+    case 0n _:
+      WK{False{}, wk_m(w), wk_x(w), wk_y(w)}
+    case 1n+p False{}:
+      w
+    case 1n+p True{}:
+      +k1 : U32 = (k - 1 : U32)
+      wk_n(p, U32.is_ne(k1, 0), st, ann, k1, S.pick(cb, (c + 1 : U32), c),
+           cb, s, ylam, wk_step(st, ann, c, s, ylam, w))
+
+def wk_run(+st: I.IS, +ann: List<&2, U32>, +k: U32, +cb: Bool, +s: U32,
+           +ylam: Bool, +w: WK) -> WK:
+  wk_n(4096n, U32.is_ne(k, 0), st, ann, k, 0, cb, s, ylam, w)
+
+# x's cursor past k Pi binders (no comparison)
+def skip_pis(fuel: Nat, +go: Bool, +st: I.IS, +k: U32, +x: U32) -> U32:
+  match fuel go:
+    case 0n _:
+      4294967295
+    case 1n+p False{}:
+      x
+    case 1n+p True{}:
+      +k1 : U32 = (k - 1 : U32)
+      skip_pis(p, U32.is_ne(k1, 0), st, k1, bnd_body(node(st, x)))
+
+def skip_n(+st: I.IS, +k: U32, +x: U32) -> U32:
+  skip_pis(4096n, U32.is_ne(k, 0), st, k, x)
+
+# [lo + cnt - 1, ..., lo] in front of acc
+def desc_go(fuel: Nat, +go: Bool, +lo: U32, +cnt: U32,
+            +acc: List<&2, U32>) -> List<&2, U32>:
+  match fuel go:
+    case 0n _:
+      acc
+    case 1n+p False{}:
+      acc
+    case 1n+p True{}:
+      +c1 : U32 = (cnt - 1 : U32)
+      desc_go(p, U32.is_ne(c1, 0), (lo + 1 : U32), c1, Con{lo, acc})
+
+def desc(+lo: U32, +cnt: U32, +acc: List<&2, U32>) -> List<&2, U32>:
+  desc_go(4096n, U32.is_ne(cnt, 0), lo, cnt, acc)
+
+def is_bv(+x: T.Ex, +e: U32) -> Bool:
+  match x:
+    case T.EBVar{i}:
+      U32.is_eq(i, e)
+    case _:
+      False{}
+
+def bvs_eq(+st: I.IS, xs: List<&2, U32>, es: List<&2, U32>) -> Bool:
+  match xs es:
+    case Nil{} Nil{}:
+      True{}
+    case Con{x, xt} Con{e, et}:
+      is_bv(node(st, x), e) && bvs_eq(st, xt, et)
+    case _ _:
+      False{}
+
+# level ids that are exactly the parameters `ns`
+def lvl_params(+lnt: R.Tr<L.LN>, us: List<&2, U32>, ns: List<&2, U32>) -> Bool:
+  match us ns:
+    case Nil{} Nil{}:
+      True{}
+    case Con{u, ut} Con{n, nt}:
+      L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, lnt, u, L.LNun{}),
+                            L.LNmax{[L.At{(n + 1 : U32), 0}]}))
+      && lvl_params(lnt, ut, nt)
+    case _ _:
+      False{}
+
+# `x` is `c.{lps} #e_1 .. #e_n` exactly
+def capp(+st: I.IS, +x: U32, +c: U32, +lps: List<&2, U32>,
+         +es: List<&2, U32>) -> Bool:
+  +h : T.Ex = spine_hd(st, x)
+  U32.is_eq(I.const_nm2(h), c) && lvl_params(I.is_lnt(st), const_us(h), lps)
+  && bvs_eq(st, spine_args(st, x), es)
+
+# `x` is `#f a_1 .. a_n` with the a's the bvars es
+def bapp(+st: I.IS, +x: U32, +f: U32, +es: List<&2, U32>) -> Bool:
+  is_bv(spine_hd(st, x), f) && bvs_eq(st, spine_args(st, x), es)
+
+def ctor_nf(items: List<&2, K.IItem>, +c: U32) -> U32:
+  match items:
+    case Nil{}:
+      4294967295
+    case Con{K.ICtor{nm, lps, ty, ind, np, nf, ci}, t}:
+      S.pick(U32.is_eq(nm, c), nf, ctor_nf(t, c))
+    case Con{h, t}:
+      ctor_nf(t, c)
+
+def rule_rhs(items: List<&2, K.IItem>, +c: U32) -> U32:
+  match items:
+    case Nil{}:
+      4294967295
+    case Con{K.IRule{ct, nf, rhs}, t}:
+      S.pick(U32.is_eq(ct, c), rhs, rule_rhs(t, c))
+    case Con{h, t}:
+      rule_rhs(t, c)
+
+def rule_nf(items: List<&2, K.IItem>, +c: U32) -> U32:
+  match items:
+    case Nil{}:
+      4294967295
+    case Con{K.IRule{ct, nf, rhs}, t}:
+      S.pick(U32.is_eq(ct, c), nf, rule_nf(t, c))
+    case Con{h, t}:
+      rule_nf(t, c)
+
+# Does a constant of `tn` occur in x? Memoised on the DAG (vis: nodes known
+# not to mention it); out of fuel counts as an occurrence.
+type OV is Data:
+  OV{f: Bool, vis: R.Tr<U32>}
+
+def ov_f(+r: OV) -> Bool:
+  match r:
+    case OV{f, vis}:
+      f
+
+def ov_vis(+r: OV) -> R.Tr<U32>:
+  match r:
+    case OV{f, vis}:
+      vis
+
+def ov_mark(+f: Bool, +x: U32, +vis: R.Tr<U32>) -> OV:
+  match f:
+    case True{}:
+      OV{True{}, vis}
+    case False{}:
+      OV{False{}, R.set(U32, 64n, vis, x, 1, 0)}
+
+def occ_dag(+fuel: Nat, +st: I.IS, +x: U32, +tn: List<&2, U32>, +seen: Bool,
+            +nd: T.Ex, +vis: R.Tr<U32>) -> OV:
+  match fuel seen nd:
+    case 0n _ _:
+      OV{True{}, vis}
+    case 1n+p True{} _:
+      OV{False{}, vis}
+    case 1n+p False{} T.EConst{n, us}:
+      OV{mem(n, tn), vis}
+    case 1n+p False{} T.EApp{f, a}:
+      +r1 = occ_dag(p, st, f, tn, U32.is_eq(R.get(U32, 64n, vis, f, 0), 1),
+                    node(st, f), vis)
+      +v1 = ov_vis(r1)
+      +r2 = occ_dag(p, st, a, tn, U32.is_eq(R.get(U32, 64n, v1, a, 0), 1),
+                    node(st, a), v1)
+      ov_mark(ov_f(r1) || ov_f(r2), x, ov_vis(r2))
+    case 1n+p False{} T.ELam{n, t, b, bi}:
+      +r1 = occ_dag(p, st, t, tn, U32.is_eq(R.get(U32, 64n, vis, t, 0), 1),
+                    node(st, t), vis)
+      +v1 = ov_vis(r1)
+      +r2 = occ_dag(p, st, b, tn, U32.is_eq(R.get(U32, 64n, v1, b, 0), 1),
+                    node(st, b), v1)
+      ov_mark(ov_f(r1) || ov_f(r2), x, ov_vis(r2))
+    case 1n+p False{} T.EAll{n, t, b, bi}:
+      +r1 = occ_dag(p, st, t, tn, U32.is_eq(R.get(U32, 64n, vis, t, 0), 1),
+                    node(st, t), vis)
+      +v1 = ov_vis(r1)
+      +r2 = occ_dag(p, st, b, tn, U32.is_eq(R.get(U32, 64n, v1, b, 0), 1),
+                    node(st, b), v1)
+      ov_mark(ov_f(r1) || ov_f(r2), x, ov_vis(r2))
+    case 1n+p False{} T.ELet{n, t, v, b}:
+      +r1 = occ_dag(p, st, t, tn, U32.is_eq(R.get(U32, 64n, vis, t, 0), 1),
+                    node(st, t), vis)
+      +v1 = ov_vis(r1)
+      +r2 = occ_dag(p, st, v, tn, U32.is_eq(R.get(U32, 64n, v1, v, 0), 1),
+                    node(st, v), v1)
+      +v2 = ov_vis(r2)
+      +r3 = occ_dag(p, st, b, tn, U32.is_eq(R.get(U32, 64n, v2, b, 0), 1),
+                    node(st, b), v2)
+      ov_mark(ov_f(r1) || ov_f(r2) || ov_f(r3), x, ov_vis(r3))
+    case 1n+p False{} T.EProj{pn, i, s}:
+      +r1 = occ_dag(p, st, s, tn, U32.is_eq(R.get(U32, 64n, vis, s, 0), 1),
+                    node(st, s), vis)
+      ov_mark(ov_f(r1), x, ov_vis(r1))
+    case 1n+p False{} _:
+      OV{False{}, vis}
+
+def occ_x(+st: I.IS, +x: U32, +tn: List<&2, U32>, +vis: R.Tr<U32>) -> OV:
+  occ_dag(65536n, st, x, tn, U32.is_eq(R.get(U32, 64n, vis, x, 0), 1),
+          node(st, x), vis)
+
+# the field domains of a constructor type (past np params, nf fields)
+def occ_fields(fuel: Nat, +go: Bool, +st: I.IS, +x: U32, +k: U32,
+               +tn: List<&2, U32>, +r: OV) -> OV:
+  match fuel go:
+    case 0n _:
+      OV{True{}, ov_vis(r)}
+    case 1n+p False{}:
+      r
+    case 1n+p True{}:
+      +nd : T.Ex = node(st, x)
+      +o = occ_x(st, bnd_dom(nd), tn, ov_vis(r))
+      +k1 : U32 = (k - 1 : U32)
+      occ_fields(p, U32.is_ne(k1, 0), st, bnd_body(nd), k1, tn,
+                 OV{ov_f(r) || ov_f(o) || Bool.not(is_pi(nd)), ov_vis(o)})
+
+def occ_ctors(cs: List<&2, U32>, +items: List<&2, K.IItem>, +st: I.IS,
+              +np: U32, +tn: List<&2, U32>, +r: OV) -> OV:
+  match cs:
+    case Nil{}:
+      r
+    case Con{c0, t}:
+      +c : U32 = c0
+      +nf : U32 = ctor_nf(items, c)
+      +x : U32 = skip_n(st, np, find_ctor_ty(items, c))
+      occ_ctors(t, items, st, np, tn,
+                occ_fields(4096n, U32.is_ne(nf, 0), st, x, nf, tn, r))
+
+# the minors of the recursor type: k counts from 1; mins collects the
+# minors' domains (for the rules)
+type MW is Data:
+  MW{w: WK, mins: List<&2, U32>}
+
+def mw_w(+r: MW) -> WK:
+  match r:
+    case MW{w, mins}:
+      w
+
+def mw_mins(+r: MW) -> List<&2, U32>:
+  match r:
+    case MW{w, mins}:
+      mins
+
+# motive (c params fields): motive is #(nf + k - 1)
+def minor_res(+st: I.IS, +nb: T.Ex, +nf: U32, +k: U32, +c: U32,
+              +lps: List<&2, U32>, +np: U32) -> Bool:
+  match nb:
+    case T.EApp{f, a}:
+      is_bv(node(st, f), (nf + k - 1 : U32))
+      && capp(st, a, c, lps, desc((nf + k : U32), np, desc(0, nf, Nil{})))
+    case _:
+      False{}
+
+def minors_v(cs: List<&2, U32>, +k: U32, +items: List<&2, K.IItem>,
+             +st: I.IS, +ann: List<&2, U32>, +np: U32, +lps: List<&2, U32>,
+             +r: MW) -> MW:
+  match cs:
+    case Nil{}:
+      r
+    case Con{c0, t}:
+      +c : U32 = c0
+      +w = mw_w(r)
+      +nf : U32 = ctor_nf(items, c)
+      +ny : T.Ex = node(st, wk_y(w))
+      +md : U32 = bnd_dom(ny)
+      # the minor's field binders against the constructor's
+      +fw = wk_run(st, ann, nf, True{}, k, False{},
+                   WK{wk_ok(w) && is_pi(ny), wk_m(w),
+                      skip_n(st, np, find_ctor_ty(items, c)), md})
+      # motive (c params fields): motive is #(nf + k - 1)
+      +bd : U32 = wk_y(fw)
+      +nb : T.Ex = node(st, bd)
+      +ok2 : Bool = minor_res(st, nb, nf, k, c, lps, np)
+      minors_v(t, (k + 1 : U32), items, st, ann, np, lps,
+               MW{WK{wk_ok(fw) && ok2, wk_m(fw), wk_x(w), bnd_body(ny)},
+                  List.append(&2, U32, mw_mins(r), [md])})
+
+# the rule rhs's lambdas over the minors: each domain the recursor's
+def rule_minors(ms: List<&2, U32>, +st: I.IS, +w: WK) -> WK:
+  match ms:
+    case Nil{}:
+      w
+    case Con{md0, t}:
+      +md : U32 = md0
+      +ny : T.Ex = node(st, wk_y(w))
+      +r = sq(st, md, bnd_dom(ny), 0, 0, wk_m(w))
+      rule_minors(t, st, WK{wk_ok(w) && is_lam(ny) && sm_ok(r), sm_m(r),
+                            wk_x(w), bnd_body(ny)})
+
+def rules_v(cs: List<&2, U32>, +k: U32, +nc: U32,
+            +items: List<&2, K.IItem>, +st: I.IS, +ann: List<&2, U32>,
+            +np: U32, +ity: U32, +mdom: U32, +mins: List<&2, U32>,
+            +w: WK) -> WK:
+  match cs:
+    case Nil{}:
+      w
+    case Con{c0, t}:
+      +c : U32 = c0
+      +nf : U32 = ctor_nf(items, c)
+      +rhs : U32 = rule_rhs(items, c)
+      # params: the inductive's, unshifted
+      +pw = wk_run(st, ann, np, False{}, 0, True{},
+                   WK{wk_ok(w) && U32.is_eq(rule_nf(items, c), nf), wk_m(w),
+                      ity, rhs})
+      # motive
+      +nm : T.Ex = node(st, wk_y(pw))
+      +rm = sq(st, mdom, bnd_dom(nm), 0, 0, wk_m(pw))
+      +mw = rule_minors(mins, st,
+                        WK{wk_ok(pw) && is_lam(nm) && sm_ok(rm), sm_m(rm), 0,
+                           bnd_body(nm)})
+      # fields, shifted past the motive and the minors
+      +fw = wk_run(st, ann, nf, True{}, (nc + 1 : U32), True{},
+                   WK{wk_ok(mw), wk_m(mw),
+                      skip_n(st, np, find_ctor_ty(items, c)), wk_y(mw)})
+      # minor_k fields: minor_k is #(nf + nc - k)
+      +ok2 : Bool = bapp(st, wk_y(fw), (nf + nc - k : U32), desc(0, nf, Nil{}))
+      rules_v(t, (k + 1 : U32), nc, items, st, ann, np, ity, mdom, mins,
+              WK{wk_ok(fw) && ok2, wk_m(fw), 0, 0})
+
+def rec_item(items: List<&2, K.IItem>) -> K.IItem:
+  match items:
+    case Nil{}:
+      K.IOther{}
+    case Con{K.IRec{nm, lps, ty, np, ni, nmo, kf}, t}:
+      K.IRec{nm, lps, ty, np, ni, nmo, kf}
+    case Con{h, t}:
+      rec_item(t)
+
+def ir_ty(+x: K.IItem) -> U32:
+  match x:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+      ty
+    case _:
+      4294967295
+
+def ir_lps(+x: K.IItem) -> List<&2, U32>:
+  match x:
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+      lps
+    case _:
+      Nil{}
+
+def ir_shape(+x: K.IItem, +np: U32) -> Bool:
+  match x:
+    case K.IRec{nm, lps, ty, np2, ni, nmo, kf}:
+      U32.is_eq(np2, np) && U32.is_eq(ni, 0) && U32.is_eq(nmo, 1)
+    case _:
+      False{}
+
+def elim_ln(+large: Bool, +rlps: List<&2, U32>) -> L.LN:
+  match large:
+    case True{}:
+      L.LNmax{[L.At{(I.nth_u(rlps, 0, 0) + 1 : U32), 0}]}
+    case False{}:
+      L.ln_zero()
+
+def sort_is(+st: I.IS, +x: T.Ex, +u: L.LN) -> Bool:
+  match x:
+    case T.ESort{l}:
+      L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, I.is_lnt(st), l, L.LNun{}), u))
+    case _:
+      False{}
+
+# One inductive, no indices, not nested? (the caller's nb = False says the
+# last two; the occurrence test is done here)
+def simple_ok(+items: List<&2, K.IItem>, +st: I.IS,
+              +ann: List<&2, U32>) -> Bool:
+  +inds = ind_items(items)
+  +i0 = first_ind(inds)
+  +tn : List<&2, U32> = ind_names(inds)
+  +np : U32 = ii_np(i0)
+  +lps : List<&2, U32> = ii_lps(i0)
+  +ity : U32 = ii_ty(i0)
+  +cs : List<&2, U32> = ii_cs(i0)
+  +nc : U32 = I.len_u(cs, 0)
+  +elig : Bool = U32.is_eq(I.len_u(tn, 0), 1) && U32.is_eq(ii_ni(i0), 0)
+                 && U32.is_eq(ii_nn(i0), 0)
+                 && U32.is_eq(count_recs(items, 0), 1)
+                 && U32.is_eq(count_rules(items, 0), nc)
+  +o = occ_ctors(cs, items, st, np, tn, OV{False{}, R.TNil{}})
+  +ri = rec_item(items)
+  +rlps : List<&2, U32> = ir_lps(ri)
+  +large : Bool = U32.is_eq(I.len_u(rlps, 0), (I.len_u(lps, 0) + 1 : U32))
+  +lvok : Bool = S.pick_b(large, I.eq_u32s(I.skip_u(rlps, 1), lps),
+                          I.eq_u32s(rlps, lps))
+  +elim : L.LN = elim_ln(large, rlps)
+  # params
+  +pw = wk_run(st, ann, np, False{}, 0, False{},
+               WK{elig && Bool.not(ov_f(o)) && lvok && ir_shape(ri, np),
+                  R.TNil{}, ity, ir_ty(ri)})
+  # motive : T params -> Sort elim
+  +nm : T.Ex = node(st, wk_y(pw))
+  +mdom : U32 = bnd_dom(nm)
+  +nmd : T.Ex = node(st, mdom)
+  +mok : Bool = is_pi(nm) && is_pi(nmd)
+                && capp(st, bnd_dom(nmd), I.nth_u(tn, 0, 0), lps,
+                        desc(0, np, Nil{}))
+                && sort_is(st, node(st, bnd_body(nmd)), elim)
+  +mw = minors_v(cs, 1, items, st, ann, np, lps,
+                 MW{WK{wk_ok(pw) && mok, wk_m(pw), 0, bnd_body(nm)}, Nil{}})
+  +w2 = mw_w(mw)
+  # major : T params, result motive major
+  +nj : T.Ex = node(st, wk_y(w2))
+  +jok : Bool = is_pi(nj)
+                && capp(st, bnd_dom(nj), I.nth_u(tn, 0, 0), lps,
+                        desc((nc + 1 : U32), np, Nil{}))
+                && bapp(st, bnd_body(nj), (nc + 1 : U32), [0])
+  +rw = rules_v(cs, 1, nc, items, st, ann, np, ity, mdom, mw_mins(mw),
+                WK{wk_ok(w2) && jok, wk_m(w2), 0, 0})
+  wk_ok(rw)

@@ -2271,13 +2271,37 @@ def pick_mt(+z: Bool, +a: R.Tr<I.Meta>, +b: R.Tr<I.Meta>) -> R.Tr<I.Meta>:
 # takes its rule-based iota metadata from it; a single inductive keeps the
 # built-in iota metadata and uses only the verdict (with the older
 # derivation as the fallback when this one cannot say, e.g. Prop).
+def meta_full(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
+             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  +vr = N.verify_block(items, st, itab, ctab, t, nt, lp, vt, ann)
+  R.set(I.Meta, 64n, pick_mt(nb, N.vr_mt(vr), t), ver_key(items),
+        I.MVer{N.vr_v(vr)}, I.MNone{})
+
+# a simple single inductive (one type, no indices, not recursive): the
+# export's recursor compared on the DAG (N.simple_ok); otherwise, or when
+# that comparison fails, the derivation
+def meta_one(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
+             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
+             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
+  match ok:
+    case True{}:
+      R.set(I.Meta, 64n, t, ver_key(items), I.MVer{0}, I.MNone{})
+    case False{}:
+      meta_full(False{}, items, st, itab, ctab, t, nt, lp, vt, ann)
+
 def meta_nm(+nb: Bool, +items: List<&2, K.IItem>, +st: I.IS,
             +itab: R.Tr<K.IItem>, +ctab: R.Tr<U32>, +t: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +ann: List<&2, U32>) -> R.Tr<I.Meta>:
-  +vr = N.verify_block(items, st, itab, ctab, t, nt, lp, vt, ann)
-  R.set(I.Meta, 64n, pick_mt(nb, N.vr_mt(vr), t), ver_key(items),
-        I.MVer{N.vr_v(vr)}, I.MNone{})
+  match nb:
+    case True{}:
+      meta_full(True{}, items, st, itab, ctab, t, nt, lp, vt, ann)
+    case False{}:
+      meta_one(N.simple_ok(items, st, ann), items, st, itab, ctab, t, nt,
+               lp, vt, ann)
 
 # A block another worker checks (fmain's worker K of N): no derivation.
 # A mutual/nested block's recursors reduce by the export's own rules --
