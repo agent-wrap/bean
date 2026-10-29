@@ -24,6 +24,8 @@ toks=seg[3:]
 def parse(t,i,depth=0):
     if i>=len(t): return "…",i
     k=t[i]
+    # a term cut short by the dump's node budget ends at the next marker
+    if k in (4294966001, 4294966003): return "…",i
     if k==1:
         f,i=parse(t,i+1,depth+1); a,i=parse(t,i,depth+1); return "(%s %s)"%(f,a),i
     if k in (2,3):
