@@ -106,7 +106,9 @@ type KF is Data:
   WPlBC{taken: List<&2, U32>, rest: List<&2, U32>, cur: U32, ctx: List<&2, U32>}
   WBt{taken: List<&2, U32>, rest: List<&2, U32>, delta: Bool, fu: U32,
       cur: U32, ctx: List<&2, U32>}
-  KEvS{ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, fu: U32}
+  KEvS{ps: List<&2, U32>, qs: List<&2, L.LN>, d: U32, e: U32, fu: U32}
+  KEvS0{ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, fu: U32, r0: U32}
+  KEvS1{ps: List<&2, U32>, qs: List<&2, L.LN>, e: U32, fu: U32}
   # depth fuel exhausted: keep e untouched (the trie walks' `case 0n`)
   KKp{e: U32}
   # walk (lift/inst/lsubst) fuel ran out: the subterm is kept UNSHIFTED, so
@@ -1240,6 +1242,17 @@ def pick_kf(+z: Bool, +x: KF, +y: KF) -> KF:
     case False{}:
       y
 
+# lsubst: a walk without its id (d = 0, every entry site) takes one from the
+# walk counter first; the id keys the walk memo, so a DAG-shared subterm is
+# substituted once per walk (Lean's instantiate_lparams replace cache)
+def kevs_pick(+fresh: Bool, ps: List<&2, U32>, qs: List<&2, L.LN>, +d: U32,
+              +fu: U32, +e: U32) -> KF:
+  match fresh:
+    case True{}:
+      KEvS0{ps, qs, e, fu, 0}
+    case False{}:
+      KEvS{ps, qs, d, e, fu}
+
 # the eval frame for a walk on target e; depth 0 keeps
 # (matches, not pick_kf: a strict pick built all five frames -- lists and
 # all -- on every subterm a walk entered, and freed four)
@@ -1253,7 +1266,7 @@ def kev3(+op: U32, +c: U32, +d: U32, +v: U32, ps: List<&2, U32>,
     case 3:
       KEvM{c, v, ps, e, fu}
     case _:
-      KEvS{ps, qs, e, fu}
+      kevs_pick(U32.is_eq(d, 0), ps, qs, d, fu, e)
 
 def kev2(+out: Bool, +op: U32, +c: U32, +d: U32, +v: U32,
          ps: List<&2, U32>, qs: List<&2, L.LN>, +fu: U32, +e: U32) -> KF:
@@ -1848,6 +1861,22 @@ def kfl_tin2(pr: Array<T.Ex> & T.Ex, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U
       (((a, nx), MN{}), kfl_v(e))
 
 # flag k as the register
+# a fresh lsubst walk id as the register: 2^30 + the walk counter (flag
+# slot 6, outside every rollback), clear of the shift amounts op 0/4 key on
+def kwid2(pr: Array<T.Ex> & T.Ex, +base: U32,
+          +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{a, e}:
+      +v : U32 = kfl_v(e)
+      (((Array.set(T.Ex, a, kfl_slot(base, 6), T.EBVar{(v + 1 : U32)}), nx),
+        MN{}), (1073741824 + U32.and(v, 1073741823) : U32))
+
+def kwid_tin(fs: Array<T.Ex> & U32,
+             +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{ex, nx}:
+      kwid2(Array.get(T.Ex, ex, kfl_slot(base, 6)), base, nx)
+
 def kfl_tin(fs: Array<T.Ex> & U32, +base: U32,
             +k: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fs:
@@ -2680,7 +2709,8 @@ def kwl_rec(+w: WP, +e: U32, +base: U32,
     case WP{op, c, d, v, ps, qs, fu}:
       +o2 : U32 = op
       +dv : U32 = S.pick(U32.is_eq(o2, 1) || U32.is_eq(o2, 3), v,
-                         S.pick(U32.is_eq(o2, 0) || U32.is_eq(o2, 4), d,
+                         S.pick(U32.is_eq(o2, 0) || U32.is_eq(o2, 4)
+                                || (U32.is_eq(o2, 2) && U32.is_ne(d, 0)), d,
                                 4294967295))
       kwl_rec3(U32.is_eq(dv, 4294967295), dv, o2, c, e, base, t)
 
@@ -3012,7 +3042,8 @@ def kwl_dv(+w: WP) -> U32:
   match w:
     case WP{op, c, d, v, ps, qs, fu}:
       S.pick(U32.is_eq(op, 1) || U32.is_eq(op, 3), v,
-             S.pick(U32.is_eq(op, 0) || U32.is_eq(op, 4), d, 4294967295))
+             S.pick(U32.is_eq(op, 0) || U32.is_eq(op, 4)
+                    || (U32.is_eq(op, 2) && U32.is_ne(d, 0)), d, 4294967295))
 
 def kfcm3(+miss: Bool, a: Array<T.Ex>, +x: U32, +nx: U32, +ri: U32,
           +r: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -3073,10 +3104,21 @@ def kfc1(+lb: Bool, fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +c: U32,
     case False{} Tuple{ex, nx}:
       kfetch2(Array.get(T.Ex, ex, x), nx, ri)
 
+def kfetch_w2(+ls: Bool, fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +w: WP,
+              +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match ls fs:
+    case True{} Tuple{ex, nx}:
+      +w2 : WP = w
+      kfc3b(False{}, ex, x, nx, ri, w2, base, kwl_dv(w2))
+    case False{} _:
+      +w2 : WP = w
+      kfc1(Bool.not(U32.is_eq(wp_op(w2), 2)), fs, x, ri, wp_c(w2), w2, base)
+
 def kfetch_w(fs: Array<T.Ex> & U32, +x: U32, +ri: U32, +w: WP,
              +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   +w2 : WP = w
-  kfc1(Bool.not(U32.is_eq(wp_op(w2), 2)), fs, x, ri, wp_c(w2), w2, base)
+  kfetch_w2(U32.is_eq(wp_op(w2), 2) && U32.is_ne(kwl_dv(w2), 4294967295), fs,
+            x, ri, w2, base)
 
 # record the lbr of every export node, in index order (an export lists a
 # term's children before it; a child not yet recorded reads as unknown)
@@ -6648,7 +6690,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kbv_finm(inr, isgt, fs, ri, i, m, e, hcb))
     # ---- eval: lsubst ----
-    case 1n+p KCon{KEvS{ps, qs, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+    case 1n+p KCon{KEvS{ps, qs, d, e, fu}, k} Tuple{Tuple{fs, MHit{r}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, r))
+    case 1n+p KCon{KEvS{ps, qs, d, e, fu}, k} Tuple{Tuple{fs, MKeep{}}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
+    case 1n+p KCon{KEvS{ps, qs, d, e, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       match node:
         case T.ESort{l}:
           +old : L.LN = R.get(L.LN, 64n, lnt, l, L.LNun{})
@@ -6678,38 +6724,46 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
           km(p, k, lvs_t(r), lvs_nx(r), mt, lp, vt, qtt, natn, wm, nt, hcb,
              ksconst2(sm, fs, n, lvs_xs(r), e, hcb))
         case T.EApp{f, a}:
-          +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
+          +w : WP = WP{2, 0, d, 0, ps, qs, (fu - 1 : U32)}
           +f2 : U32 = f
           km(p, KCon{kev(w, f2), KCon{KAp2{w, e, f2, a}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, f2, ri, w, hcb))
         case T.ELam{n, t, b, bi}:
-          +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
+          +w : WP = WP{2, 0, d, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLm2{w, e, n, t2, b, bi}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.EAll{n, t, b, bi}:
-          +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
+          +w : WP = WP{2, 0, d, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KAl2{w, e, n, t2, b, bi}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.ELet{n, t, v, b}:
-          +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
+          +w : WP = WP{2, 0, d, 0, ps, qs, (fu - 1 : U32)}
           +t2 : U32 = t
           km(p, KCon{kev(w, t2), KCon{KLt2{w, e, n, t2, v, b}, k}}, lnt,
              nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, t2, ri, w, hcb))
         case T.EProj{tn, i, s}:
-          +w : WP = WP{2, 0, 0, 0, ps, qs, (fu - 1 : U32)}
+          +w : WP = WP{2, 0, d, 0, ps, qs, (fu - 1 : U32)}
           +s2 : U32 = s
           km(p, KCon{kev(w, s2), KCon{KPj2{w, e, tn, i, s2}, k}}, lnt, nlx, mt,
              lp, vt, qtt, natn, wm, nt, hcb, kfetch_w(fs, s2, ri, w, hcb))
         case _:
           km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
+    case 1n+p KCon{KEvS0{ps, qs, e, fu, r0}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{KEvS1{ps, qs, e, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kwid_tin(fs, hcb))
+    case 1n+p KCon{KEvS1{ps, qs, e, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +e2 : U32 = e
+      km(p, KCon{KEvS{ps, qs, ri, e2, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfetch(fs, e2, 0))
     # ---- whnf: rebuild on exhausted fuel ----
     # whnf fuel ran out: the rebuilt term is only PARTIALLY reduced. It is
     # still definitionally equal to the input (so YES answers built on it are
     # sound) but it is not a normal form, so a NO built on it is not. Flag the
     # declaration INCOMPLETE (store flag 3): fcheck turns a reject into
     # a decline. This is what made magma-list-deep-n21 reject a true theorem.
+
     case 1n+p KCon{WRbP{e, args, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          krebuild(hcb, args, fs, e))
