@@ -686,6 +686,85 @@ def field_is_proof(+u: L.LN) -> L.Tri:
   L.pick_tri(L.is_un(u), L.TUnk{},
              L.pick_tri(L.tri_is_yes(L.ln_is_zero(u)), L.TYes{}, L.TNo{}))
 
+# --- an inductive's type, its telescope exposed by whnf -------------------
+# Lean's kernel peels an inductive type's binders through whnf: Mathlib's
+# `inductive CompClosure (r : HomRel C) : HomRel C` has its four indices
+# behind the definition HomRel. Read syntactically, the block had 3 binders
+# and a non-Sort result, the derived recursor mismatched the export's, and
+# the block was REJECTED (an accept test). ity_exp rebuilds the type with
+# every non-Pi, non-Sort tail whnf'd into the binders it hides.
+def nat_if(+c: Bool, +n: Nat) -> Nat:
+  match c:
+    case True{}:
+      n
+    case False{}:
+      0n
+
+def ity_exp(fuel: Nat, +mode: U32, +st: I.IS, +mt: R.Tr<I.Meta>,
+            +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +x: T.Ex,
+            +i: U32) -> I.IR:
+  match fuel x:
+    case 0n _:
+      I.IR{st, i, True{}}
+    case 1n+p T.EAll{n, t, b, bi}:
+      +r = ity_exp(p, 0, st, mt, lp, vt, U.ex_at(I.is_ex(st), b), b)
+      +b2 : U32 = I.ir_ty(r)
+      +s2 : I.IS = I.ir_st(r)
+      I.pick_ir(U32.is_eq(b2, b), I.IR{s2, i, True{}},
+                I.alloc_ex(s2, T.EAll{n, t, b2, bi}))
+    case 1n+p T.ESort{l}:
+      I.IR{st, i, True{}}
+    case 1n+p _:
+      +wr = I.whd(st, mt, lp, vt, i)
+      +y : U32 = I.ir_ty(wr)
+      +s2 : I.IS = I.ir_st(wr)
+      +nd : T.Ex = U.ex_at(I.is_ex(s2), y)
+      +nd2 : T.Ex = nd
+      +nd3 : T.Ex = nd
+      +go : Bool = U32.is_eq(mode, 0) && U32.is_ne(y, i)
+                   && U32.is_lt(y, 4294967294)
+                   && (I.is_all(nd3) || I.is_sortx(nd))
+      # not exposing a binder: a Sort stands in, which keeps i as it is
+      ity_exp(p, 1, s2, mt, lp, vt, I.pick_exx(go, nd2, T.ESort{0}),
+              S.pick(go, y, i))
+
+def rev_items(xs: List<&2, K.IItem>, acc: List<&2, K.IItem>) -> List<&2, K.IItem>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      rev_items(tail, Con{head, acc})
+
+type EI is Data:
+  EI{st: I.IS, its: List<&2, K.IItem>}
+
+def ei_st(+e: EI) -> I.IS:
+  match e:
+    case EI{st, its}:
+      st
+
+def ei_its(+e: EI) -> List<&2, K.IItem>:
+  match e:
+    case EI{st, its}:
+      its
+
+# every inductive of a block with its type exposed (items in order)
+def exp_items(items: List<&2, K.IItem>, +st: I.IS, +mt: R.Tr<I.Meta>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
+              +acc: List<&2, K.IItem>) -> EI:
+  match items:
+    case Nil{}:
+      EI{st, rev_items(acc, Nil{})}
+    case Con{head, tail}:
+      match head:
+        case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+          +t2 : U32 = ty
+          +r = ity_exp(256n, 0, st, mt, lp, vt, U.ex_at(I.is_ex(st), t2), t2)
+          exp_items(tail, I.ir_st(r), mt, lp, vt,
+                    Con{K.IInd{nm, lps, I.ir_ty(r), np, ni, nn, cs}, acc})
+        case _:
+          exp_items(tail, st, mt, lp, vt, Con{head, acc})
+
 # --- the subsingleton rule's index exception -----------------------------
 # A Prop inductive with one constructor supports large elimination when every
 # field of that constructor is EITHER a proof OR one of the index arguments

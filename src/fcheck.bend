@@ -72,9 +72,9 @@ def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
 # an inductive block: the structural checks, and the recursors -- derived
 # by the single-inductive path, or (mutual / nested) by nested.bend, whose
 # verdict build_meta2 left in the metadata
-def block_v(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
-            +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
-            +vt: R.Tr<U32>, +ntb: R.Tr<U32>, +nmt: R.Tr<T.Nm>) -> C.V:
+def block_v2(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
+             +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+             +vt: R.Tr<U32>, +ntb: R.Tr<U32>, +nmt: R.Tr<T.Nm>) -> C.V:
   match nb:
     case True{}:
       C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}),
@@ -90,6 +90,14 @@ def block_v(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
                     C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)),
              C.comb(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp),
                     C.block_names_v(its, nmt)))
+
+def block_v(+nb: Bool, +its0: List<&2, K.IItem>, +st0: I.IS,
+            +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
+            +vt: R.Tr<U32>, +ntb: R.Tr<U32>, +nmt: R.Tr<T.Nm>) -> C.V:
+  # each inductive's type with its telescope exposed by whnf (Lean peels an
+  # inductive type through whnf: Mathlib's `CompClosure ... : HomRel C`)
+  +ei = C.exp_items(its0, st0, mt, lp, vt, Nil{})
+  block_v2(nb, C.ei_its(ei), C.ei_st(ei), mt, nt, lp, vt, ntb, nmt)
 
 # A declined block gets the machine's positivity pass over every
 # constructor (M.fck_posit): a definite invalid occurrence (a stuck K-like

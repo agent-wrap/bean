@@ -11,3 +11,8 @@ Regression exports beyond the arena's suite, run by tools/regress.sh BIN.
     indexed family `Pf (α : Type u) : List α → Type u` with a recursive
     constructor; the iota rule's inductive hypothesis kept the
     constructor's own universe `u` (cslib's CLL.Proof equations).
+  - inductive_type_behind_def(2): an inductive whose declared type hides
+    its indices behind a definition (`inductive CompClo .. : HomRel C`,
+    `inductive RC .. : Rel2 α`); Lean peels the type through whnf. The first
+    was REJECTED (mathlib's CategoryTheory.HomRel.CompClosure), the second
+    declined.
