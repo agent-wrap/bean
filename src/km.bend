@@ -2949,12 +2949,27 @@ def kwcs3(pr: Array<T.Ex> & T.Ex, +i: U32, +r: U32, +l: U32, +st: U32,
     case Tuple{a, g}:
       Array.set(T.Ex, a, (i + hb : U32), T.EAll{l, st, r, kg_v(g)})
 
+# a stuck core memo (r = i) does not replace the lazy loop's delta-step
+# memo: the two share the shadow slot, and on a term whnf_core leaves alone
+# (`AEEqFun.cast ..`, unfolding to a dite stuck on Classical.propDecidable)
+# each overwrote the other at every re-entry -- 3,988 unfolds of 2 terms
+# in navier's meanSolver_weak. Recomputing a stuck whnf_core is cheap.
+def kwcs_lam(+stuck: Bool, a: Array<T.Ex>, +i: U32, +r: U32, +l: U32,
+             +st: U32, +hb: U32) -> Array<T.Ex>:
+  match stuck:
+    case True{}:
+      a
+    case False{}:
+      kwcs3(Array.get(T.Ex, a, kg_slot(hb)), i, r, l, st, hb)
+
 # over a plain shadow or an older core memo; a full memo stays
 def kwcs2(pr: Array<T.Ex> & T.Ex, +i: U32, +r: U32,
           +hb: U32) -> Array<T.Ex>:
   match pr:
     case Tuple{a, T.ELet{l, st, w, gc}}:
       a
+    case Tuple{a, T.ELam{l, st, w, gc}}:
+      kwcs_lam(U32.is_eq(r, i), a, i, r, l, st, hb)
     case Tuple{a, e}:
       +e2 : T.Ex = e
       kwcs3(Array.get(T.Ex, a, kg_slot(hb)), i, r, klb_l(e2), kyst(e2), hb)
