@@ -4455,6 +4455,146 @@ def kctxh_tin(fs: Array<T.Ex> & U32, +lm: U32, xs: List<&2, U32>,
     case Tuple{ex, nx}:
       kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), xs, base), nx)
 
+# --- the context key of an open pair: only the binders it uses -----------
+# The success cache keyed an open pair on the hash of the whole context
+# prefix [0, lm). Lean's cache is keyed on terms over free variables: a pair
+# that does not mention the binders two branches of a proof differ in hits
+# in both. Here: the positions the pair references (loose bvars, closed
+# subterms skipped by their recorded lbr), closed under the positions those
+# binders' TYPES reference (a type at position i sits under i + 1 binders),
+# each hashed with its type's structural hash. Sound like the full prefix:
+# the pair's meaning, and every type the comparison can infer, depends only
+# on those binders. Out of budget, or an unknown lbr: the full prefix.
+# (meanSolver_weak: one open pair compared under 182 context hashes.)
+type KU is Data:
+  KU{work: List<&2, U32>, s: List<&2, U32>, b: U32, ok: Bool}
+
+def ku_has(xs: List<&2, U32>, +v: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{h, t}:
+      U32.is_eq(h, v) || ku_has(t, v)
+
+# a referenced position p: new ones enter the set and push their binder
+# type (walked at cutoff 0, shift p + 1)
+def ku_pos(+fresh: Bool, a: Array<T.Ex>, +p: U32, +ctx: List<&2, U32>,
+           +rest: List<&2, U32>, s: List<&2, U32>,
+           +b: U32) -> Array<T.Ex> & KU:
+  match fresh:
+    case True{}:
+      +t : U32 = I.nth_u(ctx, p, 4294967295)
+      (a, KU{Con{t, Con{0, Con{(p + 1 : U32), rest}}}, Con{p, s},
+             (b - 1 : U32), U32.is_ne(t, 4294967295) && U32.is_gt(b, 1)})
+    case False{}:
+      (a, KU{rest, s, (b - 1 : U32), U32.is_gt(b, 1)})
+
+def ku_node(pr: Array<T.Ex> & T.Ex, +c: U32, +sh: U32, +ctx: List<&2, U32>,
+            +rest: List<&2, U32>, s: List<&2, U32>,
+            +b: U32) -> Array<T.Ex> & KU:
+  match pr:
+    case Tuple{a, T.EBVar{i}}:
+      +i2 : U32 = i
+      +p : U32 = ((i2 - c : U32) + sh : U32)
+      +s2 : List<&2, U32> = s
+      ku_pos(U32.is_ge(i2, c) && Bool.not(ku_has(s2, p)), a, p, ctx, rest,
+             s2, b)
+    case Tuple{a, T.EApp{f, g}}:
+      (a, KU{Con{f, Con{c, Con{sh, Con{g, Con{c, Con{sh, rest}}}}}}, s,
+             (b - 1 : U32), U32.is_gt(b, 1)})
+    case Tuple{a, T.ELam{n, t, bd, bi}}:
+      (a, KU{Con{t, Con{c, Con{sh, Con{bd, Con{(c + 1 : U32), Con{sh, rest}}}}}},
+             s, (b - 1 : U32), U32.is_gt(b, 1)})
+    case Tuple{a, T.EAll{n, t, bd, bi}}:
+      (a, KU{Con{t, Con{c, Con{sh, Con{bd, Con{(c + 1 : U32), Con{sh, rest}}}}}},
+             s, (b - 1 : U32), U32.is_gt(b, 1)})
+    case Tuple{a, T.ELet{n, t, v, bd}}:
+      (a, KU{Con{t, Con{c, Con{sh, Con{v, Con{c, Con{sh, Con{bd,
+                Con{(c + 1 : U32), Con{sh, rest}}}}}}}}}, s, (b - 1 : U32),
+             U32.is_gt(b, 1)})
+    case Tuple{a, T.EProj{tn, i, sx}}:
+      (a, KU{Con{sx, Con{c, Con{sh, rest}}}, s, (b - 1 : U32),
+             U32.is_gt(b, 1)})
+    case Tuple{a, x}:
+      (a, KU{rest, s, b, True{}})
+
+def ku_lb(+unk: Bool, +closed: Bool, a: Array<T.Ex>, +x: U32, +c: U32,
+          +sh: U32, +ctx: List<&2, U32>, +rest: List<&2, U32>,
+          s: List<&2, U32>, +b: U32) -> Array<T.Ex> & KU:
+  match unk closed:
+    case True{} _:
+      (a, KU{rest, s, b, False{}})
+    case False{} True{}:
+      (a, KU{rest, s, b, True{}})
+    case False{} False{}:
+      ku_node(Array.get(T.Ex, a, x), c, sh, ctx, rest, s, b)
+
+def ku_step2(pr: Array<T.Ex> & U32, +x: U32, +c: U32, +sh: U32,
+             +ctx: List<&2, U32>, +rest: List<&2, U32>, s: List<&2, U32>,
+             +b: U32) -> Array<T.Ex> & KU:
+  match pr:
+    case Tuple{a, l}:
+      +l2 : U32 = l
+      ku_lb(U32.is_eq(l2, 4294967295), U32.is_le(l2, c), a, x, c, sh, ctx,
+            rest, s, b)
+
+def ku_loop(fuel: Nat, +hb: U32, +ctx: List<&2, U32>,
+            r: Array<T.Ex> & KU) -> Array<T.Ex> & KU:
+  match fuel r:
+    case 0n Tuple{a, KU{w, s, b, ok}}:
+      (a, KU{w, s, b, False{}})
+    case 1n+p Tuple{a, KU{Con{x, Con{c, Con{sh, rest}}}, s, b, True{}}}:
+      +x2 : U32 = x
+      ku_loop(p, hb, ctx, ku_step2(klb_get(a, x2, hb), x2, c, sh, ctx, rest,
+                                   s, b))
+    case 1n+p Tuple{a, KU{w, s, b, ok}}:
+      (a, KU{w, s, b, ok})
+
+# the set is unordered: each (position, type hash) mixed on its own, summed
+def ku_mix(pr: Array<T.Ex> & (U32 & U32), +h: U32,
+           +q: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, Tuple{h1, h2}}:
+      +m : U32 = kmix(kmix(kmix(2166136261, q), h1), h2)
+      (a, (h + (m * 2654435761 : U32) : U32))
+
+# fold the set's (position, type hash) pairs
+def ku_hash(fuel: Nat, pr: Array<T.Ex> & U32, xs: List<&2, U32>,
+            +ctx: List<&2, U32>, +base: U32) -> Array<T.Ex> & U32:
+  match fuel pr:
+    case 0n Tuple{a, h}:
+      (a, h)
+    case 1n+p Tuple{a, h}:
+      match xs:
+        case Nil{}:
+          (a, h)
+        case Con{q, tail}:
+          +q2 : U32 = q
+          ku_hash(p, ku_mix(ksh_t(a, I.nth_u(ctx, q2, 4294967295), base), h,
+                            q2), tail, ctx, base)
+
+def ku_fin(r: Array<T.Ex> & KU, +nx: U32, +lm: U32, +ctx: List<&2, U32>,
+           +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match r:
+    case Tuple{a, KU{w, s, b, True{}}}:
+      kctxh_tin2(ku_hash(256n, (a, 2654435769), s, ctx, base), nx)
+    case Tuple{a, KU{w, s, b, False{}}}:
+      kctxh_tin2(kctxh_s(U32.to_nat(lm), (a, 0), ctx, base), nx)
+
+def kctxu_go(+deep: Bool, fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lm: U32,
+             +ctx: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match deep fs:
+    case True{} Tuple{ex, nx}:
+      ku_fin(ku_loop(262144n, khalf(base), ctx,
+                     (ex, KU{[x, 0, 0, y, 0, 0], Nil{}, 200000, True{}})),
+             nx, lm, ctx, base)
+    case False{} Tuple{ex, nx}:
+      kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), ctx, base), nx)
+
+def kctxu_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lm: U32,
+              +ctx: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  kctxu_go(U32.is_ge(lm, 12), fs, x, y, lm, ctx, base)
+
 # --- the equivalence manager (Lean's equiv_manager) ----------------------
 # Lean records every is_def_eq success in a union-find and its quick check
 # (is_equiv, no hash) compares two terms structurally MODULO those
@@ -7665,8 +7805,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DSc0{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +c2 : List<&2, U32> = ctx
       +lm : U32 = ri
-      km(p, KCon{DSc0h{lm, xi, yi, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kctxh_tin(fs, lm, c2, hcb))
+      +x2 : U32 = xi
+      +y2 : U32 = yi
+      km(p, KCon{DSc0h{lm, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
