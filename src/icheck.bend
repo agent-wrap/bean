@@ -454,7 +454,7 @@ def show_le(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       +nc = C.count_ctors(its, pnm, 0)
       +fp = C.ctor_fields_prop(its, pnm, I.is_ex(st), I.is_lnt(st),
                                B.add_items_nt(its, nt), lp,
-                               L.TYes{})
+                               L.TYes{}, C.fo_off(I.is_ex(st), I.is_lnt(st)))
       "\n    isprop: " ++ show_tri(isprop) ++ "  nctors: " ++ U32.show(nc)
       ++ "  fields-prop: " ++ show_tri(fp)
       ++ "  large-elim: " ++ show_tri(C.large_elim(isprop, nc, fp))
@@ -476,7 +476,7 @@ def show_ind(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
   ++ vshow(C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
                       C.VAccept{}))
   ++ "  rec-count: "
-  ++ vshow(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), B.add_items_nt(its, nt), lp))
+  ++ vshow(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), B.add_items_nt(its, nt), lp, C.fo_off(I.is_ex(st), I.is_lnt(st))))
   ++ "  derived: "
   ++ vshow(C.block_derive_v(its, st, mt, vt, I.is_lnt(st), B.add_items_nt(its, nt), lp))
   ++ "  names: "

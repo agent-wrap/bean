@@ -87,7 +87,7 @@ def block_v2(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
                            C.ctor_all(its, I.is_ex(st),
                                       C.ind_names_of(its, Nil{}),
                                       C.VAccept{})),
-                    C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)),
+                    C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp, C.fo_on(st, mt, vt))),
              C.comb(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp),
                     C.block_names_v(its, nmt)))
 

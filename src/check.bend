@@ -682,9 +682,43 @@ def prop_or_unknown(+t: L.Tri) -> L.Tri:
 # could not be read at all -- still declines. That distinction is the whole
 # content of this function: "a parameter, so possibly not a proof" is a
 # decision, "unreadable" is not.
+# The state for the field-proof fallback: on, inference can whnf a field's
+# type's type when the cheap oracle `sl` cannot read it (a parameter typed by
+# a definition: Mathlib's `class C (P : MorphismProperty C) : Prop` has the
+# field `P X X` with P : MorphismProperty C, a Pi only after unfolding --
+# `sl` answered unknown and the class declined). Off: `sl` alone.
+type FO is Data:
+  FO{on: Bool, st: I.IS, mt: R.Tr<I.Meta>, vt: R.Tr<U32>}
+
+def fo_off(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>) -> FO:
+  FO{False{}, I.IS{ex, 0, ln, 0, R.TNil{}, R.TNil{}, 0, 0, R.TNil{}},
+     R.TNil{}, R.TNil{}}
+
+def fo_on(+st: I.IS, +mt: R.Tr<I.Meta>, +vt: R.Tr<U32>) -> FO:
+  FO{True{}, st, mt, vt}
+
 def field_is_proof(+u: L.LN) -> L.Tri:
   L.pick_tri(L.is_un(u), L.TUnk{},
              L.pick_tri(L.tri_is_yes(L.ln_is_zero(u)), L.TYes{}, L.TNo{}))
+
+# u from `sl`; when unknown and the fallback is on, infer the field type's
+# type, whnf it, and read its Sort
+def field_prop_go(+un: Bool, +u: L.LN, +fo: FO, +nt: R.Tr<U32>,
+                  +lp: R.Tr<List<&2, U32>>, +ph: U32,
+                  +ctx: List<&2, U32>) -> L.Tri:
+  match un fo:
+    case True{} FO{True{}, st, mt, vt}:
+      +r = I.infer(256n, st, mt, nt, lp, vt, U.ex_at(I.is_ex(st), ph), ph, ctx)
+      +w = I.whd(I.ir_st(r), mt, lp, vt, I.ir_ty(r))
+      +s2 : I.IS = I.ir_st(w)
+      +nd : T.Ex = U.ex_at(I.is_ex(s2), I.ir_ty(w))
+      +nd2 : T.Ex = nd
+      L.pick_tri(I.ir_ok(r) && I.is_sortx(nd),
+                 field_is_proof(R.get(L.LN, 64n, I.is_lnt(s2), I.sort_lvl_of(nd2),
+                                      L.LNun{})),
+                 L.TUnk{})
+    case _ _:
+      field_is_proof(u)
 
 # --- an inductive's type, its telescope exposed by whnf -------------------
 # Lean's kernel peels an inductive type's binders through whnf: Mathlib's
@@ -857,7 +891,7 @@ def occurs_in_any(idxs: List<&2, U32>, +ex: R.Tr<T.Ex>, +k: U32) -> Bool:
 def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                 +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +nskip: U32,
                 +i: U32, +ctx: List<&2, U32>, +idxs: List<&2, U32>,
-                +nf: U32, +acc: L.Tri) -> L.Tri:
+                +nf: U32, +acc: L.Tri, +fo: FO) -> L.Tri:
   match doms:
     case Nil{}:
       acc
@@ -869,13 +903,18 @@ def fields_prop(doms: List<&2, U32>, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
       +isidx = U32.is_ge(pi, nskip) && U32.is_gt(nf, 0)
                && occurs_in_any(idxs, ex,
                                 (nf - 1 - (pi - nskip : U32) : U32))
+      +u : L.LN = I.sl(64n, ex, ln, nt, lp, U.ex_at(ex, ph), ctx)
+      +u2 : L.LN = u
+      +fo2 : FO = fo
+      # the fallback only for a real field the cheap oracle cannot size
+      +un : Bool = L.is_un(u) && U32.is_ge(pi, nskip) && Bool.not(isidx)
       fields_prop(tail, ex, ln, nt, lp, nskip, (pi + 1 : U32),
                   Con{ph, ctx}, idxs, nf,
                   L.pick_tri(U32.is_lt(pi, nskip), acc,
                              L.pick_tri(isidx, acc,
                                I.tri_and(acc,
-                                 field_is_proof(I.sl(64n, ex, ln, nt, lp,
-                                   U.ex_at(ex, ph), ctx))))))
+                                 field_prop_go(un, u2, fo2, nt, lp, ph, ctx)))),
+                  fo2)
 
 def subsingleton(+nc: U32, +fp: L.Tri) -> L.Tri:
   L.pick_tri(U32.is_eq(nc, 0), L.TYes{},
@@ -934,7 +973,7 @@ def head_item(xs: List<&2, K.IItem>) -> K.IItem:
 
 def ctor_fields_prop(items: List<&2, K.IItem>, +ind: U32,
                      +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
-                     +lp: R.Tr<List<&2, U32>>, +acc: L.Tri) -> L.Tri:
+                     +lp: R.Tr<List<&2, U32>>, +acc: L.Tri, +fo: FO) -> L.Tri:
   match items:
     case Nil{}:
       acc
@@ -960,10 +999,10 @@ def ctor_fields_prop(items: List<&2, K.IItem>, +ind: U32,
                                                   U.ex_at(ex, pty)),
                                                 Nil{}),
                                      pnp),
-                            pnf, L.TYes{})),
-              acc))
+                            pnf, L.TYes{}, fo)),
+              acc), fo)
         case _:
-          ctor_fields_prop(tail, ind, ex, ln, nt, lp, acc)
+          ctor_fields_prop(tail, ind, ex, ln, nt, lp, acc, fo)
 
 # A nested inductive's recursor has one motive per nested occurrence, not
 # one. `Lean.Syntax` in init-prelude is nested and its recursor has three,
@@ -1032,7 +1071,7 @@ def sole_ctor_nf(items: List<&2, K.IItem>, +ind: U32, +acc: U32) -> U32:
 
 def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                   +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
-                  +lp: R.Tr<List<&2, U32>>, +ind: K.IItem) -> V:
+                  +lp: R.Tr<List<&2, U32>>, +ind: K.IItem, +fo: FO) -> V:
   match ind:
     case K.IInd{nm, lps, ty, np, ni, nn, cs}:
       +res = tele_res(256n, ex, U.ex_at(ex, ty))
@@ -1047,7 +1086,7 @@ def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
       comb(kv,
            recs_all(its, large_elim(isprop, count_ctors(its, nm, 0),
                                ctor_fields_prop(its, nm, ex, ln, nt, lp,
-                                                L.TYes{})),
+                                                L.TYes{}, fo)),
                list_len(lps, 0), nested, VAccept{}))
     case _:
       VDecline{}
@@ -1056,10 +1095,10 @@ def block_rec_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
 # the `all` field decoded; they decline for now.
 def block_rec_v(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                 +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
-                +lp: R.Tr<List<&2, U32>>) -> V:
+                +lp: R.Tr<List<&2, U32>>, +fo: FO) -> V:
   +inds = ind_only(items, Nil{})
   pick_v(U32.is_eq(len_items(inds, 0), 1),
-         block_rec_one(items, ex, ln, nt, lp, head_item(inds)),
+         block_rec_one(items, ex, ln, nt, lp, head_item(inds), fo),
          VDecline{})
 
 
@@ -1623,7 +1662,8 @@ def block_derive_one(+items: List<&2, K.IItem>, +st: I.IS,
                      K.IInd{pnm, lps, ty, np, ni, nn, cs}, nc,
                      large_elim(isprop, nc,
                                 ctor_fields_prop(its, pnm, I.is_ex(st),
-                                                 ln, nt, lp, L.TYes{})))
+                                                 ln, nt, lp, L.TYes{},
+                                                 fo_on(st, mt, vt))))
     case _:
       VDecline{}
 
@@ -2076,7 +2116,8 @@ def meta_block_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                                           L.LNun{})),
                                         nc,
                                         ctor_fields_prop(its, pnm, ex, ln,
-                                          R.TNil{}, R.TNil{}, L.TYes{}))),
+                                          R.TNil{}, R.TNil{}, L.TYes{},
+                                          fo_off(ex, ln)))),
                                       0, 1),
                                     prop_proj_bound(
                                       L.ln_is_zero(R.get(L.LN, 64n, ln,
@@ -2131,7 +2172,8 @@ def meta_struct_one(+items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
                          S.pick(L.tri_is_yes(
                            large_elim(isp, nc,
                              ctor_fields_prop(its, pnm, ex, ln,
-                                              R.TNil{}, R.TNil{}, L.TYes{}))),
+                                              R.TNil{}, R.TNil{}, L.TYes{},
+                                              fo_off(ex, ln)))),
                            0, 1),
                          prop_proj_bound(isp, ex, ln, nt, lp,
                                          ctor_ty_by_cidx(its, pnm, 0, 4294967295),
@@ -2624,7 +2666,8 @@ def ck_one(+fuel: Nat, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       comb(comb(comb(ind_items(its, I.is_ex(st), nt, vt, VAccept{}),
                      ctor_all(its, I.is_ex(st),
                               ind_names_of(its, Nil{}), VAccept{})),
-                block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)),
+                block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp,
+                            fo_off(I.is_ex(st), I.is_lnt(st)))),
            comb(block_derive_v(its, st, mt, vt, I.is_lnt(st), ntb, lp),
                 block_names_v(its, nmt)))
     case K.DNone{}:

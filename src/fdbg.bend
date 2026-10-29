@@ -314,7 +314,7 @@ def fck_one_d(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
        (vcode(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}))
         + vcode(C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
                            C.VAccept{})) * 4
-        + vcode(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp)) * 16
+        + vcode(C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp, C.fo_off(I.is_ex(st), I.is_lnt(st)))) * 16
         + vcode(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp)) * 64
         + vcode(C.block_names_v(its, nmt)) * 256 : U32))
     case K.DNone{} Tuple{ex, nx}:

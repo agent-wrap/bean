@@ -16,3 +16,7 @@ Regression exports beyond the arena's suite, run by tools/regress.sh BIN.
     `inductive RC .. : Rel2 α`); Lean peels the type through whnf. The first
     was REJECTED (mathlib's CategoryTheory.HomRel.CompClosure), the second
     declined.
+  - prop_class_param_behind_def: `class CIb (P : MP C) : Prop` with a field
+    `P X X` where MP is a definition of a Pi; the field's universe needs a
+    whnf the cheap oracle `sl` does not do (mathlib's
+    CategoryTheory.MorphismProperty.* classes declined).
