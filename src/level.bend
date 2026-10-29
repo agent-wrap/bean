@@ -464,6 +464,35 @@ def imax_keep(+same: Bool, +azero: Bool, +a: LN, +b: LN) -> LN:
     case False{} False{}:
       LNimax{a, b, 0}
 
+# never zero (Lean's is_not_zero): an atom with a positive offset, an imax
+# whose second part is never zero or that carries a successor, or such a
+# component of a mixed chain
+def ln_pos(fuel: Nat, +a: LN) -> Bool:
+  match fuel a:
+    case 0n _:
+      False{}
+    case 1n+p LNmax{xs}:
+      some_positive(xs)
+    case 1n+p LNimax{x, y, o}:
+      U32.is_ge(o, 1) || ln_pos(p, y)
+    case 1n+p LNmx{xs, y, r}:
+      +pf = p
+      some_positive(xs) || ln_pos(pf, y) || ln_pos(pf, r)
+    case 1n+p _:
+      False{}
+
+# Lean's mk_imax: `imax a b = max a b` when b is never zero
+def imax_pos(+pos: Bool, +a: LN, +b: LN) -> LN:
+  match pos:
+    case True{}:
+      ln_max(a, b)
+    case False{}:
+      # Lean's mk_imax: `imax a b = b` when a is zero OR ONE (`is_one`),
+      # whatever b is -- `Π (n : Nat), B` over a structural imax B
+      pick_ln(is_zero_ln(b), ln_zero(),
+              imax_keep(ln_eq(32n, a, b), is_zero_ln(a) || is_one_ln(a),
+                        a, b))
+
 def ln_imax_go(+a: LN, +b: LN) -> LN:
   match a b:
     case LNun{} _:
@@ -474,13 +503,8 @@ def ln_imax_go(+a: LN, +b: LN) -> LN:
       +py = ys
       imax_case(all_zero(py), some_positive(py), xs, py)
     case _ _:
-      +pa : LN = a
       +pb : LN = b
-      # Lean's mk_imax: `imax a b = b` when a is zero OR ONE (`is_one`),
-      # whatever b is -- `Π (n : Nat), B` over a structural imax B
-      pick_ln(is_zero_ln(pb), ln_zero(),
-              imax_keep(ln_eq(32n, pa, pb), is_zero_ln(pa) || is_one_ln(pa),
-                        pa, pb))
+      imax_pos(ln_pos(32n, pb), a, pb)
 
 # imax a 0 = 0 whatever a is -- even an unknown a: a Pi into a Prop is a
 # Prop however large its domain (a class of Prop fields over binders the

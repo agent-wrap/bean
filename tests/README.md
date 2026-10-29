@@ -21,3 +21,7 @@ Regression exports beyond the arena's suite, run by tools/regress.sh BIN.
     whnf the cheap oracle `sl` does not do (mathlib's
     CategoryTheory.MorphismProperty.* classes declined).
   - relhomclass_outparam: a RelHomClass-shaped Prop class whose relation parameters are typed `outParam (α → α → Prop)` (outParam is a definition); declined in cslib, navier-stokes and mathlib before d00c399.
+  - imax_never_zero: `(∀ α, P α) → Nat` declared at `Sort (max 1 (imax (u+2) v))`;
+    the inferred `imax (imax (u+2) v) 1` is `max` because 1 is never zero
+    (Lean's mk_imax). Declined before; Set/Finset.piecewise_insert in
+    navier-stokes, cslib and mathlib.
