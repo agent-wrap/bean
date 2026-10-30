@@ -1035,6 +1035,8 @@ type KF is Data:
        ctx: List<&2, U32>}
   LZOr{}
   LZ5{x: U32, y: U32, hx: T.Ex, sx: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  LZ6s{seen: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool, uy: Bool,
+        x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ6{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool,
       uy: Bool, x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZA{xs: List<&2, U32>, ys: List<&2, U32>, ux: Bool, uy: Bool, x: U32,
@@ -6459,10 +6461,26 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{LZ0{wx, wy, (fu - 1 : U32), ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
          natn, wm, nt, hcb, knoop(fs, ri))
+    # Lean's failed_before / cache_failure on the APPLICATION pair: once the
+    # same-head arguments of (x, y) failed, a revisit unfolds at once (a
+    # fingerprint collision only unfolds where the arguments could have
+    # been compared: an unfold is always sound)
     case 1n+p KCon{LZ6{True{}, sx, sy, ux, uy, x, y, fu, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      +seen : Bool = U32.is_eq(R.get(U32, 64n, wm, klzkey(x2, y2), 4294967295),
+                               klzfp(x2, y2))
+      km(p, KCon{LZ6s{seen, sx, sy, ux, uy, x2, y2, fu, ctx}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZ6s{False{}, sx, sy, ux, uy, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{LZA{sx, sy, ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{LZ6s{True{}, sx, sy, ux, uy, x, y, fu, ctx}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{LZU{ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{LZ6{False{}, sx, sy, ux, uy, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{LZU{ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
@@ -6544,8 +6562,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # an argument did not settle: unfold (both, on a tie) as Lean does
     case 1n+p KCon{LZA2{False{}, xs, ys, ux, uy, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{LZU{ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, knoop(fs, ri))
+      +x2 : U32 = x
+      +y2 : U32 = y
+      km(p, KCon{LZU{ux, uy, x2, y2, fu, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, klzkey(x2, y2), klzfp(x2, y2), 4294967295), nt, hcb,
+         knoop(fs, ri))
     # unfold step
     case 1n+p KCon{LZU{False{}, False{}, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
