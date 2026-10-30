@@ -1035,6 +1035,7 @@ type KF is Data:
        ctx: List<&2, U32>}
   LZOr{}
   LZ5{x: U32, y: U32, hx: T.Ex, sx: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
+  DPr5{seen: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   LZ6s{seen: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool, uy: Bool,
         x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ6{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool,
@@ -8189,14 +8190,32 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       km(p, KCon{DPr1{False{}, chg, x, y2, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, 0))
+    # a changed pair re-enters is_def_eq_core -- once: a pair the projection
+    # tail already re-entered on is taken as unchanged (the structural
+    # tail), as Lean's never-repeating `!is_eqp(tnn, tn)` test would. Two
+    # projections whose structures' whnf and whnf_core undo each other
+    # oscillated a <-> b here (std's BVExpr.Cache.Inv_insert: 1.26M tail
+    # entries over a handful of pairs)
     case 1n+p KCon{DPr4{False{}, True{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      +y2 : U32 = y
+      +kk : U32 = klzkey((x2 + 1 : U32), y2)
+      +fp : U32 = (klzfp(x2, y2) + 7 : U32)
+      +seen : Bool = U32.is_eq(R.get(U32, 64n, wm, kk, 4294967295), fp)
+      km(p, KCon{DPr5{seen, x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, R.set(U32, 64n, wm, kk, fp, 4294967295), nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DPr5{False{}, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
       +f2 : U32 = fu
       km(p, KCon{DSub{U32.is_eq((f2 - 1 : U32), 4294967295),
                       U32.is_eq(x2, y2), x2, y2, ctx, (f2 - 1 : U32)}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+    case 1n+p KCon{DPr5{True{}, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DEx{x2, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+         wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DPr4{False{}, False{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
