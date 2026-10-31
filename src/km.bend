@@ -1035,7 +1035,8 @@ type KF is Data:
        ctx: List<&2, U32>}
   LZOr{}
   LZ5{x: U32, y: U32, hx: T.Ex, sx: List<&2, U32>, fu: U32, ctx: List<&2, U32>}
-  DPr5{seen: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  DPr5{seen: Bool, kk: U32, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  DPr6{kk: U32}
   LZ6s{seen: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool, uy: Bool,
         x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ6{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool,
@@ -4600,18 +4601,25 @@ def ku_fin(r: Array<T.Ex> & KU, +nx: U32, +lm: U32, +ctx: List<&2, U32>,
       kctxh_tin2(kctxh_s(U32.to_nat(lm), (a, 0), ctx, base), nx)
 
 def kctxu_go(+deep: Bool, fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lm: U32,
-             +ctx: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+             +ctx: List<&2, U32>, +base: U32,
+             +bud: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match deep fs:
     case True{} Tuple{ex, nx}:
       ku_fin(ku_loop(262144n, khalf(base), ctx,
-                     (ex, KU{[x, 0, 0, y, 0, 0], Nil{}, 200000, True{}})),
+                     (ex, KU{[x, 0, 0, y, 0, 0], Nil{}, bud, True{}})),
              nx, lm, ctx, base)
     case False{} Tuple{ex, nx}:
       kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), ctx, base), nx)
 
+# bud: the walk's node budget (200000; the cheap-projection pass keeps its
+# terms un-reduced and much larger, and walked them for minutes outside the
+# machine's fuel: std's bitblast.go_Inv_of_Inv -- 0 there, no walk: the
+# whole-context key)
 def kctxu_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lm: U32,
-              +ctx: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
-  kctxu_go(U32.is_ge(lm, 12), fs, x, y, lm, ctx, base)
+              +ctx: List<&2, U32>, +base: U32,
+              +bud: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  kctxu_go(U32.is_ge(lm, 12) && U32.is_gt(bud, 0), fs, x, y, lm, ctx, base,
+           bud)
 
 # --- the equivalence manager (Lean's equiv_manager) ----------------------
 # Lean records every is_def_eq success in a union-find and its quick check
@@ -6090,7 +6098,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # no failure cache at the loop's entry: a stall is not a failure (the
       # tail may still prove the pair), and Lean caches only is_def_eq_args
       # failures (LZF5)
-      km(p, KCon{LZ0g{U32.is_ge(used, 8000000), x2, y2, fu, ctx}, k},
+      km(p, KCon{LZ0g{U32.is_ge(used,
+                           S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000,
+                                                  0), 1),
+                                  1000000, 8000000)), x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -6105,7 +6116,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = x
       +y2 : U32 = y
       +used : U32 = ri
-      km(p, KCon{LZ0g{U32.is_ge(used, 8000000), x2, y2, fu, ctx}, k},
+      km(p, KCon{LZ0g{U32.is_ge(used,
+                           S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000,
+                                                  0), 1),
+                                  1000000, 8000000)), x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
@@ -6158,7 +6172,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +x2 : U32 = x
-      km(p, KCon{kwev(False{}, x2, Nil{}, 256, cx9), KCon{LZ1{x2, y, fu, cx9}, k}},
+      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073742080, 256), cx9), KCon{LZ1{x2, y, fu, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, ri))
     case 1n+p KCon{LZ1{x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -6181,7 +6195,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +y2 : U32 = y
-      km(p, KCon{kwev(False{}, y2, Nil{}, 256, cx9), KCon{LZ2{wx, y2, fu, cx9}, k}},
+      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073742080, 256), cx9), KCon{LZ2{wx, y2, fu, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, y2, ri))
     case 1n+p KCon{LZ2{x, y0, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -7033,9 +7047,20 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # the struct's whnf through the memo, as an iota major's: a value
       # projected several times (`(x ◇ y).val` under decide) was otherwise
       # computed once per projection (perf/magma-string-pair-n9)
-      km(p, KCon{pick_kf(Bool.not(d2), DWhd{s2, cx9}, DWhdF{s2, f2, cx9}),
+      # without delta (whnf_core) the struct by whnf_core too: Lean's
+      # is_def_eq_core and lazy loop call whnf_core(.., cheap_proj = true);
+      # the full projection (whnf of the struct) is the tail's, after the
+      # loop stalls (DPr*). A full whnf here unfolded every bundled map
+      # behind a DFunLike.coe at each lazy step (navier: 27k coe unfolds)
+      km(p, KCon{pick_kf(Bool.not(d2) && U32.is_ge(f2, 1073741824)
+                         && U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1),
+                         kwev(False{}, s2, Nil{}, f2, cx9),
+                         pick_kf(Bool.not(d2)
+                                 && U32.is_ne(R.get(U32, 64n, qtt, 4000000000,
+                                                    0), 1),
+                                 DWhd{s2, cx9}, DWhdF{s2, f2, cx9})),
                  KCon{WPrj{d2, e, tn, idx, args, f2, cx9}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, s2, ri))
     case 1n+p KCon{WEv{delta, e, args, fu, ctx}, k} Tuple{Tuple{fs, MX{node}}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, krebuild(hcb, args, fs, e))
     # ---- rule-based iota (RI0) ----
@@ -7845,7 +7870,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{DSc0h{lm, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb))
+         wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb,
+                                S.pick(U32.is_eq(R.get(U32, 64n, qtt,
+                                                       4000000000, 0), 1),
+                                       0, 200000)))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
@@ -7895,14 +7923,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cx9 : List<&2, U32> = ctx
       +x2 : U32 = xi
       +y2 : U32 = yi
-      km(p, KCon{kwev(False{}, x2, Nil{}, 65536, cx9),
+      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9),
                  KCon{DE2{y2, cx9, fu}, KCon{DSRec{cl, ch, x2, y2, cx9}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DE2{yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +wx : U32 = ri
       +y2 : U32 = yi
-      km(p, KCon{kwev(False{}, y2, Nil{}, 65536, cx9), KCon{DE3{wx, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE3{wx, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, y2, 0))
     case 1n+p KCon{DE3{wx, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wy : U32 = ri
@@ -7963,7 +7991,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DE5{ctx, fu}, k} Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
       +cx9 : List<&2, U32> = ctx
       +a2 : U32 = a
-      km(p, KCon{kwev(False{}, a2, Nil{}, 65536, cx9), KCon{DE6{b, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, a2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE6{b, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, a2, 0))
     case 1n+p KCon{DE5{ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -7972,7 +8000,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cx9 : List<&2, U32> = ctx
       +wa : U32 = ri
       +b2 : U32 = b
-      km(p, KCon{kwev(False{}, b2, Nil{}, 65536, cx9), KCon{DE7{wa, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, b2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE7{wa, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, 0))
     case 1n+p KCon{DE7{wa, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wb : U32 = ri
@@ -8190,12 +8218,16 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       km(p, KCon{DPr1{False{}, chg, x, y2, ctx, fu}, k}, lnt, nlx, mt, lp,
          vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, 0))
-    # a changed pair re-enters is_def_eq_core -- once: a pair the projection
-    # tail already re-entered on is taken as unchanged (the structural
-    # tail), as Lean's never-repeating `!is_eqp(tnn, tn)` test would. Two
-    # projections whose structures' whnf and whnf_core undo each other
-    # oscillated a <-> b here (std's BVExpr.Cache.Inv_insert: 1.26M tail
-    # entries over a handful of pairs)
+    # a changed pair re-enters is_def_eq_core -- unless that pair is already
+    # being re-entered further up this comparison (a cycle): then it is taken
+    # as unchanged (the structural tail), as Lean's never-repeating
+    # `!is_eqp(tnn, tn)` test would. Two projections whose structures' whnf
+    # and whnf_core undo each other oscillated a <-> b here (std's
+    # BVExpr.Cache.Inv_insert: 1.26M tail entries over a handful of pairs).
+    # The stamp is cleared when the re-entry returns (DPr6): a pair met in an
+    # EARLIER, finished comparison is not a cycle, and sending it to the
+    # structural tail un-reduced (`HMul.hMul ..` vs `Real.mul #1 #0`) turned
+    # a provable pair into UNK
     case 1n+p KCon{DPr4{False{}, True{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -8203,16 +8235,23 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +kk : U32 = klzkey((x2 + 1 : U32), y2)
       +fp : U32 = (klzfp(x2, y2) + 7 : U32)
       +seen : Bool = U32.is_eq(R.get(U32, 64n, wm, kk, 4294967295), fp)
-      km(p, KCon{DPr5{seen, x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
-         natn, R.set(U32, 64n, wm, kk, fp, 4294967295), nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DPr5{False{}, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DPr5{seen, kk, x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, R.set(U32, 64n, wm, kk, fp, 4294967295), nt, hcb,
+         knoop(fs, 0))
+    case 1n+p KCon{DPr5{False{}, kk, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
       +f2 : U32 = fu
       km(p, KCon{DSub{U32.is_eq((f2 - 1 : U32), 4294967295),
-                      U32.is_eq(x2, y2), x2, y2, ctx, (f2 - 1 : U32)}, k},
+                      U32.is_eq(x2, y2), x2, y2, ctx, (f2 - 1 : U32)},
+                 KCon{DPr6{kk}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{DPr5{True{}, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+    case 1n+p KCon{DPr6{kk}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn,
+         R.set(U32, 64n, wm, kk, 4294967295, 4294967295), nt, hcb,
+         Tuple{Tuple{fs, msg}, ri})
+    case 1n+p KCon{DPr5{True{}, kk, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       km(p, KCon{DEx{x2, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, kfetch(fs, x2, 0))

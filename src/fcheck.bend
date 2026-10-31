@@ -150,6 +150,13 @@ def posit_if(+v: C.V, +items: List<&2, K.IItem>, +nms: List<&2, U32>,
     case _:
       (fs, v)
 
+def fck_fuel(+cheap: Bool) -> Nat:
+  match cheap:
+    case True{}:
+      4294967295n
+    case False{}:
+      Nat.mul(4294967295n, 64n)
+
 def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
@@ -172,7 +179,11 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       # with a stale register, read as a decline with no flag or UNK
       # anywhere (found with a diagnostic fold mapping registers outside
       # 0..2 to a reject)
-      fck_fold(M.fck_typed(Nat.mul(4294967295n, 64n), (ex, nx), I.is_lnt(st),
+      # fck_sel's first two passes run on 2^32 steps (~2 min); a
+      # declaration they cannot settle declines into the next pass
+      fck_fold(M.fck_typed(fck_fuel(U32.is_ne(R.get(U32, 64n, qtt, 4000000000,
+                                                    0), 0)),
+                           (ex, nx), I.is_lnt(st),
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
                            K.dcl_value(pd), basenx),
@@ -212,13 +223,59 @@ def krange_lo() -> U32:
 def krange_hi() -> U32:
   4294967295
 
+# Three passes per declaration, each from a fresh region, the first
+# decisive verdict standing (every pass is sound; they differ only in what
+# they settle and how fast):
+#   1. the full machine on a 2^32-step fuel (qtt key 4000000000 = 2) -- what
+#      std, init and cedar were tuned on; nearly every declaration ends here
+#   2. Lean's cheap projections in the defeq core (key = 1, same fuel):
+#      whnf_core leaves a projection's structure un-delta'd and the full
+#      projection is the tail's, as Lean's is_def_eq_core does. Navier's
+#      instance-heavy theorems need it (sourceCoordinateSolver: the full
+#      machine unfolds AEEqFun.cast where Lean compares it as a head;
+#      > 2,400 s -> ~70 s); std's bit-blasting proofs stall in it
+#   3. the full machine on its full fuel (key absent), as before
+def fck_retry2(+dec: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+               +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+               +d: K.Dcl, +basenx: U32, +natn: U32, +q2: R.Tr<U32>,
+               r: (Array<T.Ex> & U32) & C.V) -> (Array<T.Ex> & U32) & C.V:
+  match dec r:
+    case True{} Tuple{Tuple{ex, nx}, v}:
+      +n2 : U32 = nx
+      +b2 : U32 = (basenx + M.ktbl(basenx) + 2 : U32)
+      fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn, q2,
+              (M.kbump_n(ex, basenx, (n2 - b2 : U32)), b2))
+    case False{} Tuple{fs, v}:
+      (fs, v)
+
+def fck_isdec(+v: C.V) -> Bool:
+  match v:
+    case C.VDecline{}:
+      True{}
+    case _:
+      False{}
+
+def fck_retry(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+              +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+              +d: K.Dcl, +basenx: U32, +natn: U32, +q2: R.Tr<U32>,
+              r: (Array<T.Ex> & U32) & C.V) -> (Array<T.Ex> & U32) & C.V:
+  match r:
+    case Tuple{fs, v}:
+      +v2 : C.V = v
+      fck_retry2(fck_isdec(v2), st, mt, nt, lp, vt, nmt, d, basenx, natn,
+                 q2, (fs, v2))
+
 def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
             fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & C.V:
   match go:
     case True{}:
-      fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt, fs)
+      fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt,
+        fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn,
+                  R.set(U32, 64n, qtt, 4000000000, 1, 4294967295),
+          fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn,
+                  R.set(U32, 64n, qtt, 4000000000, 2, 4294967295), fs)))
     case False{}:
       (fs, C.VAccept{})
 
