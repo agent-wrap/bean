@@ -5975,6 +5975,13 @@ def kis_bvar(+x: T.Ex) -> Bool:
 # only after the full-projection whnf_core pass (DPr1-4: each structure
 # whnf'd with delta), so a remaining `s.i` is stuck -- Lean's tail answers
 # NO on it (`Std.Shrink a =?= a`: `idOpaque.1 a` against a stuck app)
+# the per-declaration unfold budget by pass (fcheck.fck_sel): the capped
+# full pass (2) gives up early -- navier's sourceCoordinateSolver made 17M+
+# unfolds there against Lean's 26k -- the cheap pass (1) has 1M, the last
+# full pass (0) the old 8M
+def kmode_bud(+m: U32) -> U32:
+  S.pick(U32.is_eq(m, 1), 1000000, S.pick(U32.is_eq(m, 2), 300000, 8000000))
+
 def kunf(+h: T.Ex, +vt: R.Tr<U32>) -> Bool:
   +n : U32 = kcn(h)
   Bool.not(U32.is_eq(n, 4294967295))
@@ -6099,9 +6106,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # tail may still prove the pair), and Lean caches only is_def_eq_args
       # failures (LZF5)
       km(p, KCon{LZ0g{U32.is_ge(used,
-                           S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000,
-                                                  0), 1),
-                                  1000000, 8000000)), x2, y2, fu, ctx}, k},
+                           kmode_bud(R.get(U32, 64n, qtt, 4000000000, 0))),
+                 x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -6117,9 +6123,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       +used : U32 = ri
       km(p, KCon{LZ0g{U32.is_ge(used,
-                           S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000,
-                                                  0), 1),
-                                  1000000, 8000000)), x2, y2, fu, ctx}, k},
+                           kmode_bud(R.get(U32, 64n, qtt, 4000000000, 0))),
+                 x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
