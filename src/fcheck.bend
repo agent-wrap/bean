@@ -311,7 +311,8 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
   +ex = B.build_ex(recs, R.TNil{})
-  +ln = B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}), R.TNil{})
+  +ln = M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
+                                       R.TNil{}))
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   # Nat (key 20) and String (key 10) come from build_wk4's two passes
   +wk = K.build_wk4(recs, R.TNil{})

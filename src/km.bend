@@ -1383,6 +1383,30 @@ def klv_add(+lnt: R.Tr<L.LN>, +nlx: U32, +i: U32, +u: L.LN) -> R.Tr<L.LN>:
            R.set_if(L.LN, U32.is_eq(i, nlx), lnt, i, u2, L.LNun{}),
            klv_key(u2), L.LNimax{L.LNun{}, L.LNun{}, i}, L.LNun{})
 
+# Intern the export's own levels at load, first index per normal form:
+# a level the machine builds by instantiation (klsub_lvls, klv_find) then
+# reuses the export's index when it is the same level, so the instantiated
+# constant hash-conses onto the export's node -- Lean's levels are shared
+# expressions, and an instantiated `f.{0}` IS the export's. Without it
+# every instantiation built a second copy of each term, and the
+# equivalence check walked the copies apart: navier's
+# meanAcceleration_translation_contDiff ran ~23k all-YES full walks,
+# most of its time in the walk's hashing and level comparison
+def klv_seed1(+lnt: R.Tr<L.LN>, +i: U32) -> R.Tr<L.LN>:
+  +t : R.Tr<L.LN> = lnt
+  +u : L.LN = R.get(L.LN, 64n, t, i, L.LNun{})
+  +k : U32 = klv_key(u)
+  R.set_if(L.LN, Bool.not(L.is_un(u))
+                 && L.is_un(R.get(L.LN, 64n, t, k, L.LNun{})),
+           t, k, L.LNimax{L.LNun{}, L.LNun{}, i}, L.LNun{})
+
+def klv_seed(n: Nat, +i: U32, +lnt: R.Tr<L.LN>) -> R.Tr<L.LN>:
+  match n:
+    case 0n:
+      lnt
+    case 1n+p:
+      klv_seed(p, (i + 1 : U32), klv_seed1(lnt, i))
+
 def kpick_lta(+same: Bool, +lnt: R.Tr<L.LN>, +nl: U32, +i: U32,
               +u: L.LN) -> R.Tr<L.LN>:
   match same:
@@ -2690,8 +2714,6 @@ def kwl_set(fs: Array<T.Ex> & U32, +base: U32, +e: U32, +c: U32, +dv: U32,
                 && U32.is_lt(dv, 2147483648) && U32.is_lt(c, 2147483648),
                 ex, base, e, c, dv, op, r), nx)
 
-# record a walk's result for node e, then pass the result on
-# record a walk's result for node e, then pass the result on
 def kwl_rec2(+dv: U32, +op: U32, +c: U32, +e: U32, +base: U32,
              t: ((Array<T.Ex> & U32) & MG) & U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match t:
@@ -4910,22 +4932,46 @@ def keqv_h3(pr: Array<T.Ex> & T.Ex, +k: U32, +x: U32, +y: U32, +bd: U32,
     case Tuple{a, e}:
       (a, False{})
 
+def keqv_b2u(pr: Array<T.Ex> & Bool) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, True{}}:
+      (a, 1)
+    case Tuple{a, False{}}:
+      (a, 0)
+
+# Lean's is_equiv_core: `if (use_hash && hash(a) != hash(b)) return false`
+# before the union-find lookup. The bounded hash ignores bound variables
+# and levels, so it is coarser than the walk's equality: different hashes
+# mean structurally different, and the whole quick check answers no (2)
+# -- also below a pair the table could have equated, as in Lean
+def keqv_h2s(+same: Bool, a: Array<T.Ex>, +hx: U32, +hy: U32, +x: U32,
+             +y: U32, +bd: U32, +C: List<&2, U32>, +L: U32,
+             +base: U32) -> Array<T.Ex> & U32:
+  match same:
+    case True{}:
+      +k : U32 = keqv_key(hx, hy)
+      keqv_b2u(keqv_h3(Array.get(T.Ex, a, kfl_slot(base, k)), k, x, y, bd, C,
+                       L, base))
+    case False{}:
+      (a, 2)
+
 def keqv_h2(pr: Array<T.Ex> & U32, +hx: U32, +x: U32, +y: U32, +bd: U32,
-            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & U32:
   match pr:
     case Tuple{a, hy}:
-      +k : U32 = keqv_key(hx, hy)
-      keqv_h3(Array.get(T.Ex, a, kfl_slot(base, k)), k, x, y, bd, C, L, base)
+      +h2 : U32 = hy
+      keqv_h2s(U32.is_eq(hx, h2), a, hx, h2, x, y, bd, C, L, base)
 
 def keqv_h1(pr: Array<T.Ex> & U32, +x: U32, +y: U32, +bd: U32,
-            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & Bool:
+            +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & U32:
   match pr:
     case Tuple{a, hx}:
       keqv_h2(kbh(a, y), hx, x, y, bd, C, L, base)
 
-# x, y at binder depth bd below a context C of length L
+# x, y at binder depth bd below a context C of length L: 1 a recorded
+# equal pair, 0 none, 2 hashes differ
 def keqv_hit(a: Array<T.Ex>, +base: U32, +x: U32, +y: U32, +bd: U32,
-             +C: List<&2, U32>, +L: U32) -> Array<T.Ex> & Bool:
+             +C: List<&2, U32>, +L: U32) -> Array<T.Ex> & U32:
   keqv_h1(kbh(a, x), x, y, bd, C, L, base)
 
 # -- record a YES (the originals, as Lean's add_equiv does) --
@@ -4959,37 +5005,158 @@ def keqv_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
 
 # -- is_equiv: the structural walk (keq_go) with each unequal pair first
 # looked up in the table
-def keqc_qa(pr: Array<T.Ex> & Bool, nd: T.Ex, +y: U32, +dep: U32, +bd: U32,
+def keqc_qb(+hit: Bool, a: Array<T.Ex>, nd: T.Ex, +y: U32, +dep: U32,
+            +bd: U32,
             tail: List<&2, QI>) -> (Array<T.Ex> & T.Ex) & List<&2, QI>:
+  match hit:
+    case True{}:
+      +t2 : List<&2, QI> = tail
+      (Array.get(T.Ex, a, keq_next(t2)), t2)
+    case False{}:
+      (Array.get(T.Ex, a, y), Con{QB{nd, y, dep, bd}, tail})
+
+# hashes differ: a depth-0 pair (keq_cmp0 answers TUnk) ends the walk
+def keqc_qd(+diff: Bool, +hit: Bool, a: Array<T.Ex>, nd: T.Ex, +y: U32,
+            +dep: U32, +bd: U32,
+            tail: List<&2, QI>) -> (Array<T.Ex> & T.Ex) & List<&2, QI>:
+  match diff:
+    case True{}:
+      (Array.get(T.Ex, a, y), Con{QB{nd, y, 0, bd}, Nil{}})
+    case False{}:
+      keqc_qb(hit, a, nd, y, dep, bd, tail)
+
+def keqc_qa(pr: Array<T.Ex> & U32, nd: T.Ex, +y: U32, +dep: U32, +bd: U32,
+            tail: List<&2, QI>) -> (Array<T.Ex> & T.Ex) & List<&2, QI>:
+  match pr:
+    case Tuple{a, c}:
+      +c2 : U32 = c
+      keqc_qd(U32.is_eq(c2, 2), U32.is_eq(c2, 1), a, nd, y, dep, bd, tail)
+
+# Lean's is_equiv_core merges EVERY pair it proves equal (union-find over
+# the expressions), so a later check meeting one of those subterm pairs
+# inside a new root stops there. A closed subterm pair (no loose bound
+# variable: valid under any context) is looked up in the exact success
+# cache (kyc, context hash 0) instead of hashed for the lift-aware table,
+# and when the whole walk answers YES every closed pair it visited is
+# recorded there. Without it navier's meanAcceleration_translation_contDiff
+# ran ~200 all-YES walks a second over the same instance subterms (distinct
+# roots, shared children), most of its time in the walk's hashing
+def kyc_hit2b(pr: Array<T.Ex> & Bool, +base: U32, +x: U32,
+              +y: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, True{}}:
+      (a, True{})
+    case Tuple{a, False{}}:
+      kyc_hit(a, base, y, x, 0)
+
+def kyc_hit2(a: Array<T.Ex>, +base: U32, +x: U32, +y: U32) -> Array<T.Ex> & Bool:
+  kyc_hit2b(kyc_hit(a, base, x, y, 0), base, x, y)
+
+def keqc_rec_go(rc: List<&2, U32>, a: Array<T.Ex>, +base: U32) -> Array<T.Ex>:
+  match rc:
+    case Nil{}:
+      a
+    case Con{x, Con{y, t}}:
+      keqc_rec_go(t, kyc_set(True{}, a, base, x, y, 0), base)
+    case Con{x, Nil{}}:
+      a
+
+def keqc_rec(+go: Bool, a: Array<T.Ex>, +base: U32,
+             rc: List<&2, U32>) -> Array<T.Ex>:
+  match go:
+    case True{}:
+      keqc_rec_go(rc, a, base)
+    case False{}:
+      a
+
+def keqc_qc4(pr: Array<T.Ex> & Bool, nd: T.Ex, +x: U32, +y: U32, +dep: U32,
+             +bd: U32, tail: List<&2, QI>,
+             rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
   match pr:
     case Tuple{a, True{}}:
       +t2 : List<&2, QI> = tail
-      (Array.get(T.Ex, a, keq_next(t2)), t2)
+      ((Array.get(T.Ex, a, keq_next(t2)), t2), rc)
     case Tuple{a, False{}}:
-      (Array.get(T.Ex, a, y), Con{QB{nd, y, dep, bd}, tail})
+      ((Array.get(T.Ex, a, y), Con{QB{nd, y, dep, bd}, tail}), Con{x, Con{y, rc}})
+
+def keqc_qc3(+cl: Bool, a: Array<T.Ex>, nd: T.Ex, +x: U32, +y: U32,
+             +dep: U32, +bd: U32, tail: List<&2, QI>, +base: U32,
+             +C: List<&2, U32>, +L: U32,
+             rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
+  match cl:
+    case True{}:
+      keqc_qc4(kyc_hit2(a, base, x, y), nd, x, y, dep, bd, tail, rc)
+    case False{}:
+      (keqc_qa(keqv_hit(a, base, x, y, bd, C, L), nd, y, dep, bd, tail), rc)
+
+def keqc_qc2(pr: Array<T.Ex> & U32, +lx: U32, nd: T.Ex, +x: U32, +y: U32,
+             +dep: U32, +bd: U32, tail: List<&2, QI>, +base: U32,
+             +C: List<&2, U32>, +L: U32,
+             rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
+  match pr:
+    case Tuple{a, ly}:
+      keqc_qc3(U32.is_eq(lx, 0) && U32.is_eq(ly, 0), a, nd, x, y, dep, bd,
+               tail, base, C, L, rc)
+
+def keqc_qc(pr: Array<T.Ex> & U32, nd: T.Ex, +x: U32, +y: U32, +dep: U32,
+            +bd: U32, tail: List<&2, QI>, +base: U32, +C: List<&2, U32>,
+            +L: U32,
+            rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
+  match pr:
+    case Tuple{a, lx}:
+      keqc_qc2(klb_get(a, y, khalf(base)), lx, nd, x, y, dep, bd, tail, base,
+               C, L, rc)
+
+# a pair already met in THIS walk: the walk stops at the first pair that
+# is not YES, so a revisited pair was either proved or is still queued
+# (its children pending: the final YES covers them) -- skip it, as Lean's
+# is_equiv_core finds a merged pair at once. Terms are hash-consed DAGs:
+# without it the walk ran them as trees (navier's
+# meanAcceleration_translation_contDiff: walks of 1.5M steps, 293M steps
+# in 8,265 lazy-loop quick checks, 469 of them YES)
+def keqc_qv(+seen: Bool, a: Array<T.Ex>, nd: T.Ex, +x: U32, +y: U32,
+            +dep: U32, +bd: U32, tail: List<&2, QI>, +base: U32,
+            +C: List<&2, U32>, +L: U32,
+            rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
+  match seen:
+    case True{}:
+      +t2 : List<&2, QI> = tail
+      ((Array.get(T.Ex, a, keq_next(t2)), t2), rc)
+    case False{}:
+      keqc_qc(klb_get(a, x, khalf(base)), nd, x, y, dep, bd, tail, base, C, L,
+              rc)
 
 def keqc_go(fuel: Nat, +lnt: R.Tr<L.LN>,
-            st: (Array<T.Ex> & T.Ex) & List<&2, QI>, +acc: L.Tri, +nx: U32,
-            +base: U32, +C: List<&2, U32>,
-            +L: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+            st: ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>,
+            +acc: L.Tri, +nx: U32, +base: U32, +C: List<&2, U32>,
+            +L: U32, +vis: R.Tr<U32>,
+            +cnt: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fuel st:
-    case 0n Tuple{Tuple{a, nd}, wl}:
+    case 0n Tuple{Tuple{Tuple{a, nd}, wl}, rc}:
       (((a, nx), MTri{L.TUnk{}}), 0)
-    case 1n+p Tuple{Tuple{a, nd}, Nil{}}:
-      (((a, nx), MTri{acc}), 0)
-    case 1n+p Tuple{Tuple{a, nd}, Con{QA{x, y, dep, bd}, tail}}:
+    case 1n+p Tuple{Tuple{Tuple{a, nd}, Nil{}}, rc}:
+      +a2 : L.Tri = acc
+      (((keqc_rec(L.tri_is_yes(a2), a, base, rc), nx), MTri{a2}), 0)
+    case 1n+p Tuple{Tuple{Tuple{a, nd}, Con{QA{x, y, dep, bd}, tail}}, rc}:
+      +x2 : U32 = x
       +y2 : U32 = y
       +b2 : U32 = bd
-      keqc_go(p, lnt, keqc_qa(keqv_hit(a, base, x, y2, b2, C, L), nd, y2, dep,
-                              b2, tail),
-              acc, nx, base, C, L)
-    case 1n+p Tuple{Tuple{a, nd}, Con{QB{an, y, dep, bd}, tail}}:
+      +v2 : R.Tr<U32> = vis
+      # the set only once a walk is long: most walks are a few pairs
+      +lg : Bool = U32.is_ge(cnt, 64)
+      +seen : Bool = lg && U32.is_eq(R.get(U32, 64n, v2, x2, 4294967295), y2)
+      keqc_go(p, lnt, keqc_qv(seen, a, nd, x2, y2, dep, b2, tail, base, C, L,
+                              rc),
+              acc, nx, base, C, L, R.set_if(U32, lg && Bool.not(seen), v2, x2,
+                                            y2, 4294967295), (cnt + 1 : U32))
+    case 1n+p Tuple{Tuple{Tuple{a, nd}, Con{QB{an, y, dep, bd}, tail}}, rc}:
       +r : QR = keq_cmp0(dep, bd, an, nd, lnt)
       +t2 : L.Tri = I.tri_and(acc, qr_t(r))
       +w : List<&2, QI> = pick_qis(L.tri_is_yes(t2),
                                    List.append(&2, QI, qr_kids(r), tail),
                                    Nil{})
-      keqc_go(p, lnt, (Array.get(T.Ex, a, keq_next(w)), w), t2, nx, base, C, L)
+      keqc_go(p, lnt, ((Array.get(T.Ex, a, keq_next(w)), w), rc), t2, nx, base,
+              C, L, vis, (cnt + 1 : U32))
 
 def keqc_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lnt: R.Tr<L.LN>,
              +base: U32, +C: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -4997,8 +5164,8 @@ def keqc_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lnt: R.Tr<L.LN>,
     case Tuple{ex, nx}:
       +r : QR = kq1(x, y, 256, 0, L.TYes{}, Nil{})
       +wl : List<&2, QI> = qr_kids(r)
-      keqc_go(100000000n, lnt, (Array.get(T.Ex, ex, keq_next(wl)), wl), qr_t(r),
-              nx, base, C, I.len_u(C, 0))
+      keqc_go(100000000n, lnt, ((Array.get(T.Ex, ex, keq_next(wl)), wl), Nil{}),
+              qr_t(r), nx, base, C, I.len_u(C, 0), R.TNil{}, 0)
 
 def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
   match n xs:
