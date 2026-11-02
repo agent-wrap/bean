@@ -1,0 +1,23 @@
+324c324
+<       dfold(M.fck_typed(1000000000n, (ex, nx), I.is_lnt(st),
+---
+>       dfold(M.fck_typed(Nat.mul(4294967295n, 64n), (ex, nx), I.is_lnt(st),
+337a338,347
+> 
+> def fck_sel_d(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+>             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+>             +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
+>             fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+>   match go:
+>     case True{}:
+>       fck_one_d(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt, fs)
+>     case False{}:
+>       done(fs, 0)
+354c364
+<               fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
+---
+>               fck_sel_d(U32.is_eq(i, 22918), st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
+376c386
+<                                        I.is_qt(st, 18), I.is_qt(st, 19)], R.TNil{}, R.TNil{}, 0, 0, 1),
+---
+>                                        I.is_qt(st, 18), I.is_qt(st, 19)], R.TNil{}, R.TNil{}, 0, 22918, 100000),
