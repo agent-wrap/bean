@@ -1223,7 +1223,7 @@ def dec_add_r(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>, +c: U32,
                 Con{((sm % 10 : U32) + 48 : U32), acc})
 
 def dec_add(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
-  dec_add_r(256n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{})
+  dec_add_r(2048n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{})
 
 # `a - b`, least-significant-first, with a borrow. Only called when b <= a.
 def dec_sub_r(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>, +bo: U32,
@@ -1270,15 +1270,15 @@ def dec_lex(fuel: Nat, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
       False{}
 
 def dec_le(+a: List<&2, U32>, +b: List<&2, U32>) -> Bool:
-  +sa = dec_strip(256n, a)
-  +sb = dec_strip(256n, b)
+  +sa = dec_strip(2048n, a)
+  +sb = dec_strip(2048n, b)
   +la = len_u(sa, 0)
   +lb = len_u(sb, 0)
-  U32.is_lt(la, lb) || (U32.is_eq(la, lb) && dec_lex(256n, sa, sb))
+  U32.is_lt(la, lb) || (U32.is_eq(la, lb) && dec_lex(2048n, sa, sb))
 
 def dec_sub(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
   S.pick_l(dec_le(b, a),
-           dec_sub_r(256n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{}),
+           dec_sub_r(2048n, rev_u(a, Nil{}), rev_u(b, Nil{}), 0, Nil{}),
            [48])
 
 # --- the rest of Lean's literal accelerator: mul, pow, div, mod, beq ------
@@ -1291,7 +1291,7 @@ def dec_sub(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
 
 # strip leading zeros; zero is "0"
 def dec_norm(+a: List<&2, U32>) -> List<&2, U32>:
-  +sd = dec_strip(256n, a)
+  +sd = dec_strip(2048n, a)
   S.pick_l(U32.is_eq(len_u(sd, 0), 0), [48], sd)
 
 # xs (least-significant first) times one digit d, plus carry c; the result
@@ -1310,7 +1310,7 @@ def dec_mul_d(fuel: Nat, xs: List<&2, U32>, +d: U32, +c: U32,
                 Con{((pr % 10 : U32) + 48 : U32), acc})
 
 def dec_mul_small(+b: List<&2, U32>, +k: U32) -> List<&2, U32>:
-  dec_mul_d(256n, rev_u(b, Nil{}), k, 0, Nil{})
+  dec_mul_d(2048n, rev_u(b, Nil{}), k, 0, Nil{})
 
 # schoolbook: for each digit y of b (most significant first),
 # acc := acc * 10 + a * y
@@ -1327,7 +1327,7 @@ def dec_mul_r(fuel: Nat, +a: List<&2, U32>, ys: List<&2, U32>,
                         dec_mul_small(a, (y - 48 : U32))))
 
 def dec_mul(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
-  dec_norm(dec_mul_r(256n, a, b, [48]))
+  dec_norm(dec_mul_r(2048n, a, b, [48]))
 
 # a ^ e by square-and-multiply over e's bits (least significant first)
 def dec_pow_r(bits: List<&2, U32>, +base: List<&2, U32>,
@@ -1397,30 +1397,34 @@ def dm_snd(pr: List<&2, U32> & List<&2, U32>) -> List<&2, U32>:
 
 # Lean: n / 0 = 0 and n % 0 = n
 def dec_div(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
-  S.pick_l(U32.is_eq(len_u(dec_strip(256n, b), 0), 0), [48],
-           dec_norm(dm_fst(dec_dm_r(256n, dec_norm(a), dec_norm(b), Nil{},
+  S.pick_l(U32.is_eq(len_u(dec_strip(2048n, b), 0), 0), [48],
+           dec_norm(dm_fst(dec_dm_r(2048n, dec_norm(a), dec_norm(b), Nil{},
                                     [48]))))
 
 def dec_mod(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
-  S.pick_l(U32.is_eq(len_u(dec_strip(256n, b), 0), 0), dec_norm(a),
-           dec_norm(dm_snd(dec_dm_r(256n, dec_norm(a), dec_norm(b), Nil{},
+  S.pick_l(U32.is_eq(len_u(dec_strip(2048n, b), 0), 0), dec_norm(a),
+           dec_norm(dm_snd(dec_dm_r(2048n, dec_norm(a), dec_norm(b), Nil{},
                                     [48]))))
 
 def dec_eq(+a: List<&2, U32>, +b: List<&2, U32>) -> Bool:
   eq_u32s(dec_norm(a), dec_norm(b))
 
 # may operation aw (0 add, 1 sub, 2 ble, 3 mul, 4 pow, 5 div, 6 mod, 7 beq)
-# be computed here without exceeding the 256-digit bound?
+# be computed here without exceeding the digit bound? The decimal routines
+# run 2048 digits, the bitwise ones 4096 bits (~1233 digits): results stay
+# within 1200 digits. (200 refused a 165 x 171-digit product -- navier's
+# tailBase_polynomial_bound -- which then unfolded Nat.mul structurally on
+# a 171-digit literal until the store overflowed; Lean multiplies it by GMP)
 def lit_ok(+aw: U32, +da: List<&2, U32>, +db: List<&2, U32>) -> Bool:
   +la : U32 = len_u(dec_norm(da), 0)
   +lb : U32 = len_u(dec_norm(db), 0)
-  S.pick_b(U32.is_eq(aw, 3), U32.is_le((la + lb : U32), 200),
+  S.pick_b(U32.is_eq(aw, 3), U32.is_le((la + lb : U32), 1200),
    S.pick_b(U32.is_eq(aw, 4),
-            U32.is_le(lb, 4) && U32.is_le((la * dec_u32(dec_norm(db), 0) : U32), 90),
-    # shifts: the shift count stays small (2^k is computed), results <= 200 digits
+            U32.is_le(lb, 4) && U32.is_le((la * dec_u32(dec_norm(db), 0) : U32), 1200),
+    # shifts: the shift count stays small (2^k is computed), results <= 1200 digits
     S.pick_b(U32.is_eq(aw, 11) || U32.is_eq(aw, 12),
-             U32.is_le(lb, 4) && U32.is_le((la + (dec_u32(dec_norm(db), 0) / 3 : U32) : U32), 200),
-             U32.is_le(la, 200) && U32.is_le(lb, 200))))
+             U32.is_le(lb, 4) && U32.is_le((la + (dec_u32(dec_norm(db), 0) / 3 : U32) : U32), 1200),
+             U32.is_le(la, 1200) && U32.is_le(lb, 1200))))
 
 # --- literals against numerals -------------------------------------------
 # `ENat 3` and `Nat.succ (Nat.succ (Nat.succ Nat.zero))` are the same number
