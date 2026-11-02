@@ -5753,6 +5753,19 @@ def ktail(xs: List<&2, U32>) -> List<&2, U32>:
 def kslev(+e: U32, +ctx: List<&2, U32>, +fu: U32) -> KF:
   pick_kf(U32.is_eq(fu, 0), SLUn{}, SLEv{e, ctx, fu})
 
+# the field type's sort level, needed only when the structure may be a
+# Prop (pr) or a dependent field is known to be a proof (ppx): Lean's
+# infer_proj checks fields only when `maybePropType`. Computed for every
+# projection, the level inferred the field type's type -- itself full of
+# projections -- nesting ten deep (std blastAdd.go_denote_eq: stacks of
+# 380 inference frames, IPj10 -> SLX1 -> DTyF3 repeated)
+def kipj_lev(+need: Bool, +f2: U32, +c2: List<&2, U32>, tail: KS) -> KS:
+  match need:
+    case True{}:
+      KCon{kslev(f2, c2, 2000000), KCon{SLX0{f2, c2}, tail}}
+    case False{}:
+      KCon{SLUn{}, tail}
+
 # answer an inference result
 def kmir(fs: Array<T.Ex> & U32, +ty: U32,
          +ok: Bool) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -10890,9 +10903,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +fldty : U32 = I.all_dom(nd2)
       +f2 : U32 = fldty
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{kslev(f2, c2, 2000000), KCon{SLX0{f2, c2},
-                 KCon{IPj10{ok, U32.is_ne(p2, 4294967295),
-                            I.is_all(nd2), ppx, ppd, pr, idx, rs, f2}, k}}},
+      +px3 : U32 = ppx
+      +pr3 : U32 = pr
+      km(p, kipj_lev(U32.is_ne(pr3, 0) || U32.is_ne(px3, 4294967295), f2, c2,
+                     KCon{IPj10{ok, U32.is_ne(p2, 4294967295),
+                                I.is_all(nd2), px3, ppd, pr3, idx, rs, f2}, k}),
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, f2, ri))
     case 1n+p KCon{IPj10{ok, ptok, isall, ppx, ppd, pr, idx, rs, fldty}, k}
          Tuple{Tuple{fs, MLn{u}}, ri}:
