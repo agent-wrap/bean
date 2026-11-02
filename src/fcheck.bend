@@ -266,6 +266,28 @@ def fck_isdec(+v: C.V) -> Bool:
     case _:
       False{}
 
+def fck_isacc(+v: C.V) -> Bool:
+  match v:
+    case C.VAccept{}:
+      True{}
+    case _:
+      False{}
+
+# the cheap and capped passes are not complete: a NO there (a cheap
+# projection left a pair apart that the full pass equates) is not final.
+# Any non-accept retries in the next pass; only the full pass rejects.
+# (navier's nat_square_le_two_pow and Finset.sum_schlomilch_le were
+# rejected by the cheap pass, accepted by the full one)
+def fck_retry_na(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                 +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+                 +d: K.Dcl, +basenx: U32, +natn: U32, +q2: R.Tr<U32>,
+                 r: (Array<T.Ex> & U32) & C.V) -> (Array<T.Ex> & U32) & C.V:
+  match r:
+    case Tuple{fs, v}:
+      +v2 : C.V = v
+      fck_retry2(Bool.not(fck_isacc(v2)), st, mt, nt, lp, vt, nmt, d, basenx,
+                 natn, q2, (fs, v2))
+
 def fck_retry(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
               +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
               +d: K.Dcl, +basenx: U32, +natn: U32, +q2: R.Tr<U32>,
@@ -282,8 +304,8 @@ def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & C.V:
   match go:
     case True{}:
-      fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt,
-        fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn,
+      fck_retry_na(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt,
+        fck_retry_na(st, mt, nt, lp, vt, nmt, d, basenx, natn,
                   R.set(U32, 64n, qtt, 4000000000, 2, 4294967295),
           fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn,
                   R.set(U32, 64n, qtt, 4000000000, 1, 4294967295), fs)))
