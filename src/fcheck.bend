@@ -150,12 +150,24 @@ def posit_if(+v: C.V, +items: List<&2, K.IItem>, +nms: List<&2, U32>,
     case _:
       (fs, v)
 
-def fck_fuel(+cheap: Bool) -> Nat:
+# fuel per pass mode: the cheap-projection pass (1) first on 2^30 steps,
+# the capped full pass (2) on 2^32, the full pass (absent) on 2^32 * 64
+def fck_fuel2(+cheap: Bool) -> Nat:
   match cheap:
     case True{}:
-      4294967295n
-    case False{}:
       Nat.mul(4294967295n, 64n)
+    case False{}:
+      4294967295n
+
+def fck_fuel3(+full: Bool, +cheap: Bool) -> Nat:
+  match full:
+    case True{}:
+      Nat.mul(4294967295n, 64n)
+    case False{}:
+      fck_fuel2(cheap)
+
+def fck_fuel(+mode: U32) -> Nat:
+  fck_fuel3(U32.is_eq(mode, 0), U32.is_eq(mode, 1))
 
 def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
             +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
@@ -181,8 +193,7 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       # 0..2 to a reject)
       # fck_sel's first two passes run on 2^32 steps (~2 min); a
       # declaration they cannot settle declines into the next pass
-      fck_fold(M.fck_typed(fck_fuel(U32.is_ne(R.get(U32, 64n, qtt, 4000000000,
-                                                    0), 0)),
+      fck_fold(M.fck_typed(fck_fuel(R.get(U32, 64n, qtt, 4000000000, 0)),
                            (ex, nx), I.is_lnt(st),
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
@@ -273,9 +284,9 @@ def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case True{}:
       fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt,
         fck_retry(st, mt, nt, lp, vt, nmt, d, basenx, natn,
-                  R.set(U32, 64n, qtt, 4000000000, 1, 4294967295),
+                  R.set(U32, 64n, qtt, 4000000000, 2, 4294967295),
           fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn,
-                  R.set(U32, 64n, qtt, 4000000000, 2, 4294967295), fs)))
+                  R.set(U32, 64n, qtt, 4000000000, 1, 4294967295), fs)))
     case False{}:
       (fs, C.VAccept{})
 

@@ -6227,7 +6227,7 @@ def kis_bvar(+x: T.Ex) -> Bool:
 # unfolds there against Lean's 26k -- the cheap pass (1) has 1M, the last
 # full pass (0) the old 8M
 def kmode_bud(+m: U32) -> U32:
-  S.pick(U32.is_eq(m, 1), 1000000, S.pick(U32.is_eq(m, 2), 300000, 8000000))
+  S.pick(U32.is_eq(m, 1), 50000, S.pick(U32.is_eq(m, 2), 300000, 8000000))
 
 def kunf(+h: T.Ex, +vt: R.Tr<U32>) -> Bool:
   +n : U32 = kcn(h)
