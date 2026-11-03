@@ -341,6 +341,98 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
                       (M.kbump_n(ex, basenx, (nx2 - (basenx + M.ktbl(basenx) + 2 : U32) : U32)),
                        (basenx + M.ktbl(basenx) + 2 : U32))))
 
+# ---- dynamic sharing --------------------------------------------------
+# With a claim directory (fmain's fourth argument) every worker walks all
+# declarations -- entering each in the tables, as a trusted one -- and
+# checks a chunk only if it claimed it first (fmain: a claim file per
+# chunk). A chunk is skipped only when another worker claimed it, and that
+# worker's verdict (or crash) counts in the wrapper's join; a race leaves a
+# chunk checked twice, never unchecked. A worker stuck on one heavy
+# declaration falls behind and the others take the chunks after it (cslib:
+# one worker drew tensorTensorTensorComm_eq, 1093 s, on top of its ~1000 s
+# share). FL is fck_all's state between chunks.
+type FL is Type:
+  FL{ds: List<&2, K.Dcl>, st: I.IS, mt: R.Tr<I.Meta>, nt: R.Tr<U32>,
+     lp: R.Tr<List<&2, U32>>, vt: R.Tr<U32>, nmt: R.Tr<T.Nm>, basenx: U32,
+     natn: U32, qtt: R.Tr<U32>, cap: U32, poison: Bool, acc: C.V, ix: U32,
+     fr: (Array<T.Ex> & U32) & C.V}
+
+# an inductive block's derivation (recursors, nested translation) runs only
+# in its OWNER, worker ix mod wn (C.build_meta2), and its verdict surfaces
+# when the declaration is checked: so the owner checks it whoever claimed
+# the chunk (bugs/rec-missing-ih was accepted when another worker took it)
+def fck_isind(+d: K.Dcl) -> Bool:
+  match d:
+    case K.DInd{nms, items}:
+      True{}
+    case _:
+      False{}
+
+def fck_dsel(+isind: Bool, +go: Bool, +ix: U32, +wk: U32, +wn: U32) -> Bool:
+  match isind:
+    case True{}:
+      U32.is_eq(U32.mod(ix, wn), wk)
+    case False{}:
+      go
+
+# the next n declarations, checked when go (and in krange), else trusted
+def fck_chunk(n: Nat, +go: Bool, +wk: U32, +wn: U32, s: FL) -> FL:
+  match n s:
+    case 0n FL{ds, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison,
+               acc, ix, fr}:
+      FL{ds, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison, acc,
+         ix, fr}
+    case 1n+p FL{Nil{}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap,
+                 poison, acc, ix, fr}:
+      FL{Nil{}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison, acc,
+         ix, fr}
+    case 1n+p FL{Con{head, tail}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt,
+                 cap, poison, acc, ix, Tuple{Tuple{ex, nx}, v}}:
+      +h = head
+      +nx2 : U32 = nx
+      +cp : U32 = cap
+      +p2 : Bool = U32.is_ge(nx2, cp)
+      +ix2 : U32 = ix
+      +g2 : Bool = go
+      +st2 : I.IS = st
+      +mt2 : R.Tr<I.Meta> = mt
+      +nt2 : R.Tr<U32> = nt
+      +lp2 : R.Tr<List<&2, U32>> = lp
+      +vt2 : R.Tr<U32> = vt
+      +nm2 : R.Tr<T.Nm> = nmt
+      +bn : U32 = basenx
+      +na : U32 = natn
+      +q2 : R.Tr<U32> = qtt
+      fck_chunk(p, g2, wk, wn,
+        FL{tail, st2, mt2, B.add_nt(h, nt2), B.add_lp(h, lp2), B.add_vt(h, vt2),
+           nm2, bn, na, q2, cp, p2,
+           C.comb(acc, ovf_v(S.pick(p2, 4294967295, nx2), cp, v)),
+           (ix2 + 1 : U32),
+           fck_sel(fck_dsel(fck_isind(h), g2, ix2, wk, wn)
+                   && U32.is_ge(ix2, krange_lo())
+                   && U32.is_lt(ix2, krange_hi()),
+                   st2, mt2, nt2, lp2, vt2, nm2, h, bn, na, q2,
+                   (M.kbump_n(ex, bn,
+                              (nx2 - (bn + M.ktbl(bn) + 2 : U32) : U32)),
+                    (bn + M.ktbl(bn) + 2 : U32)))})
+
+def fl_more(s: FL) -> FL & Bool:
+  match s:
+    case FL{Nil{}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison,
+            acc, ix, fr}:
+      (FL{Nil{}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison, acc,
+          ix, fr}, False{})
+    case FL{Con{head, tail}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap,
+            poison, acc, ix, fr}:
+      (FL{Con{head, tail}, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap,
+          poison, acc, ix, fr}, True{})
+
+def fl_fin(s: FL) -> C.V:
+  match s:
+    case FL{ds, st, mt, nt, lp, vt, nmt, basenx, natn, qtt, cap, poison, acc,
+            ix, Tuple{Tuple{ex, nx}, v}}:
+      C.comb(acc, ovf_v(S.pick(poison, 4294967295, nx), cap, v))
+
 # ---- load: the independent tables in parallel ---------------------------
 # Every table below reads the record list and nothing else, so they are
 # built as a balanced tree of parallel calls (Bend's `a b = f(x) g(y)`):
@@ -469,3 +561,33 @@ def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
   ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
   fj_go(ds, nex, nx, ab, cd, wid, wcnt)
+
+# the dynamic-sharing variants: the load as above, the loop state returned
+def fj_fin2(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
+            +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32, +natn: U32,
+            +qtt: R.Tr<U32>, arr: Array<T.Ex>) -> FL:
+  match mv:
+    case Tuple{mt, sv}:
+      FL{ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{}, nmt, nx, natn, qtt,
+         kpow2(M.sdepth(nx)), False{}, C.comb(pre, sv), 0,
+         ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})}
+
+def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
+           ab: Array<T.Ex> & R.Tr<T.Ex>,
+           cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
+           +wid: U32, +wcnt: U32) -> FL:
+  match ab cd:
+    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+      +wk2 : R.Tr<U32> = wk
+      +ex2 : R.Tr<T.Ex> = ex
+      +q2 : R.Tr<U32> = qtt
+      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
+      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
+      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
+      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre, ds, st, nmt,
+              nx, natn, q2, arr)
+
+def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
+            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
+  ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
+  fj_go2(ds, nex, nx, ab, cd, wid, wcnt)

@@ -45,8 +45,15 @@ else TMP=$(mktemp -d); CLEAN=1; fi
 PIDS=()
 trap 'kill "${PIDS[@]}" 2>/dev/null; (( CLEAN )) && /bin/rm -rf "$TMP"' EXIT
 echo "workers=$N bin=$BIN" >"$TMP/run.txt"
+# dynamic sharing (FBEAN_DYN=0 turns it off): the workers claim chunks of
+# 256 declarations through files in CL -- each still walks every
+# declaration, and checks the chunks it claimed first (fcheck FC.FL)
+CL=()
+if (( N >= 2 )) && [[ "${FBEAN_DYN:-1}" != "0" ]]; then
+  /bin/rm -rf "$TMP/claims"; mkdir -p "$TMP/claims"; CL=("$TMP/claims")
+fi
 for (( k=0; k<N; k++ )); do
-  ( "$BIN" "$IN" "$k" "$N" >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
+  ( "$BIN" "$IN" "$k" "$N" ${CL[@]+"${CL[@]}"} >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
   PIDS+=($!)
 done
 wait "${PIDS[@]}"

@@ -91,6 +91,17 @@ def judge_recs(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32) -> C.V:
   ab cd = jr_ab(recs) jr_cd(recs)
   jr_go(recs, ab, cd, wk, wn)
 
+def jr_go2(+recs: List<&2, D.Rec>, ab: U32 & U32, cd: List<&2, K.Dcl> & U32,
+           +wk: U32, +wn: U32) -> FC.FL:
+  match ab cd:
+    case Tuple{mex, mlv} Tuple{ds, many}:
+      FC.fjudge2(recs, ds, (mex + 1 : U32), U32.to_nat((mlv + 1 : U32)), 32n,
+                 (many + 1 : U32), wk, wn)
+
+def judge_recs2(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32) -> FC.FL:
+  ab cd = jr_ab(recs) jr_cd(recs)
+  jr_go2(recs, ab, cd, wk, wn)
+
 # a worker index past the count reads as a single worker checking all
 def judge_wk(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32) -> C.V:
   +k2 : U32 = wk
@@ -121,25 +132,30 @@ def arg_u32(m: Maybe<&1, String>, +dflt: U32) -> U32:
     case Some{value}:
       arg_u32_fin(arg_u32_go(value, 0, True{}, False{}), dflt)
 
-# argv[1] the export, argv[2] the worker index, argv[3] the worker count
-def args_of(av: List<&1, String>) -> String & (U32 & U32):
+# argv[1] the export, argv[2] the worker index, argv[3] the worker count,
+# argv[4] (optional) a claim directory: dynamic sharing (FC.FL)
+def args_of(av: List<&1, String>) -> String & ((U32 & U32) & String):
   match av:
     case Nil{}:
-      ("", (0, 1))
+      ("", ((0, 1), ""))
     case Con{a0, r1}:
       match r1:
         case Nil{}:
-          ("", (0, 1))
+          ("", ((0, 1), ""))
         case Con{a1, r2}:
           match r2:
             case Nil{}:
-              (a1, (0, 1))
+              (a1, ((0, 1), ""))
             case Con{a2, r3}:
               match r3:
                 case Nil{}:
-                  (a1, (arg_u32(Some{a2}, 0), 1))
+                  (a1, ((arg_u32(Some{a2}, 0), 1), ""))
                 case Con{a3, r4}:
-                  (a1, (arg_u32(Some{a2}, 0), arg_u32(Some{a3}, 1)))
+                  match r4:
+                    case Nil{}:
+                      (a1, ((arg_u32(Some{a2}, 0), arg_u32(Some{a3}, 1)), ""))
+                    case Con{a4, r5}:
+                      (a1, ((arg_u32(Some{a2}, 0), arg_u32(Some{a3}, 1)), a4))
 
 # Pure: pull the record list out of a threaded decode triple.
 # Pure: pull the record list out of a threaded decode triple.
@@ -281,9 +297,66 @@ def stream(fuel: Nat, +chunk: U32,
           <- File.read_bytes(f, chunk)
         stream(p, chunk, nxt, ingest(bs, st))
 
-def main_go(pw: String & (U32 & U32)) -> IO(Unit):
+# ---- dynamic sharing: claim files, one per chunk of 256 declarations ----
+# (File.open has no exclusive mode: a chunk is claimed when its file does
+# not exist yet; two workers racing both check it -- see FC.FL)
+def opened(r: Result<&1, &1, U32 & String, File>) -> IO(U32):
+  match r:
+    case Fail{error}:
+      IO.pure(U32, 0)
+    case Done{value}:
+      do IO<U32>:
+        u : Unit <- File.close(value)
+        IO.pure(U32, 1)
+
+def try_open(path: String, mode: String) -> IO(U32):
+  do IO<U32>:
+    oh : Result<&1, &1, U32 & String, File> <- File.open(path, mode)
+    opened(oh)
+
+# 1 when this worker created the claim (the file did not exist)
+def claim_go(+have: U32, path: String) -> IO(U32):
+  match have:
+    case 0:
+      try_open(path, "w")
+    case _:
+      IO.pure(U32, 0)
+
+def cpath(+dir: String, +c: U32) -> String:
+  dir ++ "/" ++ U32.show(c)
+
+def dyn_step(fuel: Nat, +dir: String, +c: U32, +wk: U32, +wn: U32,
+             pr: FC.FL & Bool) -> IO(C.V):
+  match fuel pr:
+    case 0n Tuple{s2, m}:
+      IO.pure(C.V, C.VDecline{})
+    case 1n+p Tuple{s2, False{}}:
+      IO.pure(C.V, FC.fl_fin(s2))
+    case 1n+p Tuple{s2, True{}}:
+      do IO<C.V>:
+        h : U32 <- try_open(cpath(dir, c), "r")
+        w : U32 <- claim_go(h, cpath(dir, c))
+        dyn_step(p, dir, (c + 1 : U32), wk, wn,
+                 FC.fl_more(FC.fck_chunk(256n, U32.is_eq(w, 1), wk, wn, s2)))
+
+def run_dyn(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32,
+            +dir: String) -> IO(Unit):
+  do IO<Unit>:
+    v : C.V <- dyn_step(4194304n, dir, 0, wk, wn,
+                        FC.fl_more(judge_recs2(recs, wk, wn)))
+    finish(v)
+
+def run_pick(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32,
+             dir: String) -> IO(Unit):
+  match dir:
+    case SNil{}:
+      finish(judge_wk(recs, wk, wn))
+    case SCon{head, tail}:
+      run_dyn(recs, wk, wn, SCon{head, tail})
+
+def main_go(pw: String & ((U32 & U32) & String)) -> IO(Unit):
   match pw:
-    case Tuple{path, Tuple{wk, wn}}:
+    case Tuple{path, Tuple{Tuple{wk, wn}, dir}}:
       do IO<Unit>:
         oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
         f : File <- open_or_fail(oh)
@@ -291,7 +364,7 @@ def main_go(pw: String & (U32 & U32)) -> IO(Unit):
           <- File.read_bytes(f, 4194304)
         recs : List<&2, D.Rec> <- stream(2400n, 4194304, pr,
           Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Nil{}}}})
-        finish(judge_wk(recs, wk, wn))
+        run_pick(recs, wk, wn, dir)
 
 def main() -> IO(Unit):
   do IO<Unit>:
