@@ -71,11 +71,25 @@ def not_empty(xs: List<&2, U32>) -> Bool:
 # decline -> decline, else accept) is the sequential verdict, in the wall
 # time of the slowest share -- the arena's limits are wall-clock, and the
 # kernel checks one declaration at a time.
+# the four whole-list scans as a parallel pair of parallel pairs
+def jr_ab(+recs: List<&2, D.Rec>) -> U32 & U32:
+  a b = K.max_ex_ix(recs, 0) K.max_lvl_ix(recs, 0)
+  (a, b)
+
+def jr_cd(+recs: List<&2, D.Rec>) -> List<&2, K.Dcl> & U32:
+  c d = K.decls_of(recs, Nil{}) K.max_any_ix(recs, 0)
+  (c, d)
+
+def jr_go(+recs: List<&2, D.Rec>, ab: U32 & U32, cd: List<&2, K.Dcl> & U32,
+          +wk: U32, +wn: U32) -> C.V:
+  match ab cd:
+    case Tuple{mex, mlv} Tuple{ds, many}:
+      FC.fjudge(recs, ds, (mex + 1 : U32), U32.to_nat((mlv + 1 : U32)), 32n,
+                (many + 1 : U32), wk, wn)
+
 def judge_recs(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32) -> C.V:
-  +nex = U32.to_nat((K.max_ex_ix(recs, 0) + 1 : U32))
-  +nlv = U32.to_nat((K.max_lvl_ix(recs, 0) + 1 : U32))
-  FC.fjudge(recs, K.decls_of(recs, Nil{}), nex, nlv, 32n,
-          (K.max_any_ix(recs, 0) + 1 : U32), wk, wn)
+  ab cd = jr_ab(recs) jr_cd(recs)
+  jr_go(recs, ab, cd, wk, wn)
 
 # a worker index past the count reads as a single worker checking all
 def judge_wk(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32) -> C.V:
@@ -128,35 +142,144 @@ def args_of(av: List<&1, String>) -> String & (U32 & U32):
                   (a1, (arg_u32(Some{a2}, 0), arg_u32(Some{a3}, 1)))
 
 # Pure: pull the record list out of a threaded decode triple.
+# Pure: pull the record list out of a threaded decode triple.
 def trip_out(trip: S.Sc & D.Acc & List<&2, D.Rec>) -> List<&2, D.Rec>:
   match trip:
     case Tuple{st, Tuple{acc, out}}:
       out
 
-# Single self-recursive streaming reader, after bench/probe.bend's `drain`:
-# the read-pair `pr` and the carried decode triple are PARAMETERS, so every
-# match is on a field scrutinee and nothing is mutually recursive. Each step
-# pulls one chunk, folds its bytes into the triple with `decode_resume` (an
-# empty chunk folds to a no-op, so reads past EOF are harmless), drops the
-# bytes, and reads the next chunk. `fuel` (1200 * 8 MB = 9.4 GB) bounds the
-# step count; the file is consumed well before it, and the remaining steps are
-# cheap empty reads. One chunk of bytes lives at a time -- no read-size cap,
-# nothing to truncate, so no truncation guard.
+# ---- parallel decoding --------------------------------------------------
+# The decoder's state resets at every newline (Sc.start, Acc.start) and a
+# record is emitted there, so a run of COMPLETE lines decodes the same alone
+# as inside the stream. Each chunk read is cut at its last newline (the
+# remainder carries into the next chunk); every 16 chunks are decoded as a
+# balanced tree of parallel calls and their records joined in stream order
+# (newest first, as the sequential reader built them). A last line with no
+# newline emits no record, as before.
+
+def rev_onto(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      rev_onto(tail, Con{head, acc})
+
+# rb is a chunk reversed: pop bytes until a newline (they are the remainder,
+# collected back in file order); what is left, from that newline on, is the
+# complete part, still reversed
+def nl_drop2(+isnl: Bool, +h: U32, t: List<&2, U32>,
+             tail: List<&2, U32>) -> List<&2, U32> & List<&2, U32>:
+  match isnl:
+    case True{}:
+      (Con{h, t}, tail)
+    case False{}:
+      (t, Con{h, tail})
+
+def nl_drop(fuel: Nat, +done: Bool,
+            st: List<&2, U32> & List<&2, U32>) -> List<&2, U32> & List<&2, U32>:
+  match fuel done st:
+    case 0n _ _:
+      st
+    case 1n+p True{} _:
+      st
+    case 1n+p False{} Tuple{Nil{}, tail}:
+      (Nil{}, tail)
+    case 1n+p False{} Tuple{Con{h, t}, tail}:
+      +h2 : U32 = h
+      +nl : Bool = U32.is_eq(h2, 10)
+      nl_drop(p, nl, nl_drop2(nl, h2, t, tail))
+
+def split_fin(pr: List<&2, U32> & List<&2, U32>) -> List<&2, U32> & List<&2, U32>:
+  match pr:
+    case Tuple{revcomp, tail}:
+      (rev_onto(revcomp, Nil{}), tail)
+
+# (complete lines, remainder) of carry ++ bs
+def split_nl(carry: List<&2, U32>, bs: List<&2, U32>) -> List<&2, U32> & List<&2, U32>:
+  split_fin(nl_drop(16777216n, False{}, (rev_onto(bs, rev_onto(carry, Nil{})), Nil{})))
+
+def dec_chunk(bs: List<&2, U32>) -> List<&2, D.Rec>:
+  trip_out(D.decode_resume(bs, S.Sc.start(), D.Acc.start(), Nil{}))
+
+def app_recs(xs: List<&2, D.Rec>, ys: List<&2, D.Rec>) -> List<&2, D.Rec>:
+  List.append(&2, D.Rec, xs, ys)
+
+# chunks newest first -> their records newest first
+def dec_seq(cs: List<&2, List<&2, U32>>) -> List<&2, D.Rec>:
+  match cs:
+    case Nil{}:
+      Nil{}
+    case Con{c, t}:
+      app_recs(dec_chunk(c), dec_seq(t))
+
+def take_cs(n: Nat, +cs: List<&2, List<&2, U32>>) -> List<&2, List<&2, U32>>:
+  match n cs:
+    case 0n _:
+      Nil{}
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{c, t}:
+      Con{c, take_cs(p, t)}
+
+def drop_cs(n: Nat, +cs: List<&2, List<&2, U32>>) -> List<&2, List<&2, U32>>:
+  match n cs:
+    case 0n _:
+      cs
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{c, t}:
+      drop_cs(p, t)
+
+# depth-d balanced parallel decode of n chunks (newest first)
+def pdec(d: Nat, +cs: List<&2, List<&2, U32>>, +n: U32) -> List<&2, D.Rec>:
+  match d:
+    case 0n:
+      dec_seq(cs)
+    case 1n+p:
+      +q = p
+      +h : U32 = (n / 2 : U32)
+      a b = pdec(q, take_cs(U32.to_nat(h), cs), h) pdec(q, drop_cs(U32.to_nat(h), cs), (n - h : U32))
+      app_recs(a, b)
+
+# the stream state: (remainder, (chunks newest first, (count, records)))
+def ingest2(+full: Bool, pr: List<&2, U32> & List<&2, U32>,
+            parts: List<&2, List<&2, U32>>, +np: U32,
+            out: List<&2, D.Rec>) -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & List<&2, D.Rec>)):
+  match full pr:
+    case True{} Tuple{comp, tail}:
+      (tail, (Nil{}, (0, app_recs(pdec(4n, Con{comp, parts}, (np + 1 : U32)), out))))
+    case False{} Tuple{comp, tail}:
+      (tail, (Con{comp, parts}, ((np + 1 : U32), out)))
+
+def ingest(bs: List<&2, U32>,
+           st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & List<&2, D.Rec>))) -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & List<&2, D.Rec>)):
+  match st:
+    case Tuple{carry, Tuple{parts, Tuple{np, out}}}:
+      +n2 : U32 = np
+      ingest2(U32.is_ge((n2 + 1 : U32), 16), split_nl(carry, bs), parts, n2,
+              out)
+
+def flush_st(st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & List<&2, D.Rec>))) -> List<&2, D.Rec>:
+  match st:
+    case Tuple{carry, Tuple{parts, Tuple{np, out}}}:
+      +n2 : U32 = np
+      app_recs(pdec(4n, parts, n2), out)
+
 def stream(fuel: Nat, +chunk: U32,
            pr: File & Result<&1, &1, U32 & String, List<&2, U32>>,
-           trip: S.Sc & D.Acc & List<&2, D.Rec>) -> IO(List<&2, D.Rec>):
-  match fuel pr trip:
-    case 0n Tuple{f, r} Tuple{st, Tuple{acc, out}}:
+           st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & List<&2, D.Rec>))) -> IO(List<&2, D.Rec>):
+  match fuel pr:
+    case 0n Tuple{f, r}:
       do IO<List<&2, D.Rec>>:
         bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
         File.close(f)
-        IO.pure(List<&2, D.Rec>, trip_out(D.decode_resume(bs, st, acc, out)))
-    case 1n+p Tuple{f, r} Tuple{st, Tuple{acc, out}}:
+        IO.pure(List<&2, D.Rec>, flush_st(ingest(bs, st)))
+    case 1n+p Tuple{f, r}:
       do IO<List<&2, D.Rec>>:
         bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
         nxt : File & Result<&1, &1, U32 & String, List<&2, U32>>
           <- File.read_bytes(f, chunk)
-        stream(p, chunk, nxt, D.decode_resume(bs, st, acc, out))
+        stream(p, chunk, nxt, ingest(bs, st))
 
 def main_go(pw: String & (U32 & U32)) -> IO(Unit):
   match pw:
@@ -165,9 +288,9 @@ def main_go(pw: String & (U32 & U32)) -> IO(Unit):
         oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
         f : File <- open_or_fail(oh)
         pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
-          <- File.read_bytes(f, 8388608)
-        recs : List<&2, D.Rec> <- stream(1200n, 8388608, pr,
-          Tuple{S.Sc.start(), Tuple{D.Acc.start(), Nil{}}})
+          <- File.read_bytes(f, 4194304)
+        recs : List<&2, D.Rec> <- stream(2400n, 4194304, pr,
+          Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Nil{}}}})
         finish(judge_wk(recs, wk, wn))
 
 def main() -> IO(Unit):

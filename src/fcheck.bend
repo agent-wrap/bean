@@ -341,37 +341,131 @@ def fck_all(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
                       (M.kbump_n(ex, basenx, (nx2 - (basenx + M.ktbl(basenx) + 2 : U32) : U32)),
                        (basenx + M.ktbl(basenx) + 2 : U32))))
 
-def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
-           +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
-  +ex = B.build_ex(recs, R.TNil{})
-  +ln = M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
-                                       R.TNil{}))
-  +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
-  # Nat (key 20) and String (key 10) come from build_wk4's two passes
+# ---- load: the independent tables in parallel ---------------------------
+# Every table below reads the record list and nothing else, so they are
+# built as a balanced tree of parallel calls (Bend's `a b = f(x) g(y)`):
+# the load's wall time is its slowest branch, not the sum (navier-stokes:
+# ~165 s of sequential table building after the read).
+def fj_arr(+recs: List<&2, D.Rec>, +nx: U32) -> Array<T.Ex>:
+  M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
+             F.fb_ex(recs, Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
+                                     T.EBad{})))
+
+def fj_ex(+recs: List<&2, D.Rec>) -> R.Tr<T.Ex>:
+  B.build_ex(recs, R.TNil{})
+
+def fj_wq(+recs: List<&2, D.Rec>) -> R.Tr<U32> & R.Tr<U32>:
   +wk = K.build_wk4(recs, R.TNil{})
-  +natn : U32 = R.get(U32, 64n, wk, 20, 4294967295)
-  +strn : U32 = R.get(U32, 64n, wk, 10, 4294967295)
-  +qtt = K.add_hts(recs, wk)
-  +st : I.IS = I.IS{ex, nx, ln, nx, R.TNil{}, K.build_ht(recs, R.TNil{}),
-                    natn, strn, qtt}
-  +strt = C.build_str(ds, R.TNil{})
-  C.comb(C.comb(C.pre_check(ds),
-                C.comb(C.bad_v(C.scan_consts(nex, 0, ex, dn, False{})),
-                       C.scan_projs(nex, 0, ex, strt, C.VAccept{}))),
-         fck_all(ds, st, C.build_meta2(ds, st, R.TNil{}, R.TNil{}, R.TNil{},
-                                       R.TNil{},
-                                       [I.is_qt(st, 16), I.is_qt(st, 17),
-                                        I.is_qt(st, 18), I.is_qt(st, 19)], R.TNil{}, R.TNil{},
-                                       0, wid, wcnt),
-                 R.TNil{},
-                 R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
-                 natn, qtt,
-                 # usable capacity; the array is twice that, its upper half
-                 # holds the loose-bvar ranges (km's kput / khalf)
-                 kpow2(M.sdepth(nx)), False{},
-                 C.VAccept{}, 0, wid, wcnt,
-                 ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
-                   F.fb_ex(recs,
-                           Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
-                                     T.EBad{}))),
-                   (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})))
+  (wk, K.add_hts(recs, wk))
+
+def fj_ht(+recs: List<&2, D.Rec>) -> R.Tr<U32>:
+  K.build_ht(recs, R.TNil{})
+
+def fj_ln(+recs: List<&2, D.Rec>, +nlv: Nat, +rounds: Nat) -> R.Tr<L.LN>:
+  M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
+                                  R.TNil{}))
+
+def fj_nm(+recs: List<&2, D.Rec>) -> R.Tr<T.Nm>:
+  K.build_nm(recs, R.TNil{})
+
+def fj_dn(+ds: List<&2, K.Dcl>) -> R.Tr<Bool> & (R.Tr<U32> & C.V):
+  (C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{}),
+   (C.build_str(ds, R.TNil{}), C.pre_check(ds)))
+
+# branch C: the well-known constants and the hash tables
+def fj_c(+recs: List<&2, D.Rec>) -> (R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>:
+  w h = fj_wq(recs) fj_ht(recs)
+  (w, h)
+
+# branch D: levels, names, declared names, string table, pre-check
+def fj_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nlv: Nat,
+         +rounds: Nat) -> (R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)):
+  ln n = fj_ln(recs, nlv, rounds) fj_nm(recs)
+  ((ln, n), fj_dn(ds))
+
+def fj_ab(+recs: List<&2, D.Rec>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
+  a e = fj_arr(recs, nx) fj_ex(recs)
+  (a, e)
+
+def fj_cd(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nlv: Nat,
+          +rounds: Nat) -> ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))):
+  c d = fj_c(recs) fj_d(recs, ds, nlv, rounds)
+  (c, d)
+
+# the two whole-export scans, each over [lo, lo+cnt) split in halves to
+# depth d: 2^d parallel lanes
+def fj_scr(d: Nat, +lo: U32, +cnt: U32, +ex: R.Tr<T.Ex>,
+           +dn: R.Tr<Bool>) -> Bool:
+  match d:
+    case 0n:
+      C.scan_consts(U32.to_nat(cnt), lo, ex, dn, False{})
+    case 1n+p:
+      +h : U32 = (cnt / 2 : U32)
+      +q = p
+      a b = fj_scr(q, lo, h, ex, dn) fj_scr(q, (lo + h : U32), (cnt - h : U32), ex, dn)
+      a || b
+
+def fj_spr(d: Nat, +lo: U32, +cnt: U32, +ex: R.Tr<T.Ex>,
+           +strt: R.Tr<U32>) -> C.V:
+  match d:
+    case 0n:
+      C.scan_projs(U32.to_nat(cnt), lo, ex, strt, C.VAccept{})
+    case 1n+p:
+      +h : U32 = (cnt / 2 : U32)
+      +q = p
+      a b = fj_spr(q, lo, h, ex, strt) fj_spr(q, (lo + h : U32), (cnt - h : U32), ex, strt)
+      C.comb(a, b)
+
+def fj_sc(+nexu: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> C.V:
+  C.bad_v(fj_scr(4n, 0, nexu, ex, dn))
+
+def fj_sp(+nexu: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>) -> C.V:
+  fj_spr(4n, 0, nexu, ex, strt)
+
+def fj_meta(+ds: List<&2, K.Dcl>, +st: I.IS, +wid: U32,
+            +wcnt: U32) -> R.Tr<I.Meta>:
+  C.build_meta2(ds, st, R.TNil{}, R.TNil{}, R.TNil{}, R.TNil{},
+                [I.is_qt(st, 16), I.is_qt(st, 17), I.is_qt(st, 18),
+                 I.is_qt(st, 19)], R.TNil{}, R.TNil{}, 0, wid, wcnt)
+
+def fj_scans(+nex: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>,
+             +strt: R.Tr<U32>) -> C.V:
+  a b = fj_sc(nex, ex, dn) fj_sp(nex, ex, strt)
+  C.comb(a, b)
+
+def fj_post(+ds: List<&2, K.Dcl>, +st: I.IS, +nex: U32, +ex: R.Tr<T.Ex>,
+            +dn: R.Tr<Bool>, +strt: R.Tr<U32>, +wid: U32,
+            +wcnt: U32) -> R.Tr<I.Meta> & C.V:
+  m v = fj_meta(ds, st, wid, wcnt) fj_scans(nex, ex, dn, strt)
+  (m, v)
+
+def fj_fin(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
+           +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32, +natn: U32,
+           +qtt: R.Tr<U32>, arr: Array<T.Ex>, +wid: U32,
+           +wcnt: U32) -> C.V:
+  match mv:
+    case Tuple{mt, sv}:
+      C.comb(C.comb(pre, sv),
+             fck_all(ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{}, nmt, nx, natn,
+                     qtt, kpow2(M.sdepth(nx)), False{}, C.VAccept{}, 0, wid,
+                     wcnt, ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})))
+
+def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
+          ab: Array<T.Ex> & R.Tr<T.Ex>,
+          cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
+          +wid: U32, +wcnt: U32) -> C.V:
+  match ab cd:
+    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+      +wk2 : R.Tr<U32> = wk
+      +ex2 : R.Tr<T.Ex> = ex
+      +q2 : R.Tr<U32> = qtt
+      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
+      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
+      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
+      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre, ds, st, nmt,
+             nx, natn, q2, arr, wid, wcnt)
+
+def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
+           +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
+  ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
+  fj_go(ds, nex, nx, ab, cd, wid, wcnt)
