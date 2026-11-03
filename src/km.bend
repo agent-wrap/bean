@@ -972,6 +972,10 @@ type KF is Data:
   DOut{}
   # dq_type_of: the type oracle (answers an index, 4294967295 = unknown)
   DTy1{ctx: List<&2, U32>}
+  DTyC{x: U32, ctx: List<&2, U32>}
+  DTyC2{hit: Bool, x: U32, ctx: List<&2, U32>}
+  DTyC3{x: U32, ctx: List<&2, U32>}
+  DTyS{go: Bool, x: U32}
   DTyGo{m1: Bool, m2: Bool, ti: U32, dlift: U32, ps: List<&2, U32>,
         qs: List<&2, L.LN>, sargs: List<&2, U32>}
   DTy2{sargs: List<&2, U32>}
@@ -3927,6 +3931,13 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
            nd, n2, base)
 
 # no allocation, result register = existing index
+def kis_const(+e: T.Ex) -> Bool:
+  match e:
+    case T.EConst{n, us}:
+      True{}
+    case _:
+      False{}
+
 def kkeep(fs: Array<T.Ex> & U32,
           +e: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   ((fs, MN{}), e)
@@ -5926,6 +5937,21 @@ def kri_args(+args: List<&2, U32>, +pre: U32, +mj: U32,
               List.append(&2, U32,
                           I.skip_u(s2, (I.len_u(s2, 0) - nf : U32)),
                           I.skip_u(a2, (mj + 1 : U32))))
+
+# Store pressure: the allocation pointer past half the ROOM -- the region
+# from the allocation base (above the export and the hash table) to the
+# store's end. It was half the store: an export whose records reach past
+# that (cslib's indices run to 34M+ of a 2^26-slot half) started every
+# declaration "under pressure", so every rollback region was released with
+# its memos and re-derived (TensorProduct.AlgebraTensorModule.assoc_eq
+# 97 s in its own slice, >550 s beside other declarations, 3048 s in cslib).
+# Only then: an export that leaves the allocation base below half the store
+# keeps the half-store point (perf/magma-list-pair-n21's decide loop needs
+# its compaction there: at half the room it overflowed and declined).
+def kpress(+hcb: U32, +hb: U32) -> U32:
+  +a0 : U32 = ((hcb + ktbl(hcb) : U32) + 2 : U32)
+  +h2 : U32 = (hb / 2 : U32)
+  S.pick(U32.is_lt(a0, h2), h2, (a0 + ((hb - a0 : U32) / 2 : U32) : U32))
 
 # the shared-argument record (IApR): a reserved store slot right below the
 # allocation region, EApp{argument, type | ok << 31}
@@ -8230,8 +8256,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = wx
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{PI1{False{}, x2, wy, c2, fu}, k}}, lnt, nlx,
-         mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, 0))
+      km(p, KCon{DTyC{x2, c2}, KCon{PI1{False{}, x2, wy, c2, fu}, k}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, kuf_tin(fs, hcb, x2, 4294967290))
     # the lazy delta loop (decisive entry), then the structural tail on the
     # pair it stalled at (whnf_core'd again: the pair is the last
     # iteration's INPUT), or on the originals when it left no pair
@@ -8552,8 +8578,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = y
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{PI3{tx, cl, x, y2, c2, fu}, k}}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, y2, 0))
+      km(p, KCon{DTyC{y2, c2}, KCon{PI3{tx, cl, x, y2, c2, fu}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, kuf_tin(fs, hcb, y2, 4294967290))
     case 1n+p KCon{PI3{tx, cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +t2 : U32 = ri
       km(p, KCon{PI3g{U32.is_ne(t2, 4294967295), tx, t2, cl, x, y, ctx, fu},
@@ -8714,10 +8740,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +w2 : U32 = wa
       +c2 : List<&2, U32> = ctx
       +wb2 : U32 = wb
-      km(p, KCon{DTy1{c2},
+      km(p, KCon{DTyC{w2, c2},
                  KCon{DBv6{a, b, w2, wb2, L.tri_is_yes(t),
                            Bool.and(taok, tbok), c2}, k}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, w2, ri))
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kuf_tin(fs, hcb, w2, 4294967290))
     case 1n+p KCon{DBv6{a, b, wa, wb, samety, both, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
@@ -9972,8 +9998,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = pxi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DTyF{x2, c2}, KCon{DRg2{x2, pyi, c2, fu}, k}}},
-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+      km(p, KCon{DTyC{x2, c2}, KCon{DTyF{x2, c2}, KCon{DRg2{x2, pyi, c2, fu}, k}}},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kuf_tin(fs, hcb, x2, 4294967290))
     # the inferred type is whnf'd before its sort is read (Lean's
     # infer_type then whnf): a stuck recursor's type is the motive applied,
     # a beta-redex `(λ i.. h. Sort u) i.. h` the syntactic sort oracle
@@ -11077,15 +11103,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DTyF{x2, c2}, KCon{DIr4{t, yi, c2}, k}}},
+      km(p, KCon{DTyC{x2, c2}, KCon{DTyF{x2, c2}, KCon{DIr4{t, yi, c2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kspine_tin(fs, x2, ri))
+         kuf_tin(fs, hcb, x2, 4294967290))
     case 1n+p KCon{DIr4{t, yi, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +y2 : U32 = yi
       +c2 : List<&2, U32> = ctx
-      km(p, KCon{DTy1{c2}, KCon{DTyF{y2, c2}, KCon{DIr5{t, ri, c2}, k}}},
+      km(p, KCon{DTyC{y2, c2}, KCon{DTyF{y2, c2}, KCon{DIr5{t, ri, c2}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
-         kspine_tin(fs, y2, 0))
+         kuf_tin(fs, hcb, y2, 4294967290))
     # the cheap type oracle could not type x (a projection, a beta redex
     # head, ..): Lean's proof irrelevance infers the type, so infer it
     case 1n+p KCon{DTyF{x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -11267,6 +11293,32 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                                          && Bool.not(L.tri_is_no(sq2)),
                                          L.TUnk{}, t))))
     # ---- dq_type_of: the type oracle ----
+    # the type oracle, cached per node (Lean's infer cache): with a constant
+    # head the answer depends on the node alone (a bound-variable head
+    # reads the context and is not cached). Re-instantiating the head's
+    # type at its levels on every proof-irrelevance probe was half of
+    # cslib's TensorProduct.AlgebraTensorModule.tensorTensorTensorComm_eq.
+    # The entry lives in the unfold cache under a marker body index.
+    case 1n+p KCon{DTyC{x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, KCon{DTyC2{U32.is_ne(r2, 4294967295), x, ctx}, k}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, r2))
+    case 1n+p KCon{DTyC2{True{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, ri))
+    case 1n+p KCon{DTyC2{False{}, x, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
+      +x2 : U32 = x
+      km(p, KCon{DTyC3{x2, ctx}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt,
+         hcb, kspine_tin(fs, x2, 0))
+    case 1n+p KCon{DTyC3{x, ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
+      +h2 : T.Ex = hd
+      km(p, KCon{DTy1{ctx}, KCon{DTyS{kis_const(h2), x}, k}}, lnt, nlx, mt,
+         lp, vt, qtt, natn, wm, nt, hcb, ((fs, MSP{h2, sargs}), ri))
+    case 1n+p KCon{DTyS{True{}, x}, k} Tuple{Tuple{fs, msg}, ri}:
+      +r2 : U32 = ri
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kkeep(kuf_set(fs, hcb, x, 4294967290, r2), r2))
+    case 1n+p KCon{DTyS{False{}, x}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, ((fs, msg), ri))
     case 1n+p KCon{DTy1{ctx}, k} Tuple{Tuple{fs, MSP{hd, sargs}}, ri}:
       match hd:
         case T.EConst{n, us}:
@@ -11833,7 +11885,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # 390 s timeout -> 239 s; no test slower. (Keeping them without the
       # pressure bound was not measured against the perf tests.)
       +old : Bool = U32.is_lt(r2, m2)
-      +roll : Bool = old && U32.is_ge(n2, (hb / 2 : U32))
+      +roll : Bool = old && U32.is_ge(n2, kpress(hcb, hb))
       +ovf : Bool = U32.is_ge(n2, hb)
       +comp : Bool = Bool.not(old) && Bool.not(ovf)
                      && U32.is_ge((n2 - cm : U32), 4096)
@@ -11866,10 +11918,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cm : U32 = S.pick(U32.is_gt(cw, m2), cw, m2)
       +hb : U32 = khalf(hcb)
       +old : Bool = U32.is_lt(r2, m2)
-      +roll : Bool = old && U32.is_ge(n2, (hb / 2 : U32))
+      +roll : Bool = old && U32.is_ge(n2, kpress(hcb, hb))
       +ovf : Bool = U32.is_ge(n2, hb)
       +comp : Bool = Bool.not(old) && Bool.not(ovf)
-                     && U32.is_ge(n2, (hb / 2 : U32))
+                     && U32.is_ge(n2, kpress(hcb, hb))
                      && U32.is_ge((n2 - cm : U32), 1048576)
                      && U32.is_lt((n2 + (n2 - cm : U32) + 16 : U32), hb)
       km(p, KCon{KRb3{comp, cm}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
