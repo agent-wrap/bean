@@ -1694,8 +1694,16 @@ def khalf(+base: U32) -> U32:
 # slice did not finish in 1500 s with a four-times store, and returned to
 # 53 s with the table pinned (2026-10-25); the same mechanism as
 # con-leche's hours-long declarations and cedar's run-state declines
+# 2^23 slots when the room above the table still keeps 12M slots for
+# allocation (the store's size is unchanged: sdepth sizes it with 2^22).
+# cslib's TensorProduct.AlgebraTensorModule.tensorTensorTensorComm_eq
+# filled 2^22 (sharing lost, memos missed): >1500 s -> 1055 s with 2^23,
+# the same as 2^24 (2026-11-03).
 def ktbl(+base: U32) -> U32:
-  ktbl0()
+  +hb : U32 = khalf(base)
+  +big : U32 = (base + 8388608 : U32)
+  S.pick(U32.is_lt(big, hb) && U32.is_ge((hb - big : U32), 12582912), 8388608,
+         ktbl0())
 
 def kmask(+base: U32) -> U32:
   (ktbl(base) - 1 : U32)
