@@ -368,6 +368,61 @@ def mx_fold(fuel: Nat, +a: LN, +acc: LN) -> LN:
     case 1n+p _:
       a
 
+# --- order-insensitive equality of mixed chains ----------------------------
+# The canonical order is only as good as ln_key: the key counts every atom,
+# so a component `imax (max 0 (u+1)) v` -- what substitution builds -- and
+# Lean's `imax (u+1) v` get different keys and sort to different places.
+# cslib's Derivation.ctorElim compared two four-component chains with equal
+# components in different orders and declined (lean4lean: normalize sorts
+# and dedups). A max is a set: equal atom sets and every component of each
+# chain structurally equal to one of the other is equality.
+def mx_atoms(fuel: Nat, +a: LN) -> List<&2, Atom>:
+  match fuel a:
+    case 0n _:
+      Nil{}
+    case 1n+p LNmx{xs, y, r}:
+      List.append(&2, Atom, xs, mx_atoms(p, r))
+    case 1n+p LNmax{xs}:
+      xs
+    case 1n+p _:
+      Nil{}
+
+# some imax component of the chain c is structurally equal to y
+def mx_has(fuel: Nat, +y: LN, +c: LN) -> Bool:
+  match fuel c:
+    case 0n _:
+      False{}
+    case 1n+p LNmx{xs, y1, r}:
+      +py : LN = y
+      ln_eq(32n, py, y1) || mx_has(p, py, r)
+    case 1n+p LNimax{x1, y1, o1}:
+      ln_eq(32n, y, c)
+    case 1n+p _:
+      False{}
+
+# every imax component of the chain a is one of the chain c
+def mx_sub(fuel: Nat, +a: LN, +c: LN) -> Bool:
+  match fuel a:
+    case 0n _:
+      False{}
+    case 1n+p LNmx{xs, y, r}:
+      +pc : LN = c
+      mx_has(64n, y, pc) && mx_sub(p, r, pc)
+    case 1n+p LNimax{x, y, o}:
+      mx_has(64n, a, c)
+    case 1n+p LNmax{xs}:
+      True{}
+    case 1n+p _:
+      False{}
+
+def mx_set_eq(+a: LN, +b: LN) -> Bool:
+  +pa : LN = a
+  +pb : LN = b
+  +xa = strip_zero(mx_atoms(64n, pa))
+  +xb = strip_zero(mx_atoms(64n, pb))
+  atoms_sub(xa, xb) && atoms_sub(xb, xa) && mx_sub(64n, pa, pb)
+    && mx_sub(64n, pb, pa)
+
 def mx_norm(+a: LN) -> LN:
   match a:
     case LNmx{xs, y, r}:
@@ -568,9 +623,10 @@ def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
       +pf = p
       +px = strip_zero(xs)
       +py = strip_zero(ys)
-      pick_tri(atoms_sub(px, py) && atoms_sub(py, px)
-               && tri_is_yes(ln_cmp_f(pf, y1, y2))
-               && tri_is_yes(ln_cmp_f(pf, r1, r2)), TYes{}, TUnk{})
+      pick_tri((atoms_sub(px, py) && atoms_sub(py, px)
+                && tri_is_yes(ln_cmp_f(pf, y1, y2))
+                && tri_is_yes(ln_cmp_f(pf, r1, r2))) || mx_set_eq(a, b),
+               TYes{}, TUnk{})
     case 1n+p LNmx{xs, y1, r1} LNimax{x2, y2, o2}:
       +pf = p
       ln_cmp_f(pf, a, LNmx{Nil{}, b, LNmax{Nil{}}})

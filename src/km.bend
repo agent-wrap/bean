@@ -10997,7 +10997,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # projections no inference could type (TermType.lt_trans._f declined)
       +ex1 : Bool = kseta(hx2, nx, mt) && Bool.not(cyh)
       +ex2 : Bool = kseta(hy2, ny, mt) && Bool.not(cxh)
-      +eta : Bool = L.tri_is_no(t2) && (ex1 || ex2)
+      # after an UNK too: Lean's try_eta_struct runs whenever is_def_eq_app
+      # fails, whatever the reason, and DIrE3 keeps t unless eta says YES.
+      # `MO.op (MO.unop (A i j)) =?= A i j` (equal arity: the heads compared
+      # first, constructor vs variable answered UNK) declined cslib's
+      # RingEquiv.mopMatrix._proof_1
+      +eta : Bool = Bool.not(L.tri_is_yes(t2)) && (ex1 || ex2)
       +ix : U32 = I.meta_ind(R.get(I.Meta, 64n, mt, I.const_nm2(hx2), I.MNone{}))
       +iy : U32 = I.meta_ind(R.get(I.Meta, 64n, mt, I.const_nm2(hy2), I.MNone{}))
       +x3 : U32 = xi
