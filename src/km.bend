@@ -4669,6 +4669,10 @@ def kctxu_go(+deep: Bool, fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lm: U32,
     case False{} Tuple{ex, nx}:
       kctxh_tin2(kctxh_s(U32.to_nat(lm), (ex, 0), ctx, base), nx)
 
+# bud: now 0 in every pass (the whole-context key, no walk): the 200000-node
+# walk ran at every defeq entry and was most of navier's
+# pathCompositionMap_norm (475 s -> 60 s on its slice without it); gate,
+# std, init and cedar unchanged. Former note --
 # bud: the walk's node budget (200000; the cheap-projection pass keeps its
 # terms un-reduced and much larger, and walked them for minutes outside the
 # machine's fuel: std's bitblast.go_Inv_of_Inv -- 0 there, no walk: the
@@ -8139,7 +8143,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb,
                                 S.pick(U32.is_eq(R.get(U32, 64n, qtt,
                                                        4000000000, 0), 1),
-                                       0, 200000)))
+                                       0, 0)))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi
