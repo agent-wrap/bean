@@ -8765,10 +8765,15 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +rk : Bool = rtok && I.is_sortx(ks)
       +lz : L.Tri = L.ln_is_zero(R.get(L.LN, 64n, lnt, I.sort_lvl_of(ks),
                                        L.LNun{}))
-      km(p, KCon{kslev(w2, cx9, 2000000),
+      # the oracle, then Lean's is_prop (infer the type's sort, whnf it)
+      # when it cannot size the type: `y x : valid a` with
+      # `valid : id (Nat -> Prop)` -- the head's type is not a Pi until
+      # unfolded (cslib's List.formPerm_pow_apply_head: GetElem's `valid`
+      # under an outParam-typed binder of a `convert` congruence)
+      km(p, KCon{kslev(w2, cx9, 2000000), KCon{SLX0{w2, cx9},
                  KCon{DBv9{a, b, w2, wb, samety, both,
                            rk && L.tri_is_yes(lz), rk && L.tri_is_no(lz),
-                           cx9}, k}},
+                           cx9}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, w2, ri))
     case 1n+p KCon{DBv9{a, b, wa, wb, samety, both, part1, part1n, ctx}, k}
          Tuple{Tuple{fs, MLn{u}}, ri}:
