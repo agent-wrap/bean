@@ -319,11 +319,11 @@ def height_of(+fs: List<&2, D.Fld>) -> U32:
   S.pick(U32.is_eq(h, 4294967295), 4294967294, h)
 
 # a def's height under `name + off` (only def records insert)
-def ht_step(+go: Bool, +t: R2.Tr<U32>, +off: U32,
+def ht_step(+go: Bool, +t: R2.Tr<U32>, +mul: U32, +off: U32,
             +fs: List<&2, D.Fld>) -> R2.Tr<U32>:
   match go:
     case True{}:
-      R2.set(U32, 64n, t, (T.fld(fs, 3373707, 0) + off : U32),
+      R2.set(U32, 64n, t, ((T.fld(fs, 3373707, 0) * mul : U32) + off : U32),
              height_of(fs), 4294967295)
     case False{}:
       t
@@ -336,7 +336,7 @@ def build_ht(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
       match head:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
-          build_ht(tail, ht_step(U32.is_eq(k, 99333), t, 0, flds))
+          build_ht(tail, ht_step(U32.is_eq(k, 99333), t, 1, 0, flds))
         case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
           build_ht(tail, t)
 
@@ -461,8 +461,9 @@ def build_wk3(+rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
     15, find_under(rs, n, [98, 101, 113], 4294967295), 4294967295)
 
 
-# definition heights for the machine's lazy delta probe, keyed name + 2^31
-# in the same small table as the literal-operation names
+# definition heights for the machine's lazy delta probe, keyed 2 name + 64
+# in the same small table as the literal-operation names (keys below 64;
+# 2 name + 65 marks a literal operation, fcheck lit_marks)
 def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
   match rs:
     case Nil{}:
@@ -472,7 +473,7 @@ def add_hts(rs: List<&2, D.Rec>, +t: R2.Tr<U32>) -> R2.Tr<U32>:
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
           +fs = flds
-          add_hts(tail, ht_step(U32.is_eq(k, 99333), t, 2147483648, fs))
+          add_hts(tail, ht_step(U32.is_eq(k, 99333), t, 2, 64, fs))
         case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
           add_hts(tail, t)
 

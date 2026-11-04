@@ -193,7 +193,7 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       # 0..2 to a reject)
       # fck_sel's first two passes run on 2^32 steps (~2 min); a
       # declaration they cannot settle declines into the next pass
-      fck_fold(M.fck_typed(fck_fuel(R.get(U32, 64n, qtt, 4000000000, 0)),
+      fck_fold(M.fck_typed(fck_fuel(R.get(U32, 64n, qtt, 48, 0)),
                            (ex, nx), I.is_lnt(st),
                            I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
                            nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
@@ -237,7 +237,7 @@ def krange_hi() -> U32:
 # Three passes per declaration, each from a fresh region, the first
 # decisive verdict standing (every pass is sound; they differ only in what
 # they settle and how fast):
-#   1. the full machine on a 2^32-step fuel (qtt key 4000000000 = 2) -- what
+#   1. the full machine on a 2^32-step fuel (qtt key 48 = 2) -- what
 #      std, init and cedar were tuned on; nearly every declaration ends here
 #   2. Lean's cheap projections in the defeq core (key = 1, same fuel):
 #      whnf_core leaves a projection's structure un-delta'd and the full
@@ -306,9 +306,9 @@ def fck_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
     case True{}:
       fck_retry_na(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt,
         fck_retry_na(st, mt, nt, lp, vt, nmt, d, basenx, natn,
-                  R.set(U32, 64n, qtt, 4000000000, 2, 4294967295),
+                  R.set(U32, 64n, qtt, 48, 2, 4294967295),
           fck_one(st, mt, nt, lp, vt, nmt, d, basenx, natn,
-                  R.set(U32, 64n, qtt, 4000000000, 1, 4294967295), fs)))
+                  R.set(U32, 64n, qtt, 48, 1, 4294967295), fs)))
     case False{}:
       (fs, C.VAccept{})
 
@@ -542,6 +542,29 @@ def fj_fin(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
                      qtt, kpow2(M.sdepth(nx)), False{}, C.VAccept{}, 0, wid,
                      wcnt, ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})))
 
+# the literal operations' names (keys 5-7, 11-15, 26-31) marked 1 at
+# 2 name + 65, beside their heights at 2 name + 64 (store add_hts): km's
+# lazy loop asks "is this head a literal operation" at every step for both
+# sides, and Bend evaluated all fourteen lookups of the chained comparison
+# strictly
+def lit_mark_if(+go: Bool, +q: R.Tr<U32>, +n: U32) -> R.Tr<U32>:
+  match go:
+    case True{}:
+      R.set(U32, 64n, q, ((n * 2 : U32) + 65 : U32), 1, 4294967295)
+    case False{}:
+      q
+
+def lit_mark1(+q: R.Tr<U32>, +k: U32) -> R.Tr<U32>:
+  +q2 : R.Tr<U32> = q
+  +n : U32 = R.get(U32, 64n, q2, k, 4294967295)
+  lit_mark_if(U32.is_lt(n, 1073741824), q2, n)
+
+
+def lit_marks(+q: R.Tr<U32>) -> R.Tr<U32>:
+  lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(
+  lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(q,
+    5), 6), 7), 11), 12), 13), 14), 15), 26), 27), 28), 29), 30), 31)
+
 def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
           ab: Array<T.Ex> & R.Tr<T.Ex>,
           cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
@@ -550,7 +573,7 @@ def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
     case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
       +wk2 : R.Tr<U32> = wk
       +ex2 : R.Tr<T.Ex> = ex
-      +q2 : R.Tr<U32> = qtt
+      +q2 : R.Tr<U32> = lit_marks(qtt)
       +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
       +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
       +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
@@ -580,7 +603,7 @@ def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
     case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
       +wk2 : R.Tr<U32> = wk
       +ex2 : R.Tr<T.Ex> = ex
-      +q2 : R.Tr<U32> = qtt
+      +q2 : R.Tr<U32> = lit_marks(qtt)
       +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
       +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
       +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}

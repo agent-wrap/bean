@@ -5767,22 +5767,10 @@ def krebuild(+base: U32, args: List<&2, U32>, fs: Array<T.Ex> & U32,
 
 # a literal operation the machine computes (qtt keys 5-7, 11-15) on two
 # arguments
+# a literal operation's name is marked 1 at 2 name + 65 (fcheck lit_marks)
 def klitop(+n: U32, +la: U32, +q: R.Tr<U32>) -> Bool:
-  U32.is_eq(la, 2) && Bool.not(U32.is_eq(n, 4294967295))
-  && (U32.is_eq(n, R.get(U32, 64n, q, 5, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 6, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 7, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 11, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 12, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 13, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 14, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 15, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 26, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 27, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 28, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 29, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 30, 4294967295))
-      || U32.is_eq(n, R.get(U32, 64n, q, 31, 4294967295)))
+  U32.is_eq(la, 2) && U32.is_lt(n, 1073741824)
+  && U32.is_eq(R.get(U32, 64n, q, ((n * 2 : U32) + 65 : U32), 0), 1)
 
 # the probe failure cache's key (0xC0000000..0xFFFFFF00: clear of node
 # indices, the x + 2^31 YES cache and the flags) and fingerprint
@@ -6112,8 +6100,18 @@ def krb_wm(+go: Bool, +ovf: Bool, +wm: R.Tr<U32>,
     case False{}:
       wm
 
+# the pass mode (fcheck: 2 the full machine, 1 the cheap pass) at a small
+# key: a trie read costs a node copy and four drops per level, and the
+# lazy loop reads the mode at every step (key 4000000000 was 16 levels)
+def kmode(+qtt: R.Tr<U32>) -> U32:
+  R.get(U32, 64n, qtt, 48, 0)
+
+# a definition's height at 2 name + 64 (store add_hts; was name + 2^31, 16
+# levels deep). The value is the export's height, or 4294967294 for a
+# definition without one (abbreviation hints): the lazy loop's same-head
+# test keys on it, so nothing else may share the entry
 def khgt(+qtt: R.Tr<U32>, +n: U32) -> U32:
-  R.get(U32, 64n, qtt, (n + 2147483648 : U32), 0)
+  R.get(U32, 64n, qtt, ((n * 2 : U32) + 64 : U32), 0)
 
 def kpick_us(+z: Bool, xs: List<&2, U32>, ys: List<&2, U32>) -> List<&2, U32>:
   match z:
@@ -6441,6 +6439,16 @@ def kcus(+x: T.Ex) -> List<&2, U32>:
 # (Lean's is_def_eq on const_levels; the normal forms only on a mismatch,
 # which keeps the hot loop's cost -- normalising always cost 4x on
 # let-ladder, 2026-10-24)
+# the normal forms only when the indices differ (a match: Bend's || is
+# strict, and the two trie reads ran for every equal pair)
+def klu_nf(+same: Bool, +lnt: R.Tr<L.LN>, +a: U32, +b: U32) -> Bool:
+  match same:
+    case True{}:
+      True{}
+    case False{}:
+      L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, lnt, a, L.LNun{}),
+                            R.get(L.LN, 64n, lnt, b, L.LNun{})))
+
 def klus_eq(+lnt: R.Tr<L.LN>, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
   match xs ys:
     case Nil{} Nil{}:
@@ -6448,10 +6456,7 @@ def klus_eq(+lnt: R.Tr<L.LN>, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
     case Con{a, as} Con{b, bs}:
       +a2 : U32 = a
       +b2 : U32 = b
-      (U32.is_eq(a2, b2)
-       || L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, lnt, a2, L.LNun{}),
-                                R.get(L.LN, 64n, lnt, b2, L.LNun{}))))
-      && klus_eq(lnt, as, bs)
+      klu_nf(U32.is_eq(a2, b2), lnt, a2, b2) && klus_eq(lnt, as, bs)
     case _ _:
       False{}
 
@@ -6599,7 +6604,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # tail may still prove the pair), and Lean caches only is_def_eq_args
       # failures (LZF5)
       km(p, KCon{LZ0g{U32.is_ge(used,
-                           kmode_bud(R.get(U32, 64n, qtt, 4000000000, 0))),
+                           kmode_bud(kmode(qtt))),
                  x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, w2, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{True{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -6616,7 +6621,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = y
       +used : U32 = ri
       km(p, KCon{LZ0g{U32.is_ge(used,
-                           kmode_bud(R.get(U32, 64n, qtt, 4000000000, 0))),
+                           kmode_bud(kmode(qtt))),
                  x2, y2, fu, ctx}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ0g{False{}, x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -6670,7 +6675,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +x2 : U32 = x
-      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073742080, 256), cx9), KCon{LZ1{x2, y, fu, cx9}, k}},
+      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073742080, 256), cx9), KCon{LZ1{x2, y, fu, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, ri))
     case 1n+p KCon{LZ1{x, y, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -6693,7 +6698,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +y2 : U32 = y
-      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073742080, 256), cx9), KCon{LZ2{wx, y2, fu, cx9}, k}},
+      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073742080, 256), cx9), KCon{LZ2{wx, y2, fu, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, y2, ri))
     case 1n+p KCon{LZ2{x, y0, fu, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -7222,7 +7227,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                               R.get(U32, 64n, vt, n2, 4294967295),
                               R.get(List<&2, U32>, 64n, lp, n2, Nil{}),
                               klns_of(u2, lnt), x, sargs,
-                              S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1),
+                              S.pick(U32.is_eq(kmode(qtt), 1),
                                      1073742080, 256), cx9}, cx9}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfl_tin(fs, hcb, 0))
     case 1n+p KCon{LZUn1{go, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
@@ -7560,11 +7565,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       # loop stalls (DPr*). A full whnf here unfolded every bundled map
       # behind a DFunLike.coe at each lazy step (navier: 27k coe unfolds)
       km(p, KCon{pick_kf(Bool.not(d2) && U32.is_ge(f2, 1073741824)
-                         && U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1),
+                         && U32.is_eq(kmode(qtt), 1),
                          kwev(False{}, s2, Nil{}, f2, cx9),
                          pick_kf(Bool.not(d2)
-                                 && U32.is_ne(R.get(U32, 64n, qtt, 4000000000,
-                                                    0), 1),
+                                 && U32.is_ne(kmode(qtt), 1),
                                  DWhd{s2, cx9}, DWhdF{s2, f2, cx9})),
                  KCon{WPrj{d2, e, tn, idx, args, f2, cx9}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, s2, ri))
@@ -8383,8 +8387,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +y2 : U32 = yi
       km(p, KCon{DSc0h{lm, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb,
-                                S.pick(U32.is_eq(R.get(U32, 64n, qtt,
-                                                       4000000000, 0), 1),
+                                S.pick(U32.is_eq(kmode(qtt), 1),
                                        0, 0)))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
@@ -8435,14 +8438,14 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cx9 : List<&2, U32> = ctx
       +x2 : U32 = xi
       +y2 : U32 = yi
-      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9),
+      km(p, KCon{kwev(False{}, x2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073807360, 65536), cx9),
                  KCon{DE2{y2, cx9, fu}, KCon{DSRec{cl, ch, x2, y2, cx9}, k}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, x2, 0))
     case 1n+p KCon{DE2{yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +wx : U32 = ri
       +y2 : U32 = yi
-      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE3{wx, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, y2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073807360, 65536), cx9), KCon{DE3{wx, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, y2, 0))
     case 1n+p KCon{DE3{wx, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wy : U32 = ri
@@ -8503,7 +8506,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DE5{ctx, fu}, k} Tuple{Tuple{fs, MX{T.EApp{a, b}}}, ri}:
       +cx9 : List<&2, U32> = ctx
       +a2 : U32 = a
-      km(p, KCon{kwev(False{}, a2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE6{b, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, a2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073807360, 65536), cx9), KCon{DE6{b, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, a2, 0))
     case 1n+p KCon{DE5{ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
@@ -8512,7 +8515,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +cx9 : List<&2, U32> = ctx
       +wa : U32 = ri
       +b2 : U32 = b
-      km(p, KCon{kwev(False{}, b2, Nil{}, S.pick(U32.is_eq(R.get(U32, 64n, qtt, 4000000000, 0), 1), 1073807360, 65536), cx9), KCon{DE7{wa, cx9, fu}, k}},
+      km(p, KCon{kwev(False{}, b2, Nil{}, S.pick(U32.is_eq(kmode(qtt), 1), 1073807360, 65536), cx9), KCon{DE7{wa, cx9, fu}, k}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, 0))
     case 1n+p KCon{DE7{wa, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +wb : U32 = ri
