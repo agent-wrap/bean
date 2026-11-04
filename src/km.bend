@@ -358,6 +358,10 @@ type KF is Data:
   DDc3x{tru: Bool, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEx{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   DEy{xn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  # the structural tail right after the projection tail left the pair
+  # unchanged (DPr4): a projection pair's structures were compared there
+  DExq{xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
+  DEyq{xn: T.Ex, xi: U32, yi: U32, ctx: List<&2, U32>, fu: U32}
   # ---- is_def_eq_core (the port): whnf_core both sides (cheap proj,
   # full-whnf recursor majors), quick, proof irrelevance, the lazy delta
   # loop to a genuine stall, then the structural tail on the stalled pair
@@ -406,6 +410,10 @@ type KF is Data:
   DPr2c{same: Bool, left: Bool, chg: Bool, tn: U32, i: U32, s: U32, s0: U32,
         sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr2s{left: Bool, chg: Bool, tn: U32, i: U32, s: U32,
+        sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  DPr2k{left: Bool, chg: Bool, tn: U32, i: U32, s: U32,
+        sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
+  DPr2r{red: Bool, left: Bool, chg: Bool, tn: U32, i: U32, s: U32,
         sargs: List<&2, U32>, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr3b{left: Bool, chg: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DPr4{left: Bool, chg: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
@@ -6741,6 +6749,13 @@ def kocc_tin(fs: Array<T.Ex> & U32, +wi: U32,
     case Tuple{ex, nx}:
       kocc_tin2(kocc_loop(1000000n, ns, (ex, (Con{wi, Nil{}}, 0))), nx)
 
+def kis_strlit(+x: T.Ex) -> Bool:
+  match x:
+    case T.EStr{d}:
+      True{}
+    case _:
+      False{}
+
 def kctor_headed(+x: T.Ex, +hd: T.Ex, +mt: R.Tr<I.Meta>) -> Bool:
   match x:
     case T.EApp{f, a}:
@@ -9122,11 +9137,36 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                    k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DPr4{left, chg, x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    # Lean's reduce_proj: the projection reduces only when its structure's
+    # whnf is a constructor application (or a string literal); otherwise
+    # whnf_core leaves the term as it was. Rebuilding `s'.i args` around a
+    # stuck structure counted as a change and re-entered is_def_eq_core,
+    # whose next pass folded it back: mathlib's
+    # Scheme.IsLocallyDirected.glueData._proof_6 compared
+    # `(colimit.isColimit F).desc s` (a Classical.choice structure) against
+    # `F.map ..` 3.8M times and declined
     case 1n+p KCon{DPr2b{False{}, left, chg, tn, i, s, sargs, x, y, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      +s2 : U32 = s
+      km(p, KCon{DPr2k{left, chg, tn, i, s2, sargs, x, y, ctx, fu}, k}, lnt,
+         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, s2, 0))
+    case 1n+p KCon{DPr2k{left, chg, tn, i, s, sargs, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, MSP{hd, sa2}}, ri}:
+      +h2 : T.Ex = hd
+      +red : Bool = I.meta_is_ctor(R.get(I.Meta, 64n, mt, I.const_nm2(h2),
+                                         I.MNone{}))
+                    || kis_strlit(h2)
+      km(p, KCon{DPr2r{red, left, chg, tn, i, s, sargs, x, y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{DPr2r{True{}, left, chg, tn, i, s, sargs, x, y, ctx, fu},
                    k} Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DPr3{left, chg, x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
          qtt, natn, wm, nt, hcb,
          klzpj(hcb, sargs, khc(fs, T.EProj{tn, i, s}, hcb)))
+    case 1n+p KCon{DPr2r{False{}, left, chg, tn, i, s, sargs, x, y, ctx, fu},
+                   k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, KCon{DPr4{left, chg, x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
+         qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{DPr3{left, chg, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +cx9 : List<&2, U32> = ctx
       +r2 : U32 = ri
@@ -9163,7 +9203,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
       +y2 : U32 = y
-      +kk : U32 = klzkey((x2 + 1 : U32), y2)
+      # the stamp's key is klzkey + 65: the failure caches' keys
+      # (klzkey, low byte 0) share the 2^22 buckets and overwrote stamps
+      # inside the re-entry -- mathlib's glueData._proof_6 then re-entered
+      # one oscillating pair 3.8M times, depth growing ~3x per level
+      +kk : U32 = (klzkey((x2 + 1 : U32), y2) + 65 : U32)
       +fp : U32 = (klzfp(x2, y2) + 7 : U32)
       +seen : Bool = U32.is_eq(R.get(U32, 64n, wm, kk, 4294967295), fp)
       km(p, KCon{DPr5{seen, kk, x2, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
@@ -9189,8 +9233,28 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{DPr4{False{}, False{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
-      km(p, KCon{DEx{x2, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+      km(p, KCon{DExq{x2, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
          wm, nt, hcb, kfetch(fs, x2, 0))
+    # Lean's is_def_eq_core compares a projection pair's structures once,
+    # in lazy_delta_proj_reduction (km's DPq tail); after its whnf_core pass
+    # leaves the pair unchanged there is no second structure comparison.
+    # km's DPjDecide compared them again, then their full whnfs: three
+    # structure comparisons per nested projection level, 3^depth
+    # (mathlib's glueData._proof_6: one pair 1.7M times, declined)
+    case 1n+p KCon{DExq{xi, yi, ctx, fu}, k} Tuple{Tuple{fs, MX{node}}, ri}:
+      +y2 : U32 = yi
+      km(p, KCon{DEyq{node, xi, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfetch(fs, y2, ri))
+    case 1n+p KCon{DEyq{T.EProj{tn1, idx1, s1}, xi, yi, ctx, fu}, k}
+         Tuple{Tuple{fs, MX{T.EProj{tn2, idx2, s2}}}, ri}:
+      +x2 : U32 = xi
+      km(p, KCon{DC1{T.EProj{tn1, idx1, s1}, T.EProj{tn2, idx2, s2}, x2, yi,
+                     ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kspine_tin(fs, x2, ri))
+    case 1n+p KCon{DEyq{xn, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+      +y2 : U32 = yi
+      km(p, KCon{DEy{xn, xi, y2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt,
+         natn, wm, nt, hcb, kfetch(fs, y2, ri))
     case 1n+p KCon{PI1{cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +t2 : U32 = ri
       km(p, KCon{PI1g{U32.is_ne(t2, 4294967295), t2, cl, x, y, ctx, fu}, k},

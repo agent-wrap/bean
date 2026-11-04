@@ -336,26 +336,42 @@ def push_codes(+pn: U32, cl: List<&2, U32>,
     case Con{c, d}:
       Con{(pn * 1024 + c : U32), List.append(&2, U32, d, acc)}
 
+# argv[2] (optional): check only the declaration of that index (fmain's
+# `K N` numbering), every other one is entered as trusted -- a probe on one
+# declaration of a large slice without checking its prerequisites
+def fck_one_sel(+go: Bool, +st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
+                +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +nmt: R.Tr<T.Nm>,
+                +d: K.Dcl, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
+                fs: Array<T.Ex> & U32) -> (Array<T.Ex> & U32) & List<&2, U32>:
+  match go:
+    case True{}:
+      fck_one_d(st, mt, nt, lp, vt, nmt, d, basenx, natn, qtt, fs)
+    case False{}:
+      (fs, Nil{})
+
 def fck_all_d(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
             +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>,
             +nmt: R.Tr<T.Nm>, +basenx: U32, +natn: U32, +qtt: R.Tr<U32>,
-            +i: U32, +pn: U32, acc: List<&2, U32>,
+            +i: U32, +pn: U32, +only: U32, acc: List<&2, U32>,
             fr: (Array<T.Ex> & U32) & List<&2, U32>) -> List<&2, U32>:
   match ds fr:
     case Nil{} Tuple{fs, c}:
       push_codes(pn, c, acc)
     case Con{head, tail} Tuple{fs, c}:
       +h = head
+      +i2 : U32 = i
+      +o2 : U32 = only
       fck_all_d(tail, st, mt, B.add_nt(h, nt), B.add_lp(h, lp),
-              B.add_vt(h, vt), nmt, basenx, natn, qtt, (i + 1 : U32),
-              K.dcl_name(h),
+              B.add_vt(h, vt), nmt, basenx, natn, qtt, (i2 + 1 : U32),
+              K.dcl_name(h), o2,
               # fr carries the PREVIOUS declaration's code: label it pn
               push_codes(pn, c, acc),
-              fck_one_d(st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
-                        krestart(fs, basenx)))
+              fck_one_sel(U32.is_eq(o2, 4294967295) || U32.is_eq(i2, o2),
+                          st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
+                          krestart(fs, basenx)))
 
 def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
-           +nlv: Nat, +rounds: Nat, +nx: U32) -> List<&2, U32>:
+           +nlv: Nat, +rounds: Nat, +nx: U32, +only: U32) -> List<&2, U32>:
   +ex = B.build_ex(recs, R.TNil{})
   +ln = M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
                                        R.TNil{}))
@@ -377,7 +393,7 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                                        I.is_qt(st, 18), I.is_qt(st, 19)], R.TNil{}, R.TNil{}, 0, 0, 1),
                 R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
-                 natn, qtt, 0, 0, Nil{},
+                 natn, qtt, 0, 0, only, Nil{},
                  ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
                    F.fb_ex(recs,
                            Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
@@ -391,20 +407,61 @@ def show_all(xs: List<&2, U32>) -> String:
     case Con{head, tail}:
       U32.show(head) ++ " " ++ show_all(tail)
 
-def judge_d(+recs: List<&2, D.Rec>) -> String:
+def d_arg_go(s: String, +acc: U32, +ok: Bool, +any: Bool) -> U32 & Bool:
+  match s:
+    case SNil{}:
+      (acc, ok && any)
+    case SCon{head, tail}:
+      +c : U32 = Char.to_u32(head)
+      +dg : Bool = U32.is_ge(c, 48) && U32.is_le(c, 57)
+      d_arg_go(tail, (acc * 10 + (c - 48 : U32) : U32), ok && dg, True{})
+
+def d_arg_fin(pr: U32 & Bool) -> U32:
+  match pr:
+    case Tuple{v, ok}:
+      S.pick(ok, v, 4294967295)
+
+def d_arg(m: Maybe<&1, String>) -> U32:
+  match m:
+    case None{}:
+      4294967295
+    case Some{value}:
+      d_arg_fin(d_arg_go(value, 0, True{}, False{}))
+
+def judge_d(+recs: List<&2, D.Rec>, +only: U32) -> String:
   +nex = U32.to_nat((K.max_ex_ix(recs, 0) + 1 : U32))
   +nlv = U32.to_nat((K.max_lvl_ix(recs, 0) + 1 : U32))
   show_all(fjudge_d(recs, K.decls_of(recs, Nil{}), nex, nlv, 32n,
-          (K.max_any_ix(recs, 0) + 1 : U32)))
+          (K.max_any_ix(recs, 0) + 1 : U32), only))
+
+def d_args(av: List<&1, String>) -> String & U32:
+  match av:
+    case Nil{}:
+      ("", 4294967295)
+    case Con{a0, r1}:
+      match r1:
+        case Nil{}:
+          ("", 4294967295)
+        case Con{a1, r2}:
+          match r2:
+            case Nil{}:
+              (a1, 4294967295)
+            case Con{a2, r3}:
+              (a1, d_arg(Some{a2}))
+
+def main_d(pa: String & U32) -> IO(Unit):
+  match pa:
+    case Tuple{path, only}:
+      do IO<Unit>:
+        oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
+        f : File <- open_or_fail(oh)
+        pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
+          <- File.read_bytes(f, 8388608)
+        recs : List<&2, D.Rec> <- stream(1200n, 8388608, pr,
+          Tuple{S.Sc.start(), Tuple{D.Acc.start(), Nil{}}})
+        IO.print(judge_d(recs, only))
 
 def main() -> IO(Unit):
   do IO<Unit>:
     av : List<&1, String> <- IO.args()
-    path : String = unwrap_arg(List.get(&1, String, av, 1n))
-    oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
-    f : File <- open_or_fail(oh)
-    pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
-      <- File.read_bytes(f, 8388608)
-    recs : List<&2, D.Rec> <- stream(1200n, 8388608, pr,
-      Tuple{S.Sc.start(), Tuple{D.Acc.start(), Nil{}}})
-    IO.print(judge_d(recs))
+    main_d(d_args(av))
