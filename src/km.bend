@@ -115,6 +115,8 @@ type KF is Data:
   # the result is no longer definitionally equal to the input. Flagged in the
   # declaration CORRUPT (store flag 2): fcheck declines.
   KKpF{e: U32}
+  # a lift by 0 (the identity): e as it is
+  KId{e: U32}
   # after the bvar-eq sentinel walk: pick the real answer for an inst bvar
   KBvI{iseq: Bool, isgt: Bool, i: U32, e: U32}
   KAp2{wp: WP, e: U32, f0: U32, a0: U32}
@@ -1069,12 +1071,6 @@ type KF is Data:
         x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
   LZ6{samehd: Bool, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool,
       uy: Bool, x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
-  # the same abbreviation on both sides: when it is a structure
-  # projection function, the arguments first (see kpf)
-  LZ6m{ab: Bool, vi: U32, sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool,
-       uy: Bool, x: U32, y: U32, fu: U32, ctx: List<&2, U32>}
-  LZ6f{sx: List<&2, U32>, sy: List<&2, U32>, ux: Bool, uy: Bool, x: U32,
-       y: U32, fu: U32, ctx: List<&2, U32>}
   LZA{xs: List<&2, U32>, ys: List<&2, U32>, ux: Bool, uy: Bool, x: U32,
       y: U32, fu: U32, ctx: List<&2, U32>}
   LZA2{yes: Bool, xs: List<&2, U32>, ys: List<&2, U32>, ux: Bool, uy: Bool,
@@ -1314,11 +1310,24 @@ def kev2(+out: Bool, +op: U32, +c: U32, +d: U32, +v: U32,
     case False{}:
       kev3(op, c, d, v, ps, qs, fu, e)
 
+# a lift by 0 is the identity: its walk rebuilt every node of the term
+# unchanged (an instantiation at depth 0 lifts the value by 0 -- 21.8M of
+# perf/magma-list-deep-n36's 41M lift steps)
+def kev1(+id: Bool, +op: U32, +c: U32, +d: U32, +v: U32,
+         ps: List<&2, U32>, qs: List<&2, L.LN>, +fu: U32, +e: U32) -> KF:
+  match id:
+    case True{}:
+      KId{e}
+    case False{}:
+      kev2(U32.is_eq(fu, 0), op, c, d, v, ps, qs, fu, e)
+
 def kev(+wp: WP, +e: U32) -> KF:
   match wp:
     case WP{op, c, d, v, ps, qs, fu}:
       +f2 : U32 = fu
-      kev2(U32.is_eq(f2, 0), op, c, d, v, ps, qs, f2, e)
+      +op2 : U32 = op
+      +d2 : U32 = d
+      kev1(U32.is_eq(op2, 0) && U32.is_eq(d2, 0), op2, c, d2, v, ps, qs, f2, e)
 
 # the whnf frame for e under args; fuel 0 rebuilds (the old `case 0n`)
 # out of whnf fuel: rebuild and flag INCOMPLETE (a reject is no longer
@@ -2156,9 +2165,20 @@ def kg_decl(a: Array<T.Ex>, +hb: U32) -> Array<T.Ex>:
 # neither node's stamp exceeds gc (neither was freed and rewritten since).
 # The context hash covers the binders' types, which a YES between open
 # terms may rest on (proof irrelevance, unit eta).
-def kyc_key(+x: U32, +y: U32, +ch: U32) -> U32:
-  (1024 + (2 * U32.and((((x * 2654435761 : U32) + (y * 40503 : U32) : U32)
-                        + (ch * 97 : U32) : U32), 131071) : U32) : U32)
+# With the 2^23 hash table (large exports) the shadow above 2^22 is free:
+# 2^21 entries there (mathlib's tensorQuotientEquiv: 57k pairs under their
+# contexts plus every closed pair an equivalence walk visits thrashed 2^17)
+def kyc_key2(+big: Bool, +h: U32) -> U32:
+  match big:
+    case True{}:
+      (4194304 + (2 * U32.and(h, 2097151) : U32) : U32)
+    case False{}:
+      (1024 + (2 * U32.and(h, 131071) : U32) : U32)
+
+def kyc_key(+base: U32, +x: U32, +y: U32, +ch: U32) -> U32:
+  kyc_key2(U32.is_eq(ktbl(base), 8388608),
+           (((x * 2654435761 : U32) + (y * 40503 : U32) : U32)
+            + (ch * 97 : U32) : U32))
 
 # a node's stamp: export nodes (EBVar{lbr} shadows) are never freed
 def kyst(+e: T.Ex) -> U32:
@@ -2229,8 +2249,9 @@ def kyc_h1(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +x: U32, +y: U32,
 
 def kyc_hit(a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
             +ch: U32) -> Array<T.Ex> & Bool:
-  +k : U32 = kyc_key(x, y, ch)
-  kyc_h1(Array.get(T.Ex, a, kfl_slot(base, k)), base, k, x, y, ch)
+  +b2 : U32 = base
+  +k : U32 = kyc_key(b2, x, y, ch)
+  kyc_h1(Array.get(T.Ex, a, kfl_slot(b2, k)), b2, k, x, y, ch)
 
 # the lookup as the register: 1 hit, 0 miss
 def kyc_tin2(pr: Array<T.Ex> & Bool, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -2255,7 +2276,8 @@ def kyc_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
             +ch: U32) -> Array<T.Ex>:
   match go:
     case True{}:
-      kyc_s1(Array.get(T.Ex, a, kg_slot(khalf(base))), base, kyc_key(x, y, ch),
+      +b2 : U32 = base
+      kyc_s1(Array.get(T.Ex, a, kg_slot(khalf(b2))), b2, kyc_key(b2, x, y, ch),
              x, y, ch)
     case False{}:
       a
@@ -4863,6 +4885,43 @@ def kctxm_tin(fs: Array<T.Ex> & U32, +x: U32, +l: U32, xs: List<&2, U32>,
       +l2 : U32 = l
       kctxh2_tin2(kctxm_g(kfv_mask(a, x, l2, base), xs, l2, base, which), nx)
 
+# the same key for a PAIR (the open-pair YES cache and the equivalence
+# manager): the entries x or y reach. A YES between open terms rests only
+# on the types of the variables they mention (proof irrelevance, unit
+# eta), and context entries are types. The whole-prefix key missed every
+# time the pair came back under another binder stack: mathlib's
+# tensorQuotientEquiv met 23k distinct pairs 11.8M times (Lean: fvars)
+def fm_or(+m: FM, +n: FM) -> FM:
+  match m n:
+    case FM{a0, a1, a2, a3} FM{b0, b1, b2, b3}:
+      FM{U32.or(a0, b0), U32.or(a1, b1), U32.or(a2, b2), U32.or(a3, b3)}
+
+def kctxp_2(pr: Array<T.Ex> & FM, +m: FM, xs: List<&2, U32>, +l: U32,
+            +base: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, m2}:
+      kctxm_g((a, fm_or(m, m2)), xs, l, base, 0)
+
+def kctxp_1(pr: Array<T.Ex> & FM, +y: U32, xs: List<&2, U32>, +l: U32,
+            +base: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, m}:
+      +l2 : U32 = l
+      +b2 : U32 = base
+      kctxp_2(kfv_mask(a, y, l2, b2), m, xs, l2, b2)
+
+def kctxp(a: Array<T.Ex>, +x: U32, +y: U32, xs: List<&2, U32>, +l: U32,
+          +base: U32) -> Array<T.Ex> & U32:
+  +l2 : U32 = l
+  +b2 : U32 = base
+  kctxp_1(kfv_mask(a, x, l2, b2), y, xs, l2, b2)
+
+def kctxp_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +l: U32,
+              xs: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match fs:
+    case Tuple{a, nx}:
+      kctxh2_tin2(kctxp(a, x, y, xs, l, base), nx)
+
 
 def kctxh2_tin(fs: Array<T.Ex> & U32, +l: U32, xs: List<&2, U32>, +base: U32,
                +which: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
@@ -5375,27 +5434,28 @@ def keqv_cc2(pr: Array<T.Ex> & U32, +ch0: U32) -> Array<T.Ex> & Bool:
     case Tuple{a, h}:
       (a, U32.is_eq(h, ch0))
 
-def keqv_cc(+ok: Bool, a: Array<T.Ex>, +base: U32, +lm0: U32, +ch0: U32,
-            +dr: U32, +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+def keqv_cc(+ok: Bool, a: Array<T.Ex>, +base: U32, +x0: U32, +y0: U32,
+            +lm0: U32, +ch0: U32, +dr: U32,
+            +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match ok:
     case True{}:
-      keqv_cc2(kctxh_s(U32.to_nat(lm0), (a, 0), kdrop(U32.to_nat(dr), C), base),
-               ch0)
+      keqv_cc2(kctxp(a, x0, y0, kdrop(U32.to_nat(dr), C), lm0, base), ch0)
     case False{}:
       (a, False{})
 
-def keqv_o4(pr: Array<T.Ex> & Bool, +base: U32, +lm0: U32, +ch0: U32,
-            +dr: U32, +C: List<&2, U32>) -> Array<T.Ex> & Bool:
+def keqv_o4(pr: Array<T.Ex> & Bool, +base: U32, +x0: U32, +y0: U32,
+            +lm0: U32, +ch0: U32, +dr: U32,
+            +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match pr:
     case Tuple{a, r}:
-      keqv_cc(r, a, base, lm0, ch0, dr, C)
+      keqv_cc(r, a, base, x0, y0, lm0, ch0, dr, C)
 
 def keqv_o3(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32, +y0: U32,
             +K: U32, +base: U32, +lm0: U32, +ch0: U32, +dr: U32,
             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match go:
     case True{}:
-      keqv_o4(klc(a, y, x0, K, base), base, lm0, ch0, dr, C)
+      keqv_o4(klc(a, y, x0, K, base), base, x0, y0, lm0, ch0, dr, C)
     case False{}:
       (a, False{})
 
@@ -5429,7 +5489,7 @@ def keqv_o1b(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
              +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match go:
     case True{}:
-      keqv_o1c(keqv_o4(klc(a, y, y0, K, base), base, lm0, ch0, dr, C),
+      keqv_o1c(keqv_o4(klc(a, y, y0, K, base), base, x0, y0, lm0, ch0, dr, C),
                x, y, x0, y0, K, base, lm0, ch0, dr, C)
     case False{}:
       keqv_o2(False{}, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
@@ -6575,56 +6635,6 @@ def kseta(+h: T.Ex, +n: U32, +mt: R.Tr<I.Meta>) -> Bool:
 def klname() -> U32:
   4294967200
 
-# a structure projection function: its value is lambdas over the
-# parameters and the structure, then `#0.i`. Lean unfolds one (an abbrev)
-# and whnf_core's with cheap projections, which leaves `s.i args` on both
-# sides; the projection tail then compares the structures and the
-# arguments -- in effect the arguments first. km's unfold reduces the
-# projection's structure further; for the same projection function on
-# both sides the arguments are tried first instead (with the failure
-# cache), as the pair would be after Lean's step.
-def kpf_bv(pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
-  match pr:
-    case Tuple{a, T.EBVar{i}}:
-      (a, S.pick(U32.is_eq(i, 0), 1, 0))
-    case Tuple{a, e}:
-      (a, 0)
-
-def kpf(n: Nat, pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & U32:
-  match n pr:
-    case 0n Tuple{a, nd}:
-      (a, 0)
-    case 1n+p Tuple{a, nd}:
-      match nd:
-        case T.ELam{n1, t, b, bi}:
-          kpf(p, Array.get(T.Ex, a, b))
-        case T.EProj{tn, i, sx}:
-          kpf_bv(Array.get(T.Ex, a, sx))
-        case _:
-          (a, 0)
-
-def kpf_tin2(pr: Array<T.Ex> & U32, +nx: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
-  match pr:
-    case Tuple{a, r}:
-      (((a, nx), MN{}), r)
-
-def kpf_tin(fs: Array<T.Ex> & U32,
-            +vi: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
-  match fs:
-    case Tuple{a, nx}:
-      +n2 : U32 = nx
-      kpf_tin2(kpf(64n, Array.get(T.Ex, a, S.pick(U32.is_lt(vi, n2), vi, 0))),
-               n2)
-
-def kz6(+samehd: Bool, +ab: Bool, +vi: U32, sx: List<&2, U32>,
-        sy: List<&2, U32>, +ux: Bool, +uy: Bool, +x: U32, +y: U32, +fu: U32,
-        ctx: List<&2, U32>) -> KF:
-  match samehd:
-    case True{}:
-      LZ6{True{}, sx, sy, ux, uy, x, y, fu, ctx}
-    case False{}:
-      LZ6m{ab, vi, sx, sy, ux, uy, x, y, fu, ctx}
-
 def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
   match x:
     case T.ESort{l}:
@@ -7219,18 +7229,11 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +stuck : Bool = Bool.not(cx) && Bool.not(cy)
       +cst : Bool = Bool.not(U32.is_eq(na, 4294967295)) && U32.is_eq(na, nb)
       +lus : Bool = cst && klus_eq(lnt, kcus(ha), kcus(hb))
-      +samelen : Bool = U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
-      +sl2 : Bool = samelen
-      +lus2 : Bool = lus
-      +samehd : Bool = sl2
-                       && ((lus2 && cx && cy
+      +samehd : Bool = U32.is_eq(I.len_u(sa, 0), I.len_u(sb, 0))
+                       && ((lus && cx && cy
                             && U32.is_eq(hxh, hyh) && U32.is_ne(hxh, 4294967294))
-                           || (lus2 && stuck)
+                           || (lus && stuck)
                            || (stuck && kis_bvar(ha) && kexeq(ha, hb)))
-      +sh2 : Bool = samehd
-      +ab : Bool = Bool.not(sh2) && sl2 && lus2 && cx && cy
-                   && U32.is_eq(hxh, 4294967294) && U32.is_eq(hyh, 4294967294)
-      +na2 : U32 = na
       +opx : Bool = klitop(na, I.len_u(sa, 0), q2)
       +opy : Bool = klitop(nb, I.len_u(sb, 0), q2)
       +x2 : U32 = x
@@ -7247,11 +7250,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                       LZR0{opx || opy, opx, opy,
                            I.nth_u(sa, 0, 4294967295), I.nth_u(sa, 1, 4294967295),
                            I.nth_u(sb, 0, 4294967295), I.nth_u(sb, 1, 4294967295),
-                           kz6(sh2, ab, R.get(U32, 64n, v2, na2, 4294967295),
-                               sa, sb,
+                           LZ6{samehd, sa, sb,
                                cx && (Bool.not(cy) || U32.is_ge(hxh, hyh)),
                                cy && (Bool.not(cx) || U32.is_ge(hyh, hxh)),
-                               x2, y2, f2, cx9), x2, y2, f2, cx9}, x2, y2, f2, cx9}, k},
+                               x2, y2, f2, cx9}, x2, y2, f2, cx9}, x2, y2, f2, cx9}, k},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
     case 1n+p KCon{LZPj{False{}, px, nxt, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
@@ -7393,19 +7395,6 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     # same-head arguments of (x, y) failed, a revisit unfolds at once (a
     # fingerprint collision only unfolds where the arguments could have
     # been compared: an unfold is always sound)
-    case 1n+p KCon{LZ6m{False{}, vi, sx, sy, ux, uy, x, y, fu, ctx}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{LZ6{False{}, sx, sy, ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{LZ6m{True{}, vi, sx, sy, ux, uy, x, y, fu, ctx}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      km(p, KCon{LZ6f{sx, sy, ux, uy, x, y, fu, ctx}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, kpf_tin(fs, vi))
-    case 1n+p KCon{LZ6f{sx, sy, ux, uy, x, y, fu, ctx}, k}
-         Tuple{Tuple{fs, msg}, ri}:
-      +r2 : U32 = ri
-      km(p, KCon{LZ6{U32.is_eq(r2, 1), sx, sy, ux, uy, x, y, fu, ctx}, k}, lnt,
-         nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
     case 1n+p KCon{LZ6{True{}, sx, sy, ux, uy, x, y, fu, ctx}, k}
          Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = x
@@ -7896,6 +7885,8 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
     case 1n+p KCon{WRb{e, args, ctx}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          krebuild(hcb, args, kfl_set(fs, hcb, 3, 1), e))
+    case 1n+p KCon{KId{e}, k} Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kkeep(fs, e))
     case 1n+p KCon{KKpF{e}, k} Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kkeep(kfl_set(fs, hcb, 2, 1), e))
@@ -8809,9 +8800,7 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
       +x2 : U32 = xi
       +y2 : U32 = yi
       km(p, KCon{DSc0h{lm, x2, y2, c2, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
-         wm, nt, hcb, kctxu_tin(fs, x2, y2, lm, c2, hcb,
-                                S.pick(U32.is_eq(kmode(qtt), 1),
-                                       0, 0)))
+         wm, nt, hcb, kctxp_tin(fs, x2, y2, lm, c2, hcb))
     case 1n+p KCon{DSc0h{lm, xi, yi, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
       +x2 : U32 = xi
       +y2 : U32 = yi

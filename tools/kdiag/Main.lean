@@ -5,6 +5,7 @@ open Lean
 -- The official replay (Lean.Replay) with one change: every declaration the
 -- kernel checks is timed and its kernel unfold counter (Kernel.Diagnostics)
 -- is printed: DIAG name us=.. unfolds=.. top=c1:n1,c2:n2,...
+-- (the 6 most unfolded constants; KDIAG_TOP=n for n of them)
 namespace Diag
 
 structure Context where
@@ -38,7 +39,8 @@ def addDecl (name : Name) (d : Declaration) : M Unit := do
       tot := tot + c
       arr := arr.push (n, c)
     let srt := arr.qsort (fun a b => a.2 > b.2)
-    let top := String.intercalate "," ((srt.toList.take 6).map fun (n, c) => s!"{n}:{c}")
+    let k := ((← IO.getEnv "KDIAG_TOP").bind String.toNat?).getD 6
+    let top := String.intercalate "," ((srt.toList.take k).map fun (n, c) => s!"{n}:{c}")
     IO.println s!"DIAG {name} us={(t1 - t0) / 1000} unfolds={tot} top={top}"
     modify fun s => { s with env := env }
   | .error ex => throw <| .userError (← ex.toMessageData {} |>.toString)
