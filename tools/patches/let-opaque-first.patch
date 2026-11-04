@@ -1,0 +1,185 @@
+# REJECTED experiment (2026-11-04): a let body checked with x opaque first,
+# the value substituted only on failure. con-leche lets need zeta, so the
+# nested fallbacks multiplied inference (15M vs 1.2M in 120 s). Kept for the
+# record; the let-local substitution (klname) replaced it.
+diff --git a/src/km.bend b/src/km.bend
+index 501efa3..99648bf 100644
+--- a/src/km.bend
++++ b/src/km.bend
+@@ -853,6 +853,28 @@ type KF is Data:
+   ILmGo{ok: Bool, bty: U32, n: U32, ty: U32, bi: U32}
+   IBv{ok: Bool}
+   ILt2{ctx: List<&2, U32>, fu: U32}
++  # Lean's let: the value is checked against the declared type, then the
++  # body against x : type with x opaque (a local, as Lean's fvar); only when
++  # that does not conclude is the value substituted (the old route)
++  ZtA{chk: Bool, ty: U32, v: U32, b: U32, tye: U32, ctx: List<&2, U32>,
++      fu: U32}
++  ZtA2{good: Bool, tv: U32, chk: Bool, ty: U32, v: U32, b: U32, tye: U32,
++       ctx: List<&2, U32>, fu: U32}
++  ZtB{chk: Bool, ty: U32, v: U32, b: U32, tye: U32, ctx: List<&2, U32>,
++      fu: U32}
++  ZtC{chk: Bool, w1: U32, ty: U32, v: U32, b: U32, tye: U32,
++      ctx: List<&2, U32>, fu: U32}
++  ZtD{chk: Bool, ty: U32, v: U32, b: U32, tye: U32, ctx: List<&2, U32>,
++      fu: U32}
++  ZtGo{yes: Bool, chk: Bool, ty: U32, v: U32, b: U32, tye: U32,
++       ctx: List<&2, U32>, fu: U32}
++  ZtL{ty: U32, v: U32, b: U32, tye: U32, ctx: List<&2, U32>, fu: U32}
++  ZtE{v: U32, b: U32, tye: U32, ctx: List<&2, U32>, fu: U32}
++  ZtE2{good: Bool, ok: Bool, r: U32, v: U32, b: U32, tye: U32,
++       ctx: List<&2, U32>, fu: U32}
++  ZtF{v: U32, b: U32, tye: U32, ctx: List<&2, U32>, fu: U32}
++  ZtF2{yes: Bool, v: U32, b: U32, tye: U32, ctx: List<&2, U32>, fu: U32}
++  ZtFb{chk: Bool, v: U32, b: U32, tye: U32, ctx: List<&2, U32>, fu: U32}
+   IAp2{a: U32, f: U32, ctx: List<&2, U32>, fu: U32}
+   IAp3{a: U32, f: U32, rf: U32, rfok: Bool, ctx: List<&2, U32>, fu: U32}
+   IAp3b{a: U32, f: U32, rf: U32, rfok: Bool, ctx: List<&2, U32>, fu: U32}
+@@ -10825,15 +10847,126 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
+     # -- Let --
+     case 1n+p KCon{IEv{xi, ctx, fu}, k}
+          Tuple{Tuple{fs, MX{T.ELet{n, ty, v, b}}}, ri}:
+-      +b2 : U32 = b
++      +v2 : U32 = v
++      +cx9 : List<&2, U32> = ctx
+       +f2 : U32 = fu
+-      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, b2),
+-                 KCon{ILt2{ctx, (f2 - 1 : U32)}, k}},
+-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
++      km(p, KCon{ISub{v2, cx9, (f2 - 1 : U32)},
++                 KCon{ZtA{False{}, ty, v2, b, 0, cx9, f2}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+     case 1n+p KCon{ILt2{ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+       +r2 : U32 = ri
+       km(p, KCon{ISub{r2, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn,
+          wm, nt, hcb, knoop(fs, 0))
++    # the value's type (an ill-typed or unverified value: the old route)
++    case 1n+p KCon{ZtA{chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
++      +t2 : U32 = t
++      +ok2 : Bool = ok
++      km(p, KCon{ZtA2{ok2 && U32.is_lt(t2, 2147483646), t2, chk, ty, v, b, tye,
++                      ctx, fu}, k},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtA2{True{}, tv, chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +cx9 : List<&2, U32> = ctx
++      km(p, KCon{DWhd{tv, cx9}, KCon{ZtB{chk, ty, v, b, tye, cx9, fu}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtA2{False{}, tv, chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      km(p, KCon{ZtFb{chk, v, b, tye, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
++         qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtB{chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +cx9 : List<&2, U32> = ctx
++      +t2 : U32 = ty
++      km(p, KCon{DWhd{t2, cx9}, KCon{ZtC{chk, ri, t2, v, b, tye, cx9, fu}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
++    # whnf'd both; compared in a rollback region (as an argument check)
++    case 1n+p KCon{ZtC{chk, w1, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{Tuple{ex, nx}, msg}, ri}:
++      +cx9 : List<&2, U32> = ctx
++      +w12 : U32 = w1
++      +w22 : U32 = ri
++      +n2 : U32 = nx
++      km(p, KCon{DSub{False{}, U32.is_eq(w12, w22), w12, w22, cx9, 4096},
++                 KCon{KRb{n2, wm}, KCon{ZtD{chk, ty, v, b, tye, cx9, fu}, k}}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), 0))
++    case 1n+p KCon{ZtD{chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, MTri{t}}, ri}:
++      km(p, KCon{ZtGo{L.tri_is_yes(t), chk, ty, v, b, tye, ctx, fu}, k},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtGo{False{}, chk, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      km(p, KCon{ZtFb{chk, v, b, tye, ctx, fu}, k}, lnt, nlx, mt, lp, vt,
++         qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    # v : ty holds -- the body under x : ty, x opaque
++    case 1n+p KCon{ZtGo{True{}, False{}, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +t2 : U32 = ty
++      +cx9 : List<&2, U32> = ctx
++      +b2 : U32 = b
++      +f2 : U32 = fu
++      km(p, KCon{ISub{b2, Con{t2, cx9}, (f2 - 1 : U32)},
++                 KCon{ZtE{v, b2, tye, cx9, f2}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    # (checking: the expected type is lifted over the binder first)
++    case 1n+p KCon{ZtGo{True{}, True{}, ty, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +te2 : U32 = tye
++      km(p, KCon{kev(WP{0, 0, 1, 0, Nil{}, Nil{}, 2000000}, te2),
++                 KCon{ZtL{ty, v, b, te2, ctx, fu}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, te2, ri))
++    case 1n+p KCon{ZtL{ty, v, b, tye, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
++      +t2 : U32 = ty
++      +cx9 : List<&2, U32> = ctx
++      +b2 : U32 = b
++      +f2 : U32 = fu
++      +r2 : U32 = ri
++      km(p, KCon{CkEx{b2, r2, Con{t2, cx9}, (f2 - 1 : U32)},
++                 KCon{ZtF{v, b2, tye, cx9, f2}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
++    case 1n+p KCon{ZtF{v, b, tye, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
++      km(p, KCon{ZtF2{L.tri_is_yes(t), v, b, tye, ctx, fu}, k}, lnt, nlx, mt,
++         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtF2{True{}, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
++         kmtri(fs, L.TYes{}))
++    case 1n+p KCon{ZtF2{False{}, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      km(p, KCon{ZtFb{True{}, v, b, tye, ctx, fu}, k}, lnt, nlx, mt, lp,
++         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    # the body's type over x, instantiated with the value
++    case 1n+p KCon{ZtE{v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, MIR{t, ok}}, ri}:
++      +t2 : U32 = t
++      +ok2 : Bool = ok
++      km(p, KCon{ZtE2{ok2 && U32.is_lt(t2, 2147483646), ok2, t2, v, b, tye, ctx,
++                      fu}, k},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    case 1n+p KCon{ZtE2{True{}, ok, r, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +r2 : U32 = r
++      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, r2),
++                 KCon{IBv{True{}}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, r2, ri))
++    case 1n+p KCon{ZtE2{False{}, ok, r, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      km(p, KCon{ZtFb{False{}, v, b, tye, ctx, fu}, k}, lnt, nlx, mt, lp,
++         vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
++    # the old route: substitute the value and go on with the body
++    case 1n+p KCon{ZtFb{False{}, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +b2 : U32 = b
++      +f2 : U32 = fu
++      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, b2),
++                 KCon{ILt2{ctx, (f2 - 1 : U32)}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
++    case 1n+p KCon{ZtFb{True{}, v, b, tye, ctx, fu}, k}
++         Tuple{Tuple{fs, msg}, ri}:
++      +b2 : U32 = b
++      km(p, KCon{kev(WP{1, 0, 0, v, Nil{}, Nil{}, 2000000}, b2),
++                 KCon{CkE7{tye, ctx, fu}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
+     # -- App --
+     case 1n+p KCon{IEv{xi, ctx, fu}, k}
+          Tuple{Tuple{fs, MX{T.EApp{f, a}}}, ri}:
+@@ -11742,10 +11875,12 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
+          mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+     case 1n+p KCon{CkEy{T.ELet{ln1, lt1, lv1, lb1}, xi, tye, ctx, fu}, k}
+          Tuple{Tuple{fs, msg}, ri}:
+-      +b2 : U32 = lb1
+-      km(p, KCon{kev(WP{1, 0, 0, lv1, Nil{}, Nil{}, 2000000}, b2),
+-                 KCon{CkE7{tye, ctx, fu}, k}},
+-         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, kfetch(fs, b2, ri))
++      +v2 : U32 = lv1
++      +cx9 : List<&2, U32> = ctx
++      +f2 : U32 = fu
++      km(p, KCon{ISub{v2, cx9, (f2 - 1 : U32)},
++                 KCon{ZtA{True{}, lt1, v2, lb1, tye, cx9, f2}, k}},
++         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+     case 1n+p KCon{CkE7{tye, ctx, fu}, k} Tuple{Tuple{fs, msg}, ri}:
+       +r2 : U32 = ri
+       +f2 : U32 = fu
