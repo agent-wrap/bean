@@ -4755,6 +4755,59 @@ def kbh_go(fuel: Nat, pr: Array<T.Ex> & T.Ex, todo: List<&2, U32>,
 def kbh(a: Array<T.Ex>, +x: U32) -> Array<T.Ex> & U32:
   kbh_go(24n, Array.get(T.Ex, a, x), Con{x, Nil{}}, 1)
 
+# kbh memoised per node (Lean keeps an expression's hash in the node): the
+# equivalence walk hashes both sides of every unequal pair it meets, 24
+# nodes each, and meets the same nodes again across walks. 2^16 one-slot
+# entries at kfl_slot(base, 1443840 + h), EProj{x, hash, G}: valid while
+# x's slot was not rewritten since (its stamp at most G); the hash is a
+# function of the node alone, so no per-declaration bound
+def kbhm_slot(+base: U32, +x: U32) -> U32:
+  kfl_slot(base, (1443840 + U32.and((x * 2654435761 : U32), 65535) : U32))
+
+def kbhm_w2(pr: Array<T.Ex> & T.Ex, +base: U32, +x: U32,
+            +h: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, g}:
+      (Array.set(T.Ex, a, kbhm_slot(base, x), T.EProj{x, h, kg_v(g)}), h)
+
+def kbhm_w(pr: Array<T.Ex> & U32, +base: U32, +x: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, h}:
+      kbhm_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, x, h)
+
+def kbhm_4(+valid: Bool, a: Array<T.Ex>, +base: U32, +x: U32,
+           +h: U32) -> Array<T.Ex> & U32:
+  match valid:
+    case True{}:
+      (a, h)
+    case False{}:
+      kbhm_w(kbh(a, x), base, x)
+
+def kbhm_3(pr: Array<T.Ex> & T.Ex, +base: U32, +x: U32, +h: U32,
+           +gc: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, sh}:
+      +e2 : T.Ex = sh
+      kbhm_4(U32.is_le(kyst(e2), gc), a, base, x, h)
+
+def kbhm_2(+ok: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +h: U32,
+           +gc: U32) -> Array<T.Ex> & U32:
+  match ok:
+    case True{}:
+      kbhm_3(Array.get(T.Ex, a, (x + khalf(base) : U32)), base, x, h, gc)
+    case False{}:
+      kbhm_w(kbh(a, x), base, x)
+
+def kbhm_1(pr: Array<T.Ex> & T.Ex, +base: U32, +x: U32) -> Array<T.Ex> & U32:
+  match pr:
+    case Tuple{a, T.EProj{x0, h, gc}}:
+      kbhm_2(U32.is_eq(x0, x), a, base, x, h, gc)
+    case Tuple{a, e}:
+      kbhm_w(kbh(a, x), base, x)
+
+def kbhm(a: Array<T.Ex>, +base: U32, +x: U32) -> Array<T.Ex> & U32:
+  kbhm_1(Array.get(T.Ex, a, kbhm_slot(base, x)), base, x)
+
 def keqv_key(+hx: U32, +hy: U32) -> U32:
   +lo : U32 = S.pick(U32.is_lt(hx, hy), hx, hy)
   +hi : U32 = S.pick(U32.is_lt(hx, hy), hy, hx)
@@ -4852,8 +4905,112 @@ def klc_go(fuel: Nat, pr: Array<T.Ex> & LS, +K: U32, +hb: U32) -> Array<T.Ex> & 
       +t2 : U32 = t
       klc_go(p, klc_s1(klb_get(a, t2, hb), s, t2, e, tail, K), K, hb)
 
-def klc(a: Array<T.Ex>, +s: U32, +t: U32, +K: U32, +hb: U32) -> Array<T.Ex> & Bool:
-  klc_go(4096n, (a, LS{True{}, Con{LC{s, t, 0}, Nil{}}}), K, hb)
+# lift moves every loose index up by K, so lbr(lift(t, K)) is lbr(t) + K
+# (0 when t is closed): two reads settle most candidates the lift-
+# invariant hash brings, which the walk otherwise ran to the first
+# differing index (an unknown lbr walks)
+def klc_f3(+go: Bool, a: Array<T.Ex>, +s: U32, +t: U32, +K: U32,
+           +hb: U32) -> Array<T.Ex> & Bool:
+  match go:
+    case True{}:
+      klc_go(4096n, (a, LS{True{}, Con{LC{s, t, 0}, Nil{}}}), K, hb)
+    case False{}:
+      (a, False{})
+
+def klc_f2(pr: Array<T.Ex> & U32, +ls: U32, +s: U32, +t: U32, +K: U32,
+           +hb: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, lt}:
+      +l2 : U32 = lt
+      +want : U32 = S.pick(U32.is_eq(l2, 0), 0, (l2 + K : U32))
+      klc_f3(U32.is_eq(ls, 4294967295) || U32.is_eq(l2, 4294967295)
+             || U32.is_eq(ls, want), a, s, t, K, hb)
+
+def klc_f1(pr: Array<T.Ex> & U32, +s: U32, +t: U32, +K: U32,
+           +hb: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, ls}:
+      klc_f2(klb_get(a, t, hb), ls, s, t, K, hb)
+
+def klc0(a: Array<T.Ex>, +s: U32, +t: U32, +K: U32, +hb: U32) -> Array<T.Ex> & Bool:
+  klc_f1(klb_get(a, s, hb), s, t, K, hb)
+
+# klc's answer memoised per (s, t, K): a function of the two nodes, so it
+# stays valid while neither slot was rewritten (both stamps at most the
+# G of the write). The walks re-verified the same recorded pair at every
+# lookup that reached it (assoc_eq: 13M walks, 1.5G steps). 2^15 one-slot
+# entries at kfl_slot(base, 1509376 + h), ELet{s, t, 2K + answer, G}
+def klcm_slot(+base: U32, +s: U32, +t: U32) -> U32:
+  kfl_slot(base, (1509376 + U32.and(((s * 2654435761 : U32) + (t * 40503 : U32) : U32),
+                                    32767) : U32))
+
+def klcm_w2(pr: Array<T.Ex> & T.Ex, +base: U32, +s: U32, +t: U32, +K: U32,
+            +r: Bool) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, g}:
+      +r2 : Bool = r
+      (Array.set(T.Ex, a, klcm_slot(base, s, t),
+                 T.ELet{s, t, ((K * 2 : U32) + S.pick(r2, 1, 0) : U32), kg_v(g)}),
+       r2)
+
+def klcm_w(pr: Array<T.Ex> & Bool, +base: U32, +s: U32, +t: U32,
+           +K: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, r}:
+      klcm_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, s, t, K, r)
+
+def klcm_5(+valid: Bool, a: Array<T.Ex>, +base: U32, +s: U32, +t: U32,
+           +K: U32, +kr: U32) -> Array<T.Ex> & Bool:
+  match valid:
+    case True{}:
+      (a, U32.is_eq(U32.and(kr, 1), 1))
+    case False{}:
+      klcm_w(klc0(a, s, t, K, khalf(base)), base, s, t, K)
+
+def klcm_4(pr: Array<T.Ex> & T.Ex, +ok: Bool, +base: U32, +s: U32, +t: U32,
+           +K: U32, +kr: U32, +gc: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, sh}:
+      +e2 : T.Ex = sh
+      klcm_5(ok && U32.is_le(kyst(e2), gc), a, base, s, t, K, kr)
+
+def klcm_3(pr: Array<T.Ex> & T.Ex, +base: U32, +s: U32, +t: U32, +K: U32,
+           +kr: U32, +gc: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, sh}:
+      +e2 : T.Ex = sh
+      klcm_4(Array.get(T.Ex, a, (t + khalf(base) : U32)),
+             U32.is_le(kyst(e2), gc), base, s, t, K, kr, gc)
+
+def klcm_2(+ok: Bool, a: Array<T.Ex>, +base: U32, +s: U32, +t: U32, +K: U32,
+           +kr: U32, +gc: U32) -> Array<T.Ex> & Bool:
+  match ok:
+    case True{}:
+      klcm_3(Array.get(T.Ex, a, (s + khalf(base) : U32)), base, s, t, K, kr, gc)
+    case False{}:
+      klcm_w(klc0(a, s, t, K, khalf(base)), base, s, t, K)
+
+def klcm_1(pr: Array<T.Ex> & T.Ex, +base: U32, +s: U32, +t: U32,
+           +K: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, T.ELet{s0, t0, kr, gc}}:
+      +k2 : U32 = kr
+      klcm_2(U32.is_eq(s0, s) && U32.is_eq(t0, t) && U32.is_eq((k2 / 2 : U32), K),
+             a, base, s, t, K, k2, gc)
+    case Tuple{a, e}:
+      klcm_w(klc0(a, s, t, K, khalf(base)), base, s, t, K)
+
+# the same node with K 0 settles at the root without the memo
+def klc_q(+same: Bool, a: Array<T.Ex>, +base: U32, +s: U32, +t: U32,
+          +K: U32) -> Array<T.Ex> & Bool:
+  match same:
+    case True{}:
+      klc0(a, s, t, K, khalf(base))
+    case False{}:
+      klcm_1(Array.get(T.Ex, a, klcm_slot(base, s, t)), base, s, t, K)
+
+def klc(a: Array<T.Ex>, +s: U32, +t: U32, +K: U32, +base: U32) -> Array<T.Ex> & Bool:
+  klc_q(U32.is_eq(s, t) && U32.is_eq(K, 0), a, base, s, t, K)
 
 def kdrop(n: Nat, xs: List<&2, U32>) -> List<&2, U32>:
   match n xs:
@@ -4890,7 +5047,7 @@ def keqv_o3(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32, +y0: U32,
             +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match go:
     case True{}:
-      keqv_o4(klc(a, y, x0, K, khalf(base)), base, lm0, ch0, dr, C)
+      keqv_o4(klc(a, y, x0, K, base), base, lm0, ch0, dr, C)
     case False{}:
       (a, False{})
 
@@ -4909,7 +5066,7 @@ def keqv_o2(+done: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
     case True{}:
       (a, True{})
     case False{}:
-      keqv_o2b(klc(a, x, y0, K, khalf(base)), x, y, x0, y0, K, base, lm0, ch0,
+      keqv_o2b(klc(a, x, y0, K, base), x, y, x0, y0, K, base, lm0, ch0,
                dr, C)
 
 def keqv_o1c(pr: Array<T.Ex> & Bool, +x: U32, +y: U32, +x0: U32, +y0: U32,
@@ -4924,7 +5081,7 @@ def keqv_o1b(+go: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
              +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match go:
     case True{}:
-      keqv_o1c(keqv_o4(klc(a, y, y0, K, khalf(base)), base, lm0, ch0, dr, C),
+      keqv_o1c(keqv_o4(klc(a, y, y0, K, base), base, lm0, ch0, dr, C),
                x, y, x0, y0, K, base, lm0, ch0, dr, C)
     case False{}:
       keqv_o2(False{}, a, x, y, x0, y0, K, base, lm0, ch0, dr, C)
@@ -4941,7 +5098,7 @@ def keqv_h10(+ok: Bool, a: Array<T.Ex>, +x: U32, +y: U32, +x0: U32,
              +C: List<&2, U32>) -> Array<T.Ex> & Bool:
   match ok:
     case True{}:
-      keqv_o1(klc(a, x, x0, K, khalf(base)), x, y, x0, y0, K, base, lm0, ch0,
+      keqv_o1(klc(a, x, x0, K, base), x, y, x0, y0, K, base, lm0, ch0,
               dr, C)
     case False{}:
       (a, False{})
@@ -5053,13 +5210,13 @@ def keqv_h1(+uh: Bool, pr: Array<T.Ex> & U32, +x: U32, +y: U32, +bd: U32,
             +C: List<&2, U32>, +L: U32, +base: U32) -> Array<T.Ex> & U32:
   match pr:
     case Tuple{a, hx}:
-      keqv_h2(uh, kbh(a, y), hx, x, y, bd, C, L, base)
+      keqv_h2(uh, kbhm(a, base, y), hx, x, y, bd, C, L, base)
 
 # x, y at binder depth bd below a context C of length L: 1 a recorded
 # equal pair, 0 none, 2 hashes differ
 def keqv_hit(+uh: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
              +bd: U32, +C: List<&2, U32>, +L: U32) -> Array<T.Ex> & U32:
-  keqv_h1(uh, kbh(a, x), x, y, bd, C, L, base)
+  keqv_h1(uh, kbhm(a, base, x), x, y, bd, C, L, base)
 
 # -- record a YES (the originals, as Lean's add_equiv does) --
 def keqv_w(pr: Array<T.Ex> & T.Ex, +base: U32, +k: U32, +x: U32, +y: U32,
@@ -5080,13 +5237,13 @@ def keqv_s1(pr: Array<T.Ex> & U32, +base: U32, +x: U32, +y: U32, +ch: U32,
             +L0: U32) -> Array<T.Ex>:
   match pr:
     case Tuple{a, hx}:
-      keqv_s2(kbh(a, y), hx, base, x, y, ch, L0)
+      keqv_s2(kbhm(a, base, y), hx, base, x, y, ch, L0)
 
 def keqv_set(+go: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
              +ch: U32, ctx: List<&2, U32>) -> Array<T.Ex>:
   match go:
     case True{}:
-      keqv_s1(kbh(a, x), base, x, y, ch, I.len_u(ctx, 0))
+      keqv_s1(kbhm(a, base, x), base, x, y, ch, I.len_u(ctx, 0))
     case False{}:
       a
 
@@ -5216,10 +5373,53 @@ def keqc_qv(+uh: Bool, +seen: Bool, a: Array<T.Ex>, nd: T.Ex, +x: U32, +y: U32,
       keqc_qc(uh, klb_get(a, x, khalf(base)), nd, x, y, dep, bd, tail, base, C, L,
               rc)
 
+# the walk's visited pairs, in the store instead of a trie (a trie set
+# copied a path per pair): 2^14 one-slot entries at kfl_slot(base,
+# 1542144 + h), EProj{x, y, walk}. The walk id comes from flag slot 8, a
+# counter outside every rollback, so an entry of another walk never
+# matches (a stale match would skip an unproved pair); a pair evicted by a
+# collision is walked again
+def kvis_slot(+base: U32, +x: U32, +y: U32) -> U32:
+  kfl_slot(base, (1542144 + U32.and(((x * 2654435761 : U32) + (y * 40503 : U32) : U32),
+                                    16383) : U32))
+
+def keqc_vs3(+hit: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
+             +wid: U32) -> Array<T.Ex> & Bool:
+  match hit:
+    case True{}:
+      (a, True{})
+    case False{}:
+      (Array.set(T.Ex, a, kvis_slot(base, x, y), T.EProj{x, y, wid}), False{})
+
+def keqc_vs2(pr: Array<T.Ex> & T.Ex, +base: U32, +x: U32, +y: U32,
+             +wid: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, T.EProj{x0, y0, w0}}:
+      keqc_vs3(U32.is_eq(x0, x) && U32.is_eq(y0, y) && U32.is_eq(w0, wid), a,
+               base, x, y, wid)
+    case Tuple{a, e}:
+      keqc_vs3(False{}, a, base, x, y, wid)
+
+def keqc_vs(+lg: Bool, a: Array<T.Ex>, +base: U32, +x: U32, +y: U32,
+            +wid: U32) -> Array<T.Ex> & Bool:
+  match lg:
+    case True{}:
+      keqc_vs2(Array.get(T.Ex, a, kvis_slot(base, x, y)), base, x, y, wid)
+    case False{}:
+      (a, False{})
+
+def keqc_qv2(+uh: Bool, pr: Array<T.Ex> & Bool, nd: T.Ex, +x: U32, +y: U32,
+             +dep: U32, +bd: U32, tail: List<&2, QI>, +base: U32,
+             +C: List<&2, U32>, +L: U32,
+             rc: List<&2, U32>) -> ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>:
+  match pr:
+    case Tuple{a, seen}:
+      keqc_qv(uh, seen, a, nd, x, y, dep, bd, tail, base, C, L, rc)
+
 def keqc_go(+uh: Bool, fuel: Nat, +lnt: R.Tr<L.LN>,
             st: ((Array<T.Ex> & T.Ex) & List<&2, QI>) & List<&2, U32>,
             +acc: L.Tri, +nx: U32, +base: U32, +C: List<&2, U32>,
-            +L: U32, +vis: R.Tr<U32>,
+            +L: U32, +wid: U32,
             +cnt: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fuel st:
     case 0n Tuple{Tuple{Tuple{a, nd}, wl}, rc}:
@@ -5231,14 +5431,11 @@ def keqc_go(+uh: Bool, fuel: Nat, +lnt: R.Tr<L.LN>,
       +x2 : U32 = x
       +y2 : U32 = y
       +b2 : U32 = bd
-      +v2 : R.Tr<U32> = vis
       # the set only once a walk is long: most walks are a few pairs
       +lg : Bool = U32.is_ge(cnt, 64)
-      +seen : Bool = lg && U32.is_eq(R.get(U32, 64n, v2, x2, 4294967295), y2)
-      keqc_go(uh, p, lnt, keqc_qv(uh, seen, a, nd, x2, y2, dep, b2, tail, base, C, L,
-                              rc),
-              acc, nx, base, C, L, R.set_if(U32, lg && Bool.not(seen), v2, x2,
-                                            y2, 4294967295), (cnt + 1 : U32))
+      keqc_go(uh, p, lnt, keqc_qv2(uh, keqc_vs(lg, a, base, x2, y2, wid), nd, x2,
+                               y2, dep, b2, tail, base, C, L, rc),
+              acc, nx, base, C, L, wid, (cnt + 1 : U32))
     case 1n+p Tuple{Tuple{Tuple{a, nd}, Con{QB{an, y, dep, bd}, tail}}, rc}:
       +r : QR = keq_cmp0(dep, bd, an, nd, lnt)
       +t2 : L.Tri = I.tri_and(acc, qr_t(r))
@@ -5246,16 +5443,27 @@ def keqc_go(+uh: Bool, fuel: Nat, +lnt: R.Tr<L.LN>,
                                    List.append(&2, QI, qr_kids(r), tail),
                                    Nil{})
       keqc_go(uh, p, lnt, ((Array.get(T.Ex, a, keq_next(w)), w), rc), t2, nx, base,
-              C, L, vis, (cnt + 1 : U32))
+              C, L, wid, (cnt + 1 : U32))
+
+def keqc_tin2(+uh: Bool, pr: Array<T.Ex> & T.Ex, +nx: U32, +x: U32, +y: U32,
+              +lnt: R.Tr<L.LN>, +base: U32,
+              +C: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
+  match pr:
+    case Tuple{ex, e}:
+      +w : U32 = kfl_v(e)
+      +r : QR = kq1(x, y, 256, 0, L.TYes{}, Nil{})
+      +wl : List<&2, QI> = qr_kids(r)
+      keqc_go(uh, 100000000n, lnt,
+              ((Array.get(T.Ex, Array.set(T.Ex, ex, kfl_slot(base, 8),
+                                          T.EBVar{(w + 1 : U32)}),
+                          keq_next(wl)), wl), Nil{}),
+              qr_t(r), nx, base, C, I.len_u(C, 0), w, 0)
 
 def keqc_tin(+uh: Bool, fs: Array<T.Ex> & U32, +x: U32, +y: U32, +lnt: R.Tr<L.LN>,
              +base: U32, +C: List<&2, U32>) -> ((Array<T.Ex> & U32) & MG) & U32:
   match fs:
     case Tuple{ex, nx}:
-      +r : QR = kq1(x, y, 256, 0, L.TYes{}, Nil{})
-      +wl : List<&2, QI> = qr_kids(r)
-      keqc_go(uh, 100000000n, lnt, ((Array.get(T.Ex, ex, keq_next(wl)), wl), Nil{}),
-              qr_t(r), nx, base, C, I.len_u(C, 0), R.TNil{}, 0)
+      keqc_tin2(uh, Array.get(T.Ex, ex, kfl_slot(base, 8)), nx, x, y, lnt, base, C)
 
 def kctxh_n(n: Nat, xs: List<&2, U32>, +h: U32) -> U32:
   match n xs:

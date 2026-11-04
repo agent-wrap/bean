@@ -23,10 +23,11 @@ tick = r'''
 #include <time.h>
 static double dbg_now(void){struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return t.tv_sec+t.tv_nsec*1e-9;}
 static long dbg_decl=-1, dbg_cur=0; static double dbg_t0=0, dbg_last=0; static int dbg_isblk=0;
+static int dbg_ixset=0; /* fck_all sets the index; the dynamic path's fck_chunk does not, so fck_sel entries are counted instead (one per record, in file order) */
 static unsigned dbg_fl=0, dbg_mv=0; /* the last typed check's flag bits (OVF|CORRUPT<<1|INCOMPLETE<<2) and raw verdict register */
 static void dbg_tick(int kind){
   double n=dbg_now(); if(dbg_t0==0){dbg_t0=n;dbg_last=n;}
-  if(kind==0){ double dt=n-dbg_last; if(dt>0.3 && dbg_decl>=0) fprintf(stderr,"SLOW decl=%ld blk=%d dt=%.2f at=%.1f\n",dbg_decl,dbg_isblk,dt,n-dbg_t0);
+  if(kind==0){ static long dbg_nsel=0; if(!dbg_ixset) dbg_cur=dbg_nsel; dbg_nsel++; double dt=n-dbg_last; if(dt>0.3 && dbg_decl>=0) fprintf(stderr,"SLOW decl=%ld blk=%d dt=%.2f at=%.1f\n",dbg_decl,dbg_isblk,dt,n-dbg_t0);
     dbg_decl=dbg_cur; dbg_last=n; dbg_isblk=0; if(dbg_decl%5000==0) fprintf(stderr,"PROG decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);
     if(getenv("FTICK_ENTER")) fprintf(stderr,"ENTER decl=%ld at=%.1f\n",dbg_decl,n-dbg_t0);}
   else { dbg_isblk=1; }
@@ -41,7 +42,7 @@ m = re.search(r"    u32 _ix_0 = r(\d+);\n(?:    u32 _w[a-z]+_0 = r\d+;\n)*    Te
 assert m, 'fck_all registers moved'
 # the index fck_all carries is the NEXT declaration's; the verdict it
 # receives is the previous one's
-s = s[:m.end()] + '    dbg_cur = (long)_ix_0; if (_fr_2 != 0) { fprintf(stderr, "VERD decl=%ld v=%u fl=%u mv=%u\\n", (long)_ix_0 - 1, _fr_2, dbg_fl, dbg_mv); } dbg_fl = 0; dbg_mv = 0;\n' + s[m.end():]
+s = s[:m.end()] + '    dbg_cur = (long)_ix_0; dbg_ixset = 1; if (_fr_2 != 0) { fprintf(stderr, "VERD decl=%ld v=%u fl=%u mv=%u\\n", (long)_ix_0 - 1, _fr_2, dbg_fl, dbg_mv); } dbg_fl = 0; dbg_mv = 0;\n' + s[m.end():]
 # fck_fold (inlined into a spin helper): the flag bits come back from the
 # kfl_flags helper into _v_N, the machine's verdict register is _kr_2
 m2 = re.search(r"  u32 _sv_0 = r6;\n  u32 _base_0 = r7;\n  WL_SPIN\n(?:.*\n){0,12}?    (_v_\d+) = \(u32\)_o_\d+\[1\];\n", s)
