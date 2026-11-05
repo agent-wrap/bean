@@ -634,6 +634,7 @@ type KF is Data:
   PI6{cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   PI6g{yes: Bool, cl: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DIr5v{un: Bool, zy: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
+  PI6r{yes: Bool, no: Bool, x: U32, y: U32, ctx: List<&2, U32>, fu: U32}
   DIr5w{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5wg{bad: Bool, t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
   DIr5wf{t: L.Tri, rx: U32, ry: U32, ctx: List<&2, U32>}
@@ -9311,9 +9312,10 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
                                                      k}}}},
          lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop((ex, n2), ri))
     case 1n+p KCon{PI6{cl, x, y, ctx, fu}, k} Tuple{Tuple{fs, MTri{t}}, ri}:
-      km(p, KCon{PI6g{L.tri_is_yes(t), cl, x, y, ctx, fu}, k}, lnt, nlx, mt,
-         lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
-    case 1n+p KCon{PI6g{True{}, cl, x, y, ctx, fu}, k}
+      +t2 : L.Tri = t
+      km(p, KCon{PI6r{L.tri_is_yes(t2), L.tri_is_no(t2), x, y, ctx, fu}, k},
+         lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, ri))
+    case 1n+p KCon{PI6r{True{}, no, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
          kmtri(fs, L.TYes{}))
@@ -9330,7 +9332,18 @@ def km(fuel: Nat, +stk: KS, +lnt: R.Tr<L.LN>, +nlx: U32,
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DEL{x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
          nt, hcb, knoop(fs, 0))
-    case 1n+p KCon{PI6g{False{}, cl, x, y, ctx, fu}, k}
+    # Lean's is_def_eq_proof_irrel: two proofs are equal exactly when their
+    # types are -- `to_lbool(is_def_eq(t_type, s_type))`, a NO included; the
+    # proofs themselves are never reduced. km went on to the lazy loop on a
+    # NO and evaluated reflection proofs (mathlib's
+    # PiTensorProduct.instSemiring: eagerReduce-wrapped `Eq.refl true`s,
+    # list folds -- 443k unfolds against Lean's 3,574). An UNK (km could
+    # not decide the types) still falls through
+    case 1n+p KCon{PI6r{False{}, True{}, x, y, ctx, fu}, k}
+         Tuple{Tuple{fs, msg}, ri}:
+      km(p, k, lnt, nlx, mt, lp, vt, qtt, natn, wm, nt, hcb,
+         kmtri(fs, L.TNo{}))
+    case 1n+p KCon{PI6r{False{}, False{}, x, y, ctx, fu}, k}
          Tuple{Tuple{fs, msg}, ri}:
       km(p, KCon{DEL{x, y, ctx, fu}, k}, lnt, nlx, mt, lp, vt, qtt, natn, wm,
          nt, hcb, knoop(fs, 0))
