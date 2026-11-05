@@ -1732,8 +1732,21 @@ def sdepth(+base: U32) -> Nat:
   +cap : U32 = U32.shln(1, Nat.add(l, 1n))
   sd_pick(U32.is_ge((cap - m : U32), 16777216) && U32.is_lt(m, 2147483648), l)
 
+# 2^sdepth(base) in straight-line U32 arithmetic: khalf and ktbl are
+# evaluated at every store, flag and hash-cons access, and sdepth's Nat
+# log2 (a binary-search loop) and shift cost ~9% of magma-list-deep-n36's
+# instructions (constant-folded away when both table sizes were equal).
+# m smeared to all ones below its top bit, + 1 = 2^(floor(log2 m) + 1)
 def khalf(+base: U32) -> U32:
-  U32.shln(1, sdepth(base))
+  +m : U32 = ((base + ktbl0() : U32) + 2097152 : U32)
+  +m1 : U32 = U32.or(m, (m / 2 : U32))
+  +m2 : U32 = U32.or(m1, (m1 / 4 : U32))
+  +m3 : U32 = U32.or(m2, (m2 / 16 : U32))
+  +m4 : U32 = U32.or(m3, (m3 / 256 : U32))
+  +m5 : U32 = U32.or(m4, (m4 / 65536 : U32))
+  +cap : U32 = (m5 + 1 : U32)
+  S.pick(U32.is_ge((cap - m : U32), 16777216) && U32.is_lt(m, 2147483648),
+         cap, (cap * 2 : U32))
 
 # The hash-cons table's size: 2^22 slots, whatever the store. Scaling it
 # with the store (an eighth of it: 8M-16M slots on a large export) made
