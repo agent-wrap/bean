@@ -27,8 +27,8 @@ else
   # 2^21) + 2
   NX=$(tail -c 4000000 "$IN" | grep -o '"i[enl]":[0-9]*' | sed 's/.*://' | sort -n | tail -1); [[ -z "$NX" ]] && NX=$(( SIZE / 58 ))
   M=$(( NX + 1 + 4194304 + 2097152 )); D=0; while (( (1 << (D + 1)) <= M )); do D=$(( D + 1 )); done
-  # km's sdepth: one doubling of room, two when that leaves under 2^24 free
-  SD=$(( D + 2 )); (( (1 << (D + 1)) - M >= 16777216 )) && SD=$(( D + 1 ))
+  # km's sdepth: one doubling of room, two when that leaves under 2^21 free
+  SD=$(( D + 2 )); (( (1 << (D + 1)) - M >= 2097152 )) && SD=$(( D + 1 ))
   # measured peak RSS / store: con-leche 1.82 (2^26 slots), navier-stokes
   # 2.1 (2^27): 2.0 up to 2^26 slots, 2.2 above. con-leche's wall time is
   # set by the worker count (8: 808 s, 9: 725-759, 10: 644, 11: 647; limit 720)
