@@ -12,7 +12,7 @@
 set -uo pipefail
 IN="$1"
 BIN="${FBEAN_BIN:-$(cd "$(dirname "$0")" && pwd)/../build/fbean-bin}"
-CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+CORES=${FBEAN_CORES:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
 SIZE=$(wc -c < "$IN" | tr -d " ")
 if [[ -n "${FBEAN_WORKERS:-}" ]]; then N=$FBEAN_WORKERS
 elif (( SIZE < 4000000 )); then N=1
@@ -36,7 +36,12 @@ else
   # peak is its load's -- std 6.77 GB (1.58x, the whole run), navier-stokes
   # 14.5 GB (1.69x) -- so 1.7x up to 2^26 slots, 1.8x above
   RF=18; (( SD <= 25 )) && RF=17
-  RSS=$(( (1 << (SD + 1)) * 64 * RF / 10 )); NM=$(( 88000000000 / RSS )); (( NM < 1 )) && NM=1
+  # the budget: FBEAN_MEM bytes, else 85% of the machine's RAM (the arena's
+  # runner has 16 GB; this machine 96 GB, of which 88 GB was the old fixed
+  # budget)
+  MEMB=$(sysctl -n hw.memsize 2>/dev/null || awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 16000000000)
+  BUDGET=${FBEAN_MEM:-$(( MEMB * 85 / 100 ))}
+  RSS=$(( (1 << (SD + 1)) * 64 * RF / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir

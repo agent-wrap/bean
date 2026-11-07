@@ -77,9 +77,12 @@ def block_v2(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
              +vt: R.Tr<U32>, +ntb: R.Tr<U32>, +nmt: R.Tr<T.Nm>) -> C.V:
   match nb:
     case True{}:
-      C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}),
-                    C.ctor_all(its, I.is_ex(st), C.ind_names_of(its, Nil{}),
-                               C.VAccept{})),
+      C.comb(C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt, C.VAccept{}),
+                           C.ctor_all(its, I.is_ex(st),
+                                      C.ind_names_of(its, Nil{}),
+                                      C.VAccept{})),
+                    C.comb(C.block_lps_v(its, I.is_ex(st), I.is_lnt(st)),
+                           C.rules_nf_v(its, its))),
              C.block_ver_v(its, mt))
     case False{}:
       C.comb(C.comb(C.comb(C.ind_items(its, I.is_ex(st), nt, vt,
@@ -88,8 +91,10 @@ def block_v2(+nb: Bool, +its: List<&2, K.IItem>, +st: I.IS,
                                       C.ind_names_of(its, Nil{}),
                                       C.VAccept{})),
                     C.block_rec_v(its, I.is_ex(st), I.is_lnt(st), ntb, lp, C.fo_on(st, mt, vt))),
-             C.comb(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp),
-                    C.block_names_v(its, nmt)))
+             C.comb(C.comb(C.derive_or_ver(its, st, mt, vt, I.is_lnt(st), ntb, lp),
+                           C.block_names_v(its, nmt)),
+                    C.comb(C.block_lps_v(its, I.is_ex(st), I.is_lnt(st)),
+                           C.rules_nf_v(its, its))))
 
 def block_v(+nb: Bool, +its0: List<&2, K.IItem>, +st0: I.IS,
             +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
@@ -577,7 +582,10 @@ def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
       +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
       +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
       +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
-      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre, ds, st, nmt,
+      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
+                                                R.get(U32, 64n, wk2, 1, 4294967295),
+                                                R.get(U32, 64n, wk2, 2, 4294967295)))
+      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
              nx, natn, q2, arr, wid, wcnt)
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
@@ -607,7 +615,10 @@ def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
       +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
       +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
       +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
-      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre, ds, st, nmt,
+      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
+                                                R.get(U32, 64n, wk2, 1, 4294967295),
+                                                R.get(U32, 64n, wk2, 2, 4294967295)))
+      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
               nx, natn, q2, arr)
 
 def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,

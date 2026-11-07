@@ -12989,6 +12989,49 @@ def kinfer(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>, +nlx: U32,
      lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
 
 # the typed-check entry: whd the declared type, then the CkT pipeline
+# a declaration's type and value are closed terms: Lean's type checker has
+# no loose bound variables (bugs/loose-bvar-value: `def f := #0` must be
+# rejected, not reduced). lbr = 0 is closed; 4294967295 (unknown) does not
+# reject
+def fck_lbad(+l: U32) -> Bool:
+  U32.is_ne(l, 0) && U32.is_ne(l, 4294967295)
+
+def fck_lbr2(pr: Array<T.Ex> & U32, +lt: U32, +nx: U32,
+             +hb: U32) -> (Array<T.Ex> & U32) & Bool:
+  match pr:
+    case Tuple{a, lv}:
+      ((a, nx), fck_lbad(lt) || fck_lbad(lv))
+
+def fck_lbr1(pr: Array<T.Ex> & U32, +vi: U32, +nx: U32,
+             +hb: U32) -> (Array<T.Ex> & U32) & Bool:
+  match pr:
+    case Tuple{a, lt}:
+      +v2 : U32 = vi
+      +n2 : U32 = nx
+      +h2 : U32 = hb
+      fck_lbr2(klb_get(a, S.pick(U32.is_lt(v2, n2), v2, 0), h2), lt, n2, h2)
+
+def fck_lbr(fs: Array<T.Ex> & U32, +ti: U32, +vi: U32,
+            +hcb: U32) -> (Array<T.Ex> & U32) & Bool:
+  match fs:
+    case Tuple{a, nx}:
+      +h2 : U32 = khalf(hcb)
+      fck_lbr1(klb_get(a, ti, h2), vi, nx, h2)
+
+def fck_typed2(fuel: Nat, pr: (Array<T.Ex> & U32) & Bool, +lnt: R.Tr<L.LN>,
+               +nlx: U32, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
+               +vt: R.Tr<U32>, +qtt: R.Tr<U32>, +natn: U32,
+               +wm: R.Tr<U32>, +nt: R.Tr<U32>, +isthm: Bool, +ti: U32,
+               +vi: U32, +hcb: U32)
+    -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
+  match pr:
+    case Tuple{fs, True{}}:
+      ((fs, 1), ((lnt, nlx), wm))
+    case Tuple{fs, False{}}:
+      +t2 : U32 = ti
+      km(fuel, KCon{DWhd{t2, Nil{}}, KCon{CkT1{isthm, vi, 1048576}, KNil{}}}, lnt, nlx,
+         mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+
 def fck_typed(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
               +nlx: U32, +mt: R.Tr<I.Meta>, +lp: R.Tr<List<&2, U32>>,
               +vt: R.Tr<U32>, +qtt: R.Tr<U32>, +natn: U32,
@@ -12996,8 +13039,10 @@ def fck_typed(fuel: Nat, fs: Array<T.Ex> & U32, +lnt: R.Tr<L.LN>,
               +vi: U32, +hcb: U32)
     -> ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>):
   +t2 : U32 = ti
-  km(fuel, KCon{DWhd{t2, Nil{}}, KCon{CkT1{isthm, vi, 1048576}, KNil{}}}, lnt, nlx,
-     mt, lp, vt, qtt, natn, wm, nt, hcb, knoop(fs, 0))
+  +v2 : U32 = vi
+  +h2 : U32 = hcb
+  fck_typed2(fuel, fck_lbr(fs, t2, v2, h2), lnt, nlx, mt, lp, vt, qtt, natn,
+             wm, nt, isthm, t2, v2, h2)
 
 # positivity of one constructor's fields: register 2 = a definite invalid
 # occurrence, else 0

@@ -144,6 +144,52 @@ def any_dup_lps(ds: List<&2, K.Dcl>) -> Bool:
 def pre_check(+ds: List<&2, K.Dcl>) -> V:
   bad_v(has_dup(names_of(ds, Nil{})) || any_dup_lps(ds))
 
+# --- the quotient package's names --------------------------------------
+# Lean's add_quot declares Quot, Quot.mk, Quot.lift and Quot.ind itself when
+# the first quotient declaration arrives; another declaration under one of
+# those names is a redeclaration (bugs/forged-quot-ind declares `Quot.ind`
+# as a quotient constant and then `Quot` and `Quot.mk` as ordinary
+# definitions of a different shape). ns: the names of Quot.lift, Quot.ind,
+# Quot.mk (fstore build_wk4 keys 0-2; 4294967295 when absent)
+def is_quot_dcl(+d: K.Dcl) -> Bool:
+  match d:
+    case K.DQuot{n, lps, t}:
+      True{}
+    case _:
+      False{}
+
+def any_quot(ds: List<&2, K.Dcl>) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      is_quot_dcl(head) || any_quot(tail)
+
+def in3(+x: U32, +a: U32, +b: U32, +c: U32) -> Bool:
+  +x2 : U32 = x
+  U32.is_ne(x2, 4294967295)
+  && (U32.is_eq(x2, a) || U32.is_eq(x2, b) || U32.is_eq(x2, c))
+
+def nms_in3(xs: List<&2, U32>, +a: U32, +b: U32, +c: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      in3(head, a, b, c) || nms_in3(tail, a, b, c)
+
+def quot_clash(ds: List<&2, K.Dcl>, +a: U32, +b: U32, +c: U32) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case Con{head, tail}:
+      +h = head
+      (Bool.not(is_quot_dcl(h)) && nms_in3(dcl_all_nms(h), a, b, c))
+      || quot_clash(tail, a, b, c)
+
+def quot_clash_v(+ds: List<&2, K.Dcl>, +a: U32, +b: U32, +c: U32) -> V:
+  +d2 = ds
+  bad_v(any_quot(d2) && quot_clash(d2, a, b, c))
+
 # --- unknown constants ---------------------------------------------------
 def mark_names(ns: List<&2, U32>, +t: R.Tr<Bool>) -> R.Tr<Bool>:
   match ns:
@@ -268,6 +314,116 @@ def ind_items(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>, +nt: R.Tr<U32>,
     case Con{head, tail}:
       ind_items(tail, ex, nt, vt, comb(acc, ind_one(ex, nt, vt, head)))
 
+
+# --- an inductive block's universe parameters ---------------------------
+# Lean's check_level: every universe parameter in an item's type is one the
+# item declares. other/inductive-undeclared-universe declares `U : Sort u`
+# with levelParams [], which a later `def P.{u} := U` reads at u := 0 -- a
+# Prop with two distinct proofs. An atom At{b, o} is zero (b = 0) or the
+# parameter named b - 1; an unknown level (LNun) does not reject.
+def lps_atoms_ok(xs: List<&2, L.Atom>, +ps: R.Tr<Bool>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      match head:
+        case L.At{b, o}:
+          +b2 : U32 = b
+          +p2 : R.Tr<Bool> = ps
+          (U32.is_eq(b2, 0) || R.get(Bool, 64n, p2, (b2 - 1 : U32), False{}))
+          && lps_atoms_ok(tail, p2)
+
+def lps_ln_ok(+l: L.LN, +ps: R.Tr<Bool>) -> Bool:
+  match l:
+    case L.LNmax{xs}:
+      lps_atoms_ok(xs, ps)
+    case L.LNimax{a, b, off}:
+      +p2 : R.Tr<Bool> = ps
+      lps_ln_ok(a, p2) && lps_ln_ok(b, p2)
+    case L.LNmx{xs, y, r}:
+      +p2 : R.Tr<Bool> = ps
+      lps_atoms_ok(xs, p2) && lps_ln_ok(y, p2) && lps_ln_ok(r, p2)
+    case _:
+      True{}
+
+def lps_us_ok(us: List<&2, U32>, +lnt: R.Tr<L.LN>, +ps: R.Tr<Bool>) -> Bool:
+  match us:
+    case Nil{}:
+      True{}
+    case Con{head, tail}:
+      +l2 : R.Tr<L.LN> = lnt
+      +p2 : R.Tr<Bool> = ps
+      lps_ln_ok(R.get(L.LN, 64n, l2, head, L.LNun{}), p2)
+      && lps_us_ok(tail, l2, p2)
+
+def lps_pk(+ex: R.Tr<T.Ex>, work: List<&2, U32>) -> T.Ex & List<&2, U32>:
+  match work:
+    case Nil{}:
+      (T.EBad{}, Nil{})
+    case Con{h, t}:
+      (U.ex_at(ex, h), t)
+
+# the type's nodes through an explicit stack (fuel-bounded; out of fuel
+# does not reject)
+def lps_ex_ok(fuel: Nat, pr: T.Ex & List<&2, U32>, +ex: R.Tr<T.Ex>,
+              +lnt: R.Tr<L.LN>, +ps: R.Tr<Bool>) -> Bool:
+  match fuel pr:
+    case 0n _:
+      True{}
+    case 1n+p Tuple{nd, work}:
+      match nd:
+        case T.ESort{l}:
+          +e2 : R.Tr<T.Ex> = ex
+          +l2 : R.Tr<L.LN> = lnt
+          +p2 : R.Tr<Bool> = ps
+          lps_ln_ok(R.get(L.LN, 64n, l2, l, L.LNun{}), p2)
+          && lps_ex_ok(p, lps_pk(e2, work), e2, l2, p2)
+        case T.EConst{n, us}:
+          +e2 : R.Tr<T.Ex> = ex
+          +l2 : R.Tr<L.LN> = lnt
+          +p2 : R.Tr<Bool> = ps
+          lps_us_ok(us, l2, p2) && lps_ex_ok(p, lps_pk(e2, work), e2, l2, p2)
+        case T.EApp{f, a}:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, Con{f, Con{a, work}}), e2, lnt, ps)
+        case T.EAll{n, t, b, bi}:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, Con{t, Con{b, work}}), e2, lnt, ps)
+        case T.ELam{n, t, b, bi}:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, Con{t, Con{b, work}}), e2, lnt, ps)
+        case T.ELet{n, t, v, b}:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, Con{t, Con{v, Con{b, work}}}), e2, lnt, ps)
+        case T.EProj{tn, i, sx}:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, Con{sx, work}), e2, lnt, ps)
+        case T.EBad{}:
+          True{}
+        case _:
+          +e2 : R.Tr<T.Ex> = ex
+          lps_ex_ok(p, lps_pk(e2, work), e2, lnt, ps)
+
+def lps_item_ok(+it: K.IItem, +ex: R.Tr<T.Ex>, +lnt: R.Tr<L.LN>) -> Bool:
+  match it:
+    case K.IInd{nm, lps, ty, np, ni, nn, cs}:
+      lps_ex_ok(100000n, lps_pk(ex, [ty]), ex, lnt, mark_names(lps, R.TNil{}))
+    case K.ICtor{nm, lps, ty, ind, np, nf, ci}:
+      lps_ex_ok(100000n, lps_pk(ex, [ty]), ex, lnt, mark_names(lps, R.TNil{}))
+    case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+      lps_ex_ok(100000n, lps_pk(ex, [ty]), ex, lnt, mark_names(lps, R.TNil{}))
+    case _:
+      True{}
+
+def block_lps_v(items: List<&2, K.IItem>, +ex: R.Tr<T.Ex>,
+                +lnt: R.Tr<L.LN>) -> V:
+  match items:
+    case Nil{}:
+      VAccept{}
+    case Con{head, tail}:
+      +e2 : R.Tr<T.Ex> = ex
+      +l2 : R.Tr<L.LN> = lnt
+      comb(bad_v(Bool.not(lps_item_ok(head, e2, l2))), block_lps_v(tail, e2, l2))
 
 # --- constructor shape --------------------------------------------------
 # A constructor's type is a telescope whose result is the inductive type
@@ -1597,6 +1753,121 @@ def cmp_derived(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
 
 # The universe arguments must be in the inductive's own levelParams order;
 # `param_lvls` conses, so its result is reversed.
+# --- the exported computation rules are the derived ones -----------------
+# Lean generates every recursor rule itself; an export whose rule differs
+# describes an environment the kernel would not build (bugs/unit-rec-rule:
+# `PUnit.rec`'s rule returns `PUnit.unit` instead of the minor premise, so
+# `PUnit.rec EmptyProp PUnit.unit` "reduces" to a proof of anything). On
+# this path (one inductive, no recursive field) the rule for constructor k
+# with nf fields is `fun params motive minors fields => minor_k fields`:
+# np + 1 + nc + nf lambdas, then #(nf + nc - 1 - k) applied to
+# #(nf-1) .. #0, and nf is the constructor's own field count.
+def rbv_ix(+x: T.Ex) -> U32:
+  match x:
+    case T.EBVar{i}:
+      i
+    case _:
+      4294967295
+
+def rlam_concl(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> T.Ex:
+  match fuel x:
+    case 0n _:
+      T.EBad{}
+    case 1n+p T.ELam{n, t, b, bi}:
+      rlam_concl(p, ex, U.ex_at(ex, b))
+    case 1n+p y:
+      y
+
+def lam_count(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +acc: U32) -> U32:
+  match fuel x:
+    case 0n _:
+      acc
+    case 1n+p T.ELam{n, t, b, bi}:
+      lam_count(p, ex, U.ex_at(ex, b), (acc + 1 : U32))
+    case 1n+p _:
+      acc
+
+def rule_args_ok(xs: List<&2, U32>, +ex: R.Tr<T.Ex>, +want: U32) -> Bool:
+  match xs:
+    case Nil{}:
+      U32.is_eq(want, 0)
+    case Con{h, t}:
+      +e2 = ex
+      +w2 : U32 = want
+      U32.is_gt(w2, 0) && U32.is_eq(rbv_ix(U.ex_at(e2, h)), (w2 - 1 : U32))
+      && rule_args_ok(t, e2, (w2 - 1 : U32))
+
+def ci_pick(+hit: Bool, +ci: U32, +nf: U32, r: U32 & U32) -> U32 & U32:
+  match r:
+    case Tuple{a, b}:
+      (S.pick(hit, ci, a), S.pick(hit, nf, b))
+
+def ctor_ci_nf(items: List<&2, K.IItem>, +ct: U32) -> U32 & U32:
+  match items:
+    case Nil{}:
+      (4294967295, 4294967295)
+    case Con{head, tail}:
+      match head:
+        case K.ICtor{nm, lps, ty, ind2, np, nf, ci}:
+          +c2 : U32 = ct
+          ci_pick(U32.is_eq(nm, c2), ci, nf, ctor_ci_nf(tail, c2))
+        case _:
+          ctor_ci_nf(tail, ct)
+
+def rule_ok2(cn: U32 & U32, +ex: R.Tr<T.Ex>, +rhs: U32, +np: U32, +nc: U32,
+             +nf: U32) -> Bool:
+  match cn:
+    case Tuple{k, cnf}:
+      +e2 = ex
+      +k2 : U32 = k
+      +nf2 : U32 = nf
+      +x : T.Ex = U.ex_at(e2, rhs)
+      +body : T.Ex = rlam_concl(4096n, e2, x)
+      U32.is_ne(k2, 4294967295) && U32.is_eq(cnf, nf2)
+      && U32.is_eq(lam_count(4096n, e2, U.ex_at(e2, rhs), 0),
+                   (((np + 1 : U32) + nc : U32) + nf2 : U32))
+      && U32.is_eq(rbv_ix(I.spine_hd(4096n, e2, body)),
+                   ((nf2 + nc : U32) - 1 - k2 : U32))
+      && rule_args_ok(I.spine_ar(4096n, e2, body, Nil{}), e2, nf2)
+
+# every block, nested ones included: a rule for one of the block's own
+# constructors carries that constructor's field count (Lean derives the
+# rules; bugs/nested-rec-rule-nfields says 1 for `T.mk`'s 2 fields, and
+# iota then shifts the arguments). Rules of the auxiliary types (List.cons
+# for a nesting through List) are not the block's constructors: skipped
+def nf_pick(cn: U32 & U32, +nf: U32) -> Bool:
+  match cn:
+    case Tuple{k, cnf}:
+      U32.is_eq(k, 4294967295) || U32.is_eq(cnf, nf)
+
+def rules_nf_v(rs: List<&2, K.IItem>, items: List<&2, K.IItem>) -> V:
+  match rs:
+    case Nil{}:
+      VAccept{}
+    case Con{head, tail}:
+      match head:
+        case K.IRule{ct, nf, rhs}:
+          +its = items
+          comb(bad_v(Bool.not(nf_pick(ctor_ci_nf(its, ct), nf))),
+               rules_nf_v(tail, its))
+        case _:
+          rules_nf_v(tail, items)
+
+def rules_ok_v(rs: List<&2, K.IItem>, items: List<&2, K.IItem>,
+               +ex: R.Tr<T.Ex>, +np: U32, +nc: U32) -> V:
+  match rs:
+    case Nil{}:
+      VAccept{}
+    case Con{head, tail}:
+      match head:
+        case K.IRule{ct, nf, rhs}:
+          +e2 = ex
+          +its = items
+          comb(bad_v(Bool.not(rule_ok2(ctor_ci_nf(its, ct), e2, rhs, np, nc, nf))),
+               rules_ok_v(tail, its, e2, np, nc))
+        case _:
+          rules_ok_v(tail, items, ex, np, nc)
+
 def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
               +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
               +lp: R.Tr<List<&2, U32>>, +vt: R.Tr<U32>, +ex: R.Tr<T.Ex>,
@@ -1614,7 +1885,8 @@ def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
                         D.rev_u32(tele_doms(256n, ex, U.ex_at(ex, ity),
                                             Nil{}), Nil{}),
                         I.ls_xs(mn), vnm)
-      cmp_derived(I.ir_st(d), mt, nt, lp, vt, I.ir_ty(d), theirs)
+      comb(cmp_derived(I.ir_st(d), mt, nt, lp, vt, I.ir_ty(d), theirs),
+           rules_ok_v(items, items, ex, np, nc))
 
 # Parameters, indices and non-recursive constructor fields are all handled.
 # A recursive field, a nested block, or an inductive whose large-elimination
