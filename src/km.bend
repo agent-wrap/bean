@@ -4041,7 +4041,16 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
       +n2 : U32 = nx
       +fp : U32 = kfp(nd)
       +s0 : U32 = (base + U32.and(fp, kmask(base)) : U32)
-      kfin(kscan(24n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
+      # 96 steps, not 24: in one long declaration rollbacks leave
+      # tombstones (the table is cleared only between declarations), a
+      # chain longer than the scan allocates the node unentered, and the
+      # twins defeat every node-keyed memo -- mathlib's CoalgCat
+      # comul_tensorObj_tensorObj_right/left declined after 900 s (Lean:
+      # 0.4 s) and accept in 575 / 841 s; 64 still declined. The cost is
+      # the miss path's longer walk: perf/magma-list-deep-n36 300 -> 332 s.
+      # Rebuilding the table instead (at full chains, after rollbacks) was
+      # slower on both
+      kfin(kscan(96n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
                  kprobe_slot(ex, s0, n2, fp, True{}, nd, base)),
            nd, n2, base)
 
