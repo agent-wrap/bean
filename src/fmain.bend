@@ -343,37 +343,252 @@ def route_into(batch: List<&2, D.Rec>, so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & 
     case Tuple{ab, out}:
       route_fin(F.fb_route(batch, (ab, Nil{}), cap), out)
 
-def ingest2A(+full: Bool, pr: List<&2, U32> & List<&2, U32>,
-             parts: List<&2, List<&2, U32>>, +np: U32,
-             so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +cap: U32)
-    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
-  match full pr:
-    case True{} Tuple{comp, tail}:
-      (tail, (Nil{}, (0, route_into(pdec(3n, Con{comp, parts}, (np + 1 : U32)), so, cap))))
-    case False{} Tuple{comp, tail}:
-      (tail, (Con{comp, parts}, ((np + 1 : U32), so)))
+# ---- the nx path's batches, without reversing a chunk ------------------
+# split_nl reversed every 4 MB chunk twice to cut it at its LAST newline
+# (cslib's load: ~200 s of decoding at ~11 MB/s; mathlib's > 1500 s). Here
+# a chunk is cut at its FIRST newline (a short walk): its head finishes the
+# line the chunk before began, its rest starts at a line. Each lane decodes
+# one chunk's rest and resumes into the next (newer) chunk's head; the
+# oldest head resumes the state carried from the previous batch, and the
+# newest lane's final state carries into the next one -- the decoder's
+# state is exactly what decode_resume threads, so the records are the
+# sequential reader's, newest first. A batch with a chunk holding no
+# newline decodes sequentially, the state threaded chunk to chunk.
+# a chunk cut at its first newline: the rest after it, the head up to and
+# including it (reversed), and whether there was one
+type Sp is Data:
+  Sp{r: List<&2, U32>, rh: List<&2, U32>, ok: Bool}
 
-def ingestA(bs: List<&2, U32>,
-            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))),
-            +cap: U32)
-    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
-  match st:
-    case Tuple{carry, Tuple{parts, Tuple{np, so}}}:
-      +n2 : U32 = np
-      ingest2A(U32.is_ge((n2 + 1 : U32), 8), split_nl(carry, bs), parts, n2,
-               so, cap)
+def fnl(fuel: Nat, +done: Bool, xs: List<&2, U32>, acc: List<&2, U32>) -> Sp:
+  match fuel done xs:
+    case 0n _ _:
+      Sp{xs, acc, False{}}
+    case 1n+p True{} _:
+      Sp{xs, acc, True{}}
+    case 1n+p False{} Nil{}:
+      Sp{Nil{}, acc, False{}}
+    case 1n+p False{} Con{h, t}:
+      +h2 : U32 = h
+      fnl(p, U32.is_eq(h2, 10), t, Con{h2, acc})
 
-def flushA(st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))),
-           +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
+type Lane is Data:
+  Lane{r: List<&2, U32>, hn: List<&2, U32>}
+
+def sp_rest(+sp: Sp) -> List<&2, U32>:
+  match sp:
+    case Sp{r, rh, ok}:
+      r
+
+def sp_head(+sp: Sp) -> List<&2, U32>:
+  match sp:
+    case Sp{r, rh, ok}:
+      rev_onto(rh, Nil{})
+
+def sp_ok(+sp: Sp) -> Bool:
+  match sp:
+    case Sp{r, rh, ok}:
+      ok
+
+# chunks newest first -> (lanes oldest first, the oldest chunk's head), all
+# chunks holding a newline; hn: the head of the chunk just newer
+type Lns is Data:
+  Lns{ls: List<&2, Lane>, h0: List<&2, U32>, ok: Bool}
+
+def mk_lanes(cs: List<&2, List<&2, U32>>, +hn: List<&2, U32>, +ok: Bool,
+             acc: List<&2, Lane>) -> Lns:
+  match cs:
+    case Nil{}:
+      Lns{acc, hn, ok}
+    case Con{c, t}:
+      +sp : Sp = fnl(16777216n, False{}, c, Nil{})
+      mk_lanes(t, sp_head(sp), ok && sp_ok(sp), Con{Lane{sp_rest(sp), hn}, acc})
+
+def lane_dec2(trip: S.Sc & D.Acc & List<&2, D.Rec>,
+              hn: List<&2, U32>) -> List<&2, D.Rec>:
+  match trip:
+    case Tuple{st, Tuple{acc, out}}:
+      trip_out(D.decode_resume(hn, st, acc, out))
+
+def lane_dec(+l: Lane) -> List<&2, D.Rec>:
+  match l:
+    case Lane{r, hn}:
+      lane_dec2(D.decode_resume(r, S.Sc.start(), D.Acc.start(), Nil{}), hn)
+
+def take_l(n: Nat, +ls: List<&2, Lane>) -> List<&2, Lane>:
+  match n ls:
+    case 0n _:
+      Nil{}
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{c, t}:
+      Con{c, take_l(p, t)}
+
+def drop_l(n: Nat, +ls: List<&2, Lane>) -> List<&2, Lane>:
+  match n ls:
+    case 0n _:
+      ls
+    case 1n+p Nil{}:
+      Nil{}
+    case 1n+p Con{c, t}:
+      drop_l(p, t)
+
+def len_l(ls: List<&2, Lane>, +n: U32) -> U32:
+  match ls:
+    case Nil{}:
+      n
+    case Con{h, t}:
+      len_l(t, (n + 1 : U32))
+
+# lanes oldest first -> their records newest first, in parallel halves
+def ldec_seq(ls: List<&2, Lane>, out: List<&2, D.Rec>) -> List<&2, D.Rec>:
+  match ls:
+    case Nil{}:
+      out
+    case Con{l, t}:
+      ldec_seq(t, app_recs(lane_dec(l), out))
+
+def pdecl(d: Nat, +ls: List<&2, Lane>, +n: U32) -> List<&2, D.Rec>:
+  match d:
+    case 0n:
+      ldec_seq(ls, Nil{})
+    case 1n+p:
+      +q = p
+      +h : U32 = (n / 2 : U32)
+      a b = pdecl(q, take_l(U32.to_nat(h), ls), h) pdecl(q, drop_l(U32.to_nat(h), ls), (n - h : U32))
+      app_recs(b, a)
+
+# the newest lane decodes its rest alone and keeps its final state
+def bnew(+l: Lane) -> S.Sc & D.Acc & List<&2, D.Rec>:
+  match l:
+    case Lane{r, hn}:
+      D.decode_resume(r, S.Sc.start(), D.Acc.start(), Nil{})
+
+def last_lane(ls: List<&2, Lane>, +d: Lane) -> Lane:
+  match ls:
+    case Nil{}:
+      d
+    case Con{h, t}:
+      last_lane(t, h)
+
+def init_lanes(ls: List<&2, Lane>) -> List<&2, Lane>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case Con{h, t}:
+      match t:
+        case Nil{}:
+          Nil{}
+        case Con{h2, t2}:
+          Con{h, init_lanes(Con{h2, t2})}
+
+def bfin(trip: S.Sc & D.Acc & List<&2, D.Rec>, rest: List<&2, D.Rec>,
+         pre: List<&2, D.Rec>) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  match trip:
+    case Tuple{st, Tuple{acc, out}}:
+      (app_recs(out, app_recs(rest, pre)), (st, acc))
+
+def bdec_lanes(+r: Lns,
+               cst: S.Sc & D.Acc) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  match r cst:
+    case Lns{ls, h0, ok} Tuple{st, acc}:
+      +l2 : List<&2, Lane> = ls
+      +others : List<&2, Lane> = init_lanes(l2)
+      +newest : Lane = last_lane(l2, Lane{Nil{}, Nil{}})
+      a b = bnew(newest) pdecl(3n, others, len_l(others, 0))
+      bfin(a, b, trip_out(D.decode_resume(h0, st, acc, Nil{})))
+
+# the fallback: chunks newest first, decoded oldest first with the state
+# threaded
+def bseq(cs: List<&2, List<&2, U32>>,
+         trip: S.Sc & D.Acc & List<&2, D.Rec>) -> S.Sc & D.Acc & List<&2, D.Rec>:
+  match cs trip:
+    case Nil{} _:
+      trip
+    case Con{c, t} Tuple{st, Tuple{acc, out}}:
+      bseq(t, D.decode_resume(c, st, acc, out))
+
+def rev_cs(cs: List<&2, List<&2, U32>>,
+           acc: List<&2, List<&2, U32>>) -> List<&2, List<&2, U32>>:
+  match cs:
+    case Nil{}:
+      acc
+    case Con{h, t}:
+      rev_cs(t, Con{h, acc})
+
+def bseq_fin(trip: S.Sc & D.Acc & List<&2, D.Rec>) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  match trip:
+    case Tuple{st, Tuple{acc, out}}:
+      (out, (st, acc))
+
+def bdec_pick(+ok: Bool, +cs: List<&2, List<&2, U32>>,
+              +r: Lns,
+              cst: S.Sc & D.Acc) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  match ok cst:
+    case True{} _:
+      bdec_lanes(r, cst)
+    case False{} Tuple{st, acc}:
+      bseq_fin(bseq(rev_cs(cs, Nil{}), (st, (acc, Nil{}))))
+
+def lanes_ok(+r: Lns) -> Bool:
+  match r:
+    case Lns{ls, h0, ok}:
+      ok
+
+def bdec2(+empty: Bool, +cs: List<&2, List<&2, U32>>,
+          cst: S.Sc & D.Acc) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  match empty:
+    case True{}:
+      (Nil{}, cst)
+    case False{}:
+      +r : Lns = mk_lanes(cs, Nil{}, True{}, Nil{})
+      bdec_pick(lanes_ok(r), cs, r, cst)
+
+def cs_empty(+cs: List<&2, List<&2, U32>>) -> Bool:
+  match cs:
+    case Nil{}:
+      True{}
+    case Con{h, t}:
+      False{}
+
+# a batch (chunks newest first) from the carried state: its records newest
+# first and the state after it
+def bdec(+cs: List<&2, List<&2, U32>>,
+         cst: S.Sc & D.Acc) -> List<&2, D.Rec> & (S.Sc & D.Acc):
+  bdec2(cs_empty(cs), cs, cst)
+
+def bat_fin(r: List<&2, D.Rec> & (S.Sc & D.Acc), so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+            +cap: U32) -> (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
+  match r:
+    case Tuple{recs, c2}:
+      (c2, (Nil{}, (0, route_into(recs, so, cap))))
+
+def ingest2A(+full: Bool, cst: S.Sc & D.Acc, +parts: List<&2, List<&2, U32>>,
+             +np: U32, so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +cap: U32) -> (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
+  match full:
+    case True{}:
+      bat_fin(bdec(parts, cst), so, cap)
+    case False{}:
+      (cst, (parts, ((np + 1 : U32), so)))
+
+def ingestA(bs: List<&2, U32>, st: (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))), +cap: U32) -> (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
   match st:
-    case Tuple{carry, Tuple{parts, Tuple{np, so}}}:
+    case Tuple{cst, Tuple{parts, Tuple{np, so}}}:
       +n2 : U32 = np
-      route_into(pdec(3n, parts, n2), so, cap)
+      ingest2A(U32.is_ge((n2 + 1 : U32), 8), cst, Con{bs, parts}, n2, so, cap)
+
+def flush2(r: List<&2, D.Rec> & (S.Sc & D.Acc), so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
+  match r:
+    case Tuple{recs, c2}:
+      route_into(recs, so, cap)
+
+def flushA(st: (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))), +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
+  match st:
+    case Tuple{cst, Tuple{parts, Tuple{np, so}}}:
+      flush2(bdec(parts, cst), so, cap)
 
 def streamA(fuel: Nat, +chunk: U32, +cap: U32,
             pr: File & Result<&1, &1, U32 & String, List<&2, U32>>,
-            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))))
-    -> IO((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>):
+            st: (S.Sc & D.Acc) & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>)))) -> IO((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>):
   match fuel pr:
     case 0n Tuple{f, r}:
       do IO<(Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>>:
@@ -500,7 +715,7 @@ def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
     pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
       <- File.read_bytes(f, 4194304)
     res : (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec> <- streamA(2400n, 4194304, nx, pr,
-      Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Tuple{Tuple{FC.new_store(nx), Tuple{0, R.TNil{}}}, Nil{}}}}})
+      Tuple{Tuple{S.Sc.start(), D.Acc.start()}, Tuple{Nil{}, Tuple{0, Tuple{Tuple{FC.new_store(nx), Tuple{0, R.TNil{}}}, Nil{}}}}})
     run_a(res, wk, wn, dir, nx)
 
 def main_go(pw: String & ((U32 & U32) & String)) -> IO(Unit):

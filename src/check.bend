@@ -1791,15 +1791,42 @@ def lam_count(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +acc: U32) -> U32:
     case 1n+p _:
       acc
 
-def rule_args_ok(xs: List<&2, U32>, +ex: R.Tr<T.Ex>, +want: U32) -> Bool:
+# an inductive hypothesis argument of a rule's minor premise: under its own
+# binders, the recursor applied with a FIELD as the major premise (applied
+# to those binders for a functional field) -- the field's position j, or
+# 4294967295
+def ih_field(+ex: R.Tr<T.Ex>, +recnm: U32, +nf: U32, +a: U32) -> U32:
+  +e2 = ex
+  +x : T.Ex = U.ex_at(e2, a)
+  +k : U32 = lam_count(4096n, e2, x, 0)
+  +body : T.Ex = rlam_concl(4096n, e2, x)
+  +maj : U32 = I.last_u(I.spine_ar(4096n, e2, body, Nil{}), 4294967295)
+  +mi : U32 = rbv_ix(I.spine_hd(4096n, e2, U.ex_at(e2, maj)))
+  +ok : Bool = U32.is_eq(const_nm_of(I.spine_hd(4096n, e2, body)), recnm)
+               && U32.is_ne(recnm, 0) && U32.is_ne(mi, 4294967295)
+               && U32.is_ge(mi, k) && U32.is_lt((mi - k : U32), nf)
+  S.pick(ok, ((nf - 1 : U32) - (mi - k : U32) : U32), 4294967295)
+
+# the minor premise's arguments: the fields in order (#(nf-1) .. #0), then
+# only inductive hypotheses, over fields in increasing order (Lean's rule:
+# `minor fields ihs`, an IH per recursive field). bugs/unit-rec-rule swaps
+# the head, bugs/nat-rec-rules a field; an IH is required to be one, not
+# junk (want: fields still expected, lo: the next IH's least field)
+def rule_args_ok(xs: List<&2, U32>, +ex: R.Tr<T.Ex>, +want: U32,
+                 +recnm: U32, +nf: U32, +lo: U32) -> Bool:
   match xs:
     case Nil{}:
       U32.is_eq(want, 0)
     case Con{h, t}:
       +e2 = ex
       +w2 : U32 = want
-      U32.is_gt(w2, 0) && U32.is_eq(rbv_ix(U.ex_at(e2, h)), (w2 - 1 : U32))
-      && rule_args_ok(t, e2, (w2 - 1 : U32))
+      +h2 : U32 = h
+      +isf : Bool = U32.is_gt(w2, 0)
+      +j : U32 = ih_field(e2, recnm, nf, h2)
+      ((isf && U32.is_eq(rbv_ix(U.ex_at(e2, h2)), (w2 - 1 : U32)))
+       || (Bool.not(isf) && U32.is_ne(j, 4294967295) && U32.is_ge(j, lo)))
+      && rule_args_ok(t, e2, S.pick(isf, (w2 - 1 : U32), 0), recnm, nf,
+                      S.pick(isf, lo, (j + 1 : U32)))
 
 def ci_pick(+hit: Bool, +ci: U32, +nf: U32, r: U32 & U32) -> U32 & U32:
   match r:
@@ -1819,7 +1846,7 @@ def ctor_ci_nf(items: List<&2, K.IItem>, +ct: U32) -> U32 & U32:
           ctor_ci_nf(tail, ct)
 
 def rule_ok2(cn: U32 & U32, +ex: R.Tr<T.Ex>, +rhs: U32, +np: U32, +nc: U32,
-             +nf: U32) -> Bool:
+             +nf: U32, +recnm: U32) -> Bool:
   match cn:
     case Tuple{k, cnf}:
       +e2 = ex
@@ -1832,7 +1859,8 @@ def rule_ok2(cn: U32 & U32, +ex: R.Tr<T.Ex>, +rhs: U32, +np: U32, +nc: U32,
                    (((np + 1 : U32) + nc : U32) + nf2 : U32))
       && U32.is_eq(rbv_ix(I.spine_hd(4096n, e2, body)),
                    ((nf2 + nc : U32) - 1 - k2 : U32))
-      && rule_args_ok(I.spine_ar(4096n, e2, body, Nil{}), e2, nf2)
+      && rule_args_ok(I.spine_ar(4096n, e2, body, Nil{}), e2, nf2, recnm, nf2,
+                      0)
 
 # every block, nested ones included: a rule for one of the block's own
 # constructors carries that constructor's field count (Lean derives the
@@ -1857,8 +1885,20 @@ def rules_nf_v(rs: List<&2, K.IItem>, items: List<&2, K.IItem>) -> V:
         case _:
           rules_nf_v(tail, items)
 
+# the block's recursor name (0: none)
+def rec_nm_of(items: List<&2, K.IItem>) -> U32:
+  match items:
+    case Nil{}:
+      0
+    case Con{head, tail}:
+      match head:
+        case K.IRec{nm, lps, ty, np, ni, nmo, kf}:
+          nm
+        case _:
+          rec_nm_of(tail)
+
 def rules_ok_v(rs: List<&2, K.IItem>, items: List<&2, K.IItem>,
-               +ex: R.Tr<T.Ex>, +np: U32, +nc: U32) -> V:
+               +ex: R.Tr<T.Ex>, +np: U32, +nc: U32, +recnm: U32) -> V:
   match rs:
     case Nil{}:
       VAccept{}
@@ -1867,10 +1907,11 @@ def rules_ok_v(rs: List<&2, K.IItem>, items: List<&2, K.IItem>,
         case K.IRule{ct, nf, rhs}:
           +e2 = ex
           +its = items
-          comb(bad_v(Bool.not(rule_ok2(ctor_ci_nf(its, ct), e2, rhs, np, nc, nf))),
-               rules_ok_v(tail, its, e2, np, nc))
+          comb(bad_v(Bool.not(rule_ok2(ctor_ci_nf(its, ct), e2, rhs, np, nc, nf,
+                                       recnm))),
+               rules_ok_v(tail, its, e2, np, nc, recnm))
         case _:
-          rules_ok_v(tail, items, ex, np, nc)
+          rules_ok_v(tail, items, ex, np, nc, recnm)
 
 def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
               +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
@@ -1890,7 +1931,7 @@ def derive_go(+ok: Bool, +items: List<&2, K.IItem>, +st: I.IS,
                                             Nil{}), Nil{}),
                         I.ls_xs(mn), vnm)
       comb(cmp_derived(I.ir_st(d), mt, nt, lp, vt, I.ir_ty(d), theirs),
-           rules_ok_v(items, items, ex, np, nc))
+           rules_ok_v(items, items, ex, np, nc, rec_nm_of(items)))
 
 # Parameters, indices and non-recursive constructor fields are all handled.
 # A recursive field, a nested block, or an inductive whose large-elimination

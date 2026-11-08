@@ -46,8 +46,11 @@ s = s[:m.end()] + '    dbg_cur = (long)_ix_0; dbg_ixset = 1; if (_fr_2 != 0) { f
 # fck_fold (inlined into a spin helper): the flag bits come back from the
 # kfl_flags helper into _v_N, the machine's verdict register is _kr_2
 m2 = re.search(r"  u32 _sv_0 = r6;\n  u32 _base_0 = r7;\n  WL_SPIN\n(?:.*\n){0,12}?    (_v_\d+) = \(u32\)_o_\d+\[1\];\n", s)
-assert m2, 'fck_fold registers moved'
-s = s[:m2.end()] + f'    dbg_fl = {m2.group(1)}; dbg_mv = _kr_2;\n' + s[m2.end():]
+# (optional: VERD's fl / mv fields stay 0 when the shape moved)
+if m2:
+    s = s[:m2.end()] + f'    dbg_fl = {m2.group(1)}; dbg_mv = _kr_2;\n' + s[m2.end():]
+else:
+    print('ftick: fck_fold registers moved; VERD fl/mv not logged', file=sys.stderr)
 for fid, k in (('FID_FCHECK_FCK_SEL', 0), ('FID_FCHECK_BLOCK_V', 1)):
     a = f"  WL_CASE({fid})\n  {{\n"
     assert s.count(a) == 1, fid
