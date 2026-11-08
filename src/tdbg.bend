@@ -176,6 +176,8 @@ def pln(fuel: Nat, +a: L.LN) -> String:
     case 1n+p L.LNmx{xs, y, r}:
       +pf = p
       "max[" ++ pat(xs) ++ " " ++ pln(pf, y) ++ " | " ++ pln(pf, r) ++ " ]"
+    case 1n+p L.LNlst{xs}:
+      "LIST"
 
 def sortlv(+st: I.IS, +x: T.Ex) -> String:
   match x:
@@ -200,7 +202,7 @@ def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +x: T.Ex) -> String:
     case 1n+p T.ESort{l}:
       "Sort"
     case 1n+p T.EConst{n, us}:
-      "@" ++ U32.show(n) ++ lvls(ln, us)
+      "@" ++ U32.show(n) ++ lvls(ln, L.lst_get(ln, us))
     case 1n+p T.EApp{f, a}:
       +pf = p
       "(" ++ ppn(pf, ex, ln, U.ex_at(ex, f)) ++ " " ++ ppn(pf, ex, ln, U.ex_at(ex, a)) ++ ")"
@@ -216,7 +218,7 @@ def ppn(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +x: T.Ex) -> String:
     case 1n+p T.EProj{tn, i, s}:
       ppn(p, ex, ln, U.ex_at(ex, s)) ++ ".pi" ++ U32.show(i)
     case 1n+p T.ENat{d}:
-      digits(d)
+      digits(L.lst_get(ln, d))
     case 1n+p _:
       "?"
 

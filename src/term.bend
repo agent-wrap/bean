@@ -32,14 +32,18 @@ type Ex is Data:
   EBad{}
   EBVar{i: U32}
   ESort{l: U32}
-  EConst{n: U32, us: List<&2, U32>}
+  # us / d: a handle (a key of the level table, L.LNlst) for the list of
+  # universe arguments, digits or bytes -- every field a U32, so Bend packs a
+  # store slot into 32 B instead of 64 (the arena's runner has 16 GB). An
+  # export node's handle is 2^30 + its index (xhandle); 4294967295 = empty
+  EConst{n: U32, us: U32}
   EApp{f: U32, a: U32}
   ELam{n: U32, t: U32, b: U32, bi: U32}
   EAll{n: U32, t: U32, b: U32, bi: U32}
   ELet{n: U32, t: U32, v: U32, b: U32}
   EProj{tn: U32, i: U32, s: U32}
-  ENat{d: List<&2, U32>}
-  EStr{d: List<&2, U32>}
+  ENat{d: U32}
+  EStr{d: U32}
 
 # Looks a field up by the signature of its key. Threading the answer through
 # the default rather than returning early keeps this self-recursive: a helper
@@ -172,88 +176,108 @@ def mk_nm(+k: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> Nm:
 #         3402992597 struct, 3742 us.
 # `struct` and `strVal` no longer share a signature: the key hash is
 # collision-free over the whole key set (tools/keycodes.json).
-def ex_str(+z: Bool, +sb: List<&2, U32>) -> Ex:
+def xhandle(+ix: U32) -> U32:
+  (1073741824 + ix : U32)
+
+def ex_str(+z: Bool, +xh: U32) -> Ex:
   match z:
     case True{}:
-      EStr{sb}
+      EStr{xh}
     case False{}:
       EBad{}
 
-def ex_nat(+z: Bool, +k: U32, +sb: List<&2, U32>) -> Ex:
+def ex_nat(+z: Bool, +k: U32, +xh: U32) -> Ex:
   match z:
     case True{}:
-      ENat{sb}
+      ENat{xh}
     case False{}:
-      ex_str(U32.is_eq(k, 3402962736), sb)
+      ex_str(U32.is_eq(k, 3402962736), xh)
 
-def ex_proj(+z: Bool, +k: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> Ex:
+def ex_proj(+z: Bool, +k: U32, +flds: List<&2, D.Fld>, +xh: U32) -> Ex:
   match z:
     case True{}:
       EProj{fld(flds, 3618459877, 0), fld(flds, 104125, 0), fld(flds, 3402992597, 0)}
     case False{}:
-      ex_nat(U32.is_eq(k, 3242329664), k, sb)
+      ex_nat(U32.is_eq(k, 3242329664), k, xh)
 
-def ex_let(+z: Bool, +k: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> Ex:
+def ex_let(+z: Bool, +k: U32, +flds: List<&2, D.Fld>, +xh: U32) -> Ex:
   match z:
     case True{}:
       ELet{fld(flds, 3373707, 0), fld(flds, 3575610, 0),
            fld(flds, 111972721, 0), fld(flds, 3029410, 0)}
     case False{}:
-      ex_proj(U32.is_eq(k, 3449693), k, flds, sb)
+      ex_proj(U32.is_eq(k, 3449693), k, flds, xh)
 
 def ex_all(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-           +sb: List<&2, U32>) -> Ex:
+           +xh: U32) -> Ex:
   match z:
     case True{}:
       EAll{fld(flds, 3373707, 0), fld(flds, 3575610, 0),
            fld(flds, 3029410, 0), bi}
     case False{}:
-      ex_let(U32.is_eq(k, 3318154), k, flds, sb)
+      ex_let(U32.is_eq(k, 3318154), k, flds, xh)
 
 def ex_lam(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-           +sb: List<&2, U32>) -> Ex:
+           +xh: U32) -> Ex:
   match z:
     case True{}:
       ELam{fld(flds, 3373707, 0), fld(flds, 3575610, 0),
            fld(flds, 3029410, 0), bi}
     case False{}:
-      ex_all(U32.is_eq(k, 3617176333), k, bi, flds, sb)
+      ex_all(U32.is_eq(k, 3617176333), k, bi, flds, xh)
 
 def ex_app(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-           +sb: List<&2, U32>) -> Ex:
+           +xh: U32) -> Ex:
   match z:
     case True{}:
       EApp{fld(flds, 3272, 0), fld(flds, 96854, 0)}
     case False{}:
-      ex_lam(U32.is_eq(k, 106904), k, bi, flds, sb)
+      ex_lam(U32.is_eq(k, 106904), k, bi, flds, xh)
 
 def ex_const(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-             +sb: List<&2, U32>) -> Ex:
+             +xh: U32) -> Ex:
   match z:
     case True{}:
-      EConst{fld(flds, 3373707, 0),
-             D.rev_u32(gather(flds, 3742, Nil{}), Nil{})}
+      EConst{fld(flds, 3373707, 0), xh}
     case False{}:
-      ex_app(U32.is_eq(k, 96801), k, bi, flds, sb)
+      ex_app(U32.is_eq(k, 96801), k, bi, flds, xh)
 
 def ex_sort(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-            +sb: List<&2, U32>) -> Ex:
+            +xh: U32) -> Ex:
   match z:
     case True{}:
       ESort{fld(flds, 3536286, 0)}
     case False{}:
-      ex_const(U32.is_eq(k, 94844771), k, bi, flds, sb)
+      ex_const(U32.is_eq(k, 94844771), k, bi, flds, xh)
 
 def ex_bvar(+z: Bool, +k: U32, +bi: U32, +flds: List<&2, D.Fld>,
-            +sb: List<&2, U32>) -> Ex:
+            +xh: U32) -> Ex:
   match z:
     case True{}:
       EBVar{fld(flds, 3036037, 0)}
     case False{}:
-      ex_sort(U32.is_eq(k, 3536286), k, bi, flds, sb)
+      ex_sort(U32.is_eq(k, 3536286), k, bi, flds, xh)
 
-def mk_ex(+k: U32, +bi: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> Ex:
-  ex_bvar(U32.is_eq(k, 3036037), k, bi, flds, sb)
+# xh: the handle of the record's list (L.lst_in over ex_list's list)
+def mk_ex(+k: U32, +bi: U32, +flds: List<&2, D.Fld>, +xh: U32) -> Ex:
+  ex_bvar(U32.is_eq(k, 3036037), k, bi, flds, xh)
+
+# the list a const / natVal / strVal record carries (universe arguments,
+# digits, bytes), interned in the level table (first under xhandle(ix))
+def ex_has_list(+k: U32) -> Bool:
+  +k2 : U32 = k
+  U32.is_eq(k2, 94844771) || U32.is_eq(k2, 3242329664) || U32.is_eq(k2, 3402962736)
+
+def pick_l(+z: Bool, +x: List<&2, U32>, +y: List<&2, U32>) -> List<&2, U32>:
+  match z:
+    case True{}:
+      x
+    case False{}:
+      y
+
+def ex_list(+k: U32, +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> List<&2, U32>:
+  pick_l(U32.is_eq(k, 94844771), D.rev_u32(gather(flds, 3742, Nil{}), Nil{}),
+         pick_l(ex_has_list(k), sb, Nil{}))
 
 # a compact record (D.RecK): fields a..d in decode's kg1..kg4 order
 def pick_x(+z: Bool, +x: Ex, +y: Ex) -> Ex:

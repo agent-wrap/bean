@@ -425,12 +425,12 @@ def sl_const_nm(+x: T.Ex) -> U32:
     case _:
       4294967295
 
-def sl_const_us(+x: T.Ex) -> List<&2, U32>:
+def sl_const_us(+x: T.Ex) -> U32:
   match x:
     case T.EConst{n, us}:
       us
     case _:
-      Nil{}
+      4294967295
 
 # The head of an application may be a BOUND VARIABLE, not just a constant.
 # `Acc.intro`'s second field has type `forall y, r y x -> Acc r y`, where `r`
@@ -462,7 +462,7 @@ def sl_app(+ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
   L.pick_ln(Bool.not(U32.is_eq(ti, 4294967295)) && is_sortx(res),
             L.ln_subst(R.get(L.LN, 64n, ln, sort_lvl_of(res), L.LNun{}),
                        R.get(List<&2, U32>, 64n, lp, nm, Nil{}),
-                       lns_of(sl_const_us(hd), ln)),
+                       lns_of(L.lst_get(ln, sl_const_us(hd)), ln)),
             L.LNun{})
 
 def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
@@ -482,7 +482,7 @@ def sl(fuel: Nat, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>, +nt: R.Tr<U32>,
     case 1n+p T.EBVar{i}:
       sl_bvar(ex, ln, ctx, i)
     case 1n+p T.EConst{n, us}:
-      sl_const(ex, ln, nt, lp, n, us)
+      sl_const(ex, ln, nt, lp, n, L.lst_get(ln, us))
     case 1n+p T.EApp{f, a}:
       sl_app(ex, ln, nt, lp, ctx, T.EApp{f, a})
     case 1n+p _:
@@ -604,7 +604,8 @@ def eq_ex(+fuel: Nat, +same: Bool, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
     case 1n+p False{} T.EBVar{a} T.EBVar{b}:
       L.pick_tri(U32.is_eq(a, b), L.TYes{}, L.TUnk{})
     case 1n+p False{} T.EConst{a, us} T.EConst{b, vs}:
-      L.pick_tri(U32.is_eq(a, b), eq_lvls(us, vs, ln), L.TUnk{})
+      L.pick_tri(U32.is_eq(a, b), eq_lvls(L.lst_get(ln, us),
+                                          L.lst_get(ln, vs), ln), L.TUnk{})
     case 1n+p False{} T.EApp{f1, a1} T.EApp{f2, a2}:
       +pf = p
       tri_and(eq_ex(pf, U32.is_eq(f1, f2), ex, ln,
@@ -641,9 +642,9 @@ def eq_ex(+fuel: Nat, +same: Bool, +ex: R.Tr<T.Ex>, +ln: R.Tr<L.LN>,
                        R.get(T.Ex, 64n, ex, s2, T.EBad{})),
                  L.TUnk{})
     case 1n+p False{} T.ENat{d1} T.ENat{d2}:
-      L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})
+      L.pick_tri(L.lst_same(ln, d1, d2), L.TYes{}, L.TUnk{})
     case 1n+p False{} T.EStr{d1} T.EStr{d2}:
-      L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})
+      L.pick_tri(L.lst_same(ln, d1, d2), L.TYes{}, L.TUnk{})
     case 1n+p False{} _ _:
       L.TUnk{}
 
@@ -698,6 +699,33 @@ def alloc_ex(+s: IS, +x: T.Ex) -> IR:
     case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt}:
       IR{IS{R.set(T.Ex, 64n, ex, nx, x, T.EBad{}), (nx + 1 : U32), lnt,
             nlx, wm, ht, natn, strn, qt}, nx, True{}}
+
+# a list interned in the state's level table (L.lst_inx): the state and
+# the list's handle
+def alloc_lst2(+s: IS, r: (R.Tr<L.LN> & U32) & U32) -> IS & U32:
+  match s r:
+    case IS{ex, nx, lnt, nlx, wm, ht, natn, strn, qt} Tuple{Tuple{t, n2}, h}:
+      (IS{ex, nx, t, n2, wm, ht, natn, strn, qt}, h)
+
+def alloc_lst(+s: IS, +xs: List<&2, U32>) -> IS & U32:
+  +s2 : IS = s
+  alloc_lst2(s2, L.lst_inx(is_lnt(s2), is_nlx(s2), xs))
+
+def alloc_nat2(r: IS & U32) -> IR:
+  match r:
+    case Tuple{s2, h}:
+      alloc_ex(s2, T.ENat{h})
+
+def alloc_nat(+s: IS, +xs: List<&2, U32>) -> IR:
+  alloc_nat2(alloc_lst(s, xs))
+
+def alloc_cst2(r: IS & U32, +n: U32) -> IR:
+  match r:
+    case Tuple{s2, h}:
+      alloc_ex(s2, T.EConst{n, h})
+
+def alloc_cst(+s: IS, +n: U32, +us: List<&2, U32>) -> IR:
+  alloc_cst2(alloc_lst(s, us), n)
 
 # `Sort u` for a universe given as a normal form.
 def alloc_sort(+s: IS, +u: L.LN) -> IR:
@@ -763,8 +791,8 @@ def lsubst(+fuel: Nat, +st: IS, +x: T.Ex, +e: U32, +ps: List<&2, U32>,
       pick_ir(L.tri_is_yes(L.ln_cmp(old, u)), keep_ir(st, e),
               alloc_sort(st, u))
     case 1n+p T.EConst{n, us}:
-      +rl = lsub_lvls(us, st, ps, qs)
-      alloc_ex(ls_st(rl), T.EConst{n, ls_xs(rl)})
+      +rl = lsub_lvls(L.lst_get(is_lnt(st), us), st, ps, qs)
+      alloc_cst(ls_st(rl), n, ls_xs(rl))
     case 1n+p T.EApp{f, a}:
       +pf = p
       +r1 = lsubst(pf, st, U.ex_at(is_ex(st), f), f, ps, qs)
@@ -1073,7 +1101,7 @@ def tele_n2(fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex, +cnt: U32) -> U32:
 # behaviour. `Acc.rec` on `Acc.intro` is the case that needs all of it:
 # `124_accRecReduction`, with q = 2 and ni = 1.
 def build_ihs(poss: List<&2, U32>, +st: IS, +recnm: U32,
-              +us: List<&2, U32>, +pre: List<&2, U32>,
+              +us: U32, +pre: List<&2, U32>,
               +fields: List<&2, U32>, +cty: U32, +pp: U32, +ni: U32,
               acc: List<&2, U32>) -> LS:
   match poss:
@@ -1149,12 +1177,13 @@ def rebuild(args: List<&2, U32>, +st: IS, +h: U32) -> IR:
       rebuild(rest, ir_st(r), ir_ty(r))
 
 def unfold_const(+st: IS, +lp: R.Tr<List<&2, U32>>, +n: U32, +vi: U32,
-                 +us: List<&2, U32>) -> IR:
+                 +us: U32) -> IR:
   lsubst(256n, st, U.ex_at(is_ex(st), vi), vi,
-         R.get(List<&2, U32>, 64n, lp, n, Nil{}), lns_of(us, is_lnt(st)))
+         R.get(List<&2, U32>, 64n, lp, n, Nil{}),
+         lns_of(L.lst_get(is_lnt(st), us), is_lnt(st)))
 
 def iota_tgt(+ok2: Bool, +can: Bool, +st: IS, +lp: R.Tr<List<&2, U32>>,
-             +n: U32, +us: List<&2, U32>, +vi: U32,
+             +n: U32, +us: U32, +vi: U32,
              +recs: List<&2, U32>, +args: List<&2, U32>,
              +need: U32, +fields: List<&2, U32>, +ci: U32,
              +pp: U32, +cty: U32, +ni: U32) -> IR:
@@ -1457,13 +1486,13 @@ def dec_sub1(xs: List<&2, U32>, +bor: Bool,
                                       (ph - 1 : U32)), ph), acc})
 
 def nat_succ_of(+st: IS, +sn: U32, +d: List<&2, U32>) -> IR:
-  +sc = alloc_ex(st, T.EConst{sn, Nil{}})
-  +lt = alloc_ex(ir_st(sc), T.ENat{d})
+  +sc = alloc_ex(st, T.EConst{sn, 4294967295})
+  +lt = alloc_nat(ir_st(sc), d)
   alloc_ex(ir_st(lt), T.EApp{ir_ty(sc), ir_ty(lt)})
 
 def nat_expand(+st: IS, +d: List<&2, U32>, +zn: U32, +sn: U32) -> IR:
   +pd = d
-  pick_ir(dec_is_zero(pd), alloc_ex(st, T.EConst{zn, Nil{}}),
+  pick_ir(dec_is_zero(pd), alloc_ex(st, T.EConst{zn, 4294967295}),
           nat_succ_of(st, sn,
                       dec_sub1(rev_u(pd, Nil{}), True{}, Nil{})))
 
@@ -1474,11 +1503,11 @@ def lit_op(+which: U32, +st: IS, +a: List<&2, U32>, +b: List<&2, U32>,
            +tn: U32, +fn2: U32) -> IR:
   match which:
     case 0:
-      alloc_ex(st, T.ENat{dec_add(a, b)})
+      alloc_nat(st, dec_add(a, b))
     case 1:
-      alloc_ex(st, T.ENat{dec_sub(a, b)})
+      alloc_nat(st, dec_sub(a, b))
     case _:
-      alloc_ex(st, T.EConst{S.pick(dec_le(a, b), tn, fn2), Nil{}})
+      alloc_ex(st, T.EConst{S.pick(dec_le(a, b), tn, fn2), 4294967295})
 
 def lit_arith(+ok: Bool, +which: U32, +st: IS, +a: List<&2, U32>,
               +b: List<&2, U32>, +tn: U32, +fn2: U32) -> IR:
@@ -1563,10 +1592,10 @@ def dec_gcd(+a: List<&2, U32>, +b: List<&2, U32>) -> List<&2, U32>:
   +b2 : List<&2, U32> = dec_norm(b)
   dec_gcd_r(4096n, dec_is_zero(b2), dec_norm(a), b2)
 
-def nat_digits(+x: T.Ex) -> List<&2, U32>:
+def nat_digits(+lnt: R.Tr<L.LN>, +x: T.Ex) -> List<&2, U32>:
   match x:
     case T.ENat{d}:
-      d
+      L.lst_get(lnt, d)
     case _:
       Nil{}
 
@@ -1654,7 +1683,7 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       +mraw = U.ex_at(is_ex(ir_st(wm0)), ir_ty(wm0))
       +wm = lit_major(is_nat_lit(mraw)
                       && U32.is_eq(meta_ind(mi), is_natn(st)),
-                      ir_st(wm0), nat_digits(mraw), ir_ty(wm0),
+                      ir_st(wm0), nat_digits(is_lnt(ir_st(wm0)), mraw), ir_ty(wm0),
                       is_qt(st, 3), is_qt(st, 4))
       +exm = is_ex(ir_st(wm))
       +mnode = U.ex_at(exm, ir_ty(wm))
@@ -1719,7 +1748,8 @@ def whnf(+fuel: Nat, +delta: Bool, +st: IS, +mt: R.Tr<Meta>,
       +na = U.ex_at(is_ex(ir_st(wb)), ir_ty(wa))
       +nb = U.ex_at(is_ex(ir_st(wb)), ir_ty(wb))
       +arok = isar && is_nat_lit(na) && is_nat_lit(nb)
-      +ar = lit_arith(arok, aw, ir_st(wb), nat_digits(na), nat_digits(nb),
+      +ar = lit_arith(arok, aw, ir_st(wb), nat_digits(is_lnt(ir_st(wb)), na),
+                      nat_digits(is_lnt(ir_st(wb)), nb),
                       is_qt(st, 8), is_qt(st, 9))
       # --- quotients -----------------------------------------------------
       +isql = U32.is_eq(n, is_qt(st, 0)) && U32.is_gt(len_u(args, 0), 5)
@@ -2141,7 +2171,7 @@ def dq_head_ty(+st: IS, +nt: R.Tr<U32>, +lp: R.Tr<List<&2, U32>>,
       pick_ir(U32.is_eq(ti, 4294967295), IR{st, 4294967295, False{}},
               lsubst(256n, st, U.ex_at(is_ex(st), ti), ti,
                      R.get(List<&2, U32>, 64n, lp, n, Nil{}),
-                     lns_of(us, is_lnt(st))))
+                     lns_of(L.lst_get(is_lnt(st), us), is_lnt(st))))
     case T.EBVar{i}:
       +ti = nth_u(ctx, i, 4294967295)
       +lr = U.lift(256n, is_ex(st), is_nx(st), U.ex_at(is_ex(st), ti), ti,
@@ -2279,13 +2309,13 @@ def dq_or_delta(+t: L.Tri, +st: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
 
 # Either the literal itself (when the other side reduced to a literal, so
 # the numeric case decides) or its one-step expansion.
-def nat_or_expand(+isl: Bool, +st: IS, +d: List<&2, U32>, +zn: U32,
+def nat_or_expand(+isl: Bool, +st: IS, +d: U32, +zn: U32,
                   +sn: U32) -> IR:
   match isl:
     case True{}:
       alloc_ex(st, T.ENat{d})
     case False{}:
-      nat_expand(st, d, zn, sn)
+      nat_expand(st, L.lst_get(is_lnt(st), d), zn, sn)
 
 # The verdict is definitive when both sides were literals, softened
 # otherwise -- expansion is one-sided and may just be incomplete.
@@ -2438,7 +2468,7 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
       # Same name: the level comparison's NO is only trusted when the
       # constant has no definition -- a def can unfold, and the unfolding
       # may erase the level difference.
-      +lv3 = eq_lvls(us, vs, is_lnt(st))
+      +lv3 = eq_lvls(L.lst_get(is_lnt(st), us), L.lst_get(is_lnt(st), vs), is_lnt(st))
       +hasval3 = Bool.not(U32.is_eq(R.get(U32, 64n, vt, pa3, 4294967295),
                                     4294967295))
       DR{st, L.pick_tri(U32.is_eq(pa3, pb3),
@@ -2563,10 +2593,12 @@ def defeq(+fuel: Nat, +same: Bool, +st: IS, +mt: R.Tr<Meta>,
     # a different literal. That denial is what rejects `nat-lit-add-bad`,
     # whose claimed sum is off by one.
     case 1n+p False{} T.ENat{d1} T.ENat{d2}:
-      DR{st, L.pick_tri(dec_le(d1, d2) && dec_le(d2, d1), L.TYes{},
+      +a1 = L.lst_get(is_lnt(st), d1)
+      +a2 = L.lst_get(is_lnt(st), d2)
+      DR{st, L.pick_tri(dec_le(a1, a2) && dec_le(a2, a1), L.TYes{},
                         L.TNo{})}
     case 1n+p False{} T.EStr{d1} T.EStr{d2}:
-      DR{st, L.pick_tri(eq_u32s(d1, d2), L.TYes{}, L.TUnk{})}
+      DR{st, L.pick_tri(L.lst_same(is_lnt(st), d1, d2), L.TYes{}, L.TUnk{})}
     # A literal against a numeral in constructor form: expand the literal one
     # step and compare again. `ENat` against `ENat` is handled above, so this
     # cannot loop on two literals, and the fuel bounds the depth.
@@ -2857,16 +2889,16 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
     # `infer` had no case for literals at all and answered BAD.
     case 1n+p T.ENat{d}:
       pick_ir(U32.is_eq(is_natn(s), 4294967295), ir_bad(s),
-              alloc_ex(s, T.EConst{is_natn(s), Nil{}}))
+              alloc_ex(s, T.EConst{is_natn(s), 4294967295}))
     case 1n+p T.EStr{d}:
       pick_ir(U32.is_eq(is_strn(s), 4294967295), ir_bad(s),
-              alloc_ex(s, T.EConst{is_strn(s), Nil{}}))
+              alloc_ex(s, T.EConst{is_strn(s), 4294967295}))
     case 1n+p T.EConst{n, us}:
       +ti = R.get(U32, 64n, nt, n, 4294967295)
       pick_ir(U32.is_eq(ti, 4294967295), ir_bad(s),
               lsubst(256n, s, U.ex_at(is_ex(s), ti), ti,
                      R.get(List<&2, U32>, 64n, lp, n, Nil{}),
-                     lns_of(us, is_lnt(s))))
+                     lns_of(L.lst_get(is_lnt(s), us), is_lnt(s))))
     case 1n+p T.ELet{n, ty, v, b}:
       +pf = p
       +rz = U.inst(256n, is_ex(s), is_nx(s), U.ex_at(is_ex(s), b), b, 0, v)
@@ -2976,7 +3008,8 @@ def infer(+fuel: Nat, +s: IS, +mt: R.Tr<Meta>, +nt: R.Tr<U32>,
       +lsr = lsubst(256n, sst, U.ex_at(is_ex(sst), meta_cty(mi)),
                     meta_cty(mi),
                     R.get(List<&2, U32>, 64n, lp, ptn, Nil{}),
-                    lns_of(sl_const_us(spine_hd(256n, is_ex(sst), sty)),
+                    lns_of(L.lst_get(is_lnt(sst),
+                                     sl_const_us(spine_hd(256n, is_ex(sst), sty))),
                            is_lnt(sst)))
       +pn = proj_nodes(U32.to_nat(pidx), 0, ptn, sx, ir_st(lsr), Nil{})
       +pt = peel_tele(256n, ls_st(pn), ir_ty(lsr),

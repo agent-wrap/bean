@@ -16,6 +16,7 @@ import ./decode.bend as D
 import ./term.bend as T
 import ./level.bend as L
 import ./store.bend as K
+import ./trie.bend as R
 
 # Smallest depth whose 2^depth strictly exceeds mx (so index mx fits).
 def fdepth(+mx: U32) -> Nat:
@@ -46,11 +47,15 @@ def fb_ex(rs: List<&2, D.Rec>, a: Array<T.Ex>) -> Array<T.Ex>:
       a
     case Con{head, tail}:
       match head:
+        # (the debug mains' path: a list's handle names no table entry --
+        # fmain routes the records through fb_route instead)
         case D.Rec{kind, ix, flds, b1, b2, sb}:
           +k = kind
+          +i2 : U32 = ix
           fb_ex(tail,
-                fset_ex(K.is_ex_kind(k), ix,
-                        T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb),
+                fset_ex(K.is_ex_kind(k), i2,
+                        T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds,
+                                T.xhandle(i2)),
                         a))
         case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd}:
           fb_ex(tail, Array.set(T.Ex, a, ix,
@@ -173,36 +178,47 @@ def rt_set(+ok: Bool, a: Array<T.Ex>, +ix: U32, +v: T.Ex) -> Array<T.Ex>:
     case False{}:
       a
 
+# the record's list interned (L.lst_in: the first equal list's handle, else
+# this record's xhandle), so that an instantiated constant hash-conses onto
+# the export's node
+def rt_put(+ok: Bool, a: Array<T.Ex>, +i2: U32, +k: U32, +bi: U32,
+           +flds: List<&2, D.Fld>, r: (R.Tr<L.LN> & U32) & Bool,
+           +bd: U32) -> Array<T.Ex> & (U32 & R.Tr<L.LN>):
+  match r:
+    case Tuple{Tuple{lt, h}, nw}:
+      (rt_set(ok, a, i2, T.mk_ex(k, bi, flds, h)),
+       (S.pick(ok, bd, (bd + 1 : U32)), lt))
+
 def rt_rec(+isx: Bool, +k: U32, +ix: U32, flds: List<&2, D.Fld>, +b1: U32,
-           +b2: U32, sb: List<&2, U32>, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
-           +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+           +b2: U32, sb: List<&2, U32>, st: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+           +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match isx st:
-    case True{} Tuple{Tuple{a, bad}, acc}:
+    case True{} Tuple{Tuple{a, Tuple{bad, lt}}, acc}:
       +i2 : U32 = ix
-      +bd : U32 = bad
-      +ok : Bool = U32.is_lt(i2, cap)
-      ((rt_set(ok, a, i2, T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb)),
-        S.pick(ok, bd, (bd + 1 : U32))), acc)
+      +k2 : U32 = k
+      +f2 : List<&2, D.Fld> = flds
+      (rt_put(U32.is_lt(i2, cap), a, i2, k2, ((b1 * 256 : U32) + b2 : U32), f2,
+              L.lst_in(lt, T.xhandle(i2), T.ex_list(k2, f2, sb)), bad), acc)
     case False{} Tuple{ab, acc}:
       (ab, Con{D.Rec{k, ix, flds, b1, b2, sb}, acc})
 
-def rt_one(r: D.Rec, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
-           +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+def rt_one(r: D.Rec, st: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+           +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match r st:
     case D.Rec{kind, ix, flds, b1, b2, sb} _:
       +k = kind
       rt_rec(K.is_ex_kind(k), k, ix, flds, b1, b2, sb, st, cap)
-    case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd} Tuple{Tuple{a, bad}, acc}:
+    case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd} Tuple{Tuple{a, Tuple{bad, lt}}, acc}:
       +i2 : U32 = ix
       +bd : U32 = bad
       +ok : Bool = U32.is_lt(i2, cap)
       ((rt_set(ok, a, i2, T.mk_exk(kind, ((b1 * 256 : U32) + b2 : U32), ka, kb,
                                     kc, kd)),
-        S.pick(ok, bd, (bd + 1 : U32))), acc)
+        (S.pick(ok, bd, (bd + 1 : U32)), lt)), acc)
 
 # kept records come out reversed (the caller reverses them)
-def fb_route(rs: List<&2, D.Rec>, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
-             +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+def fb_route(rs: List<&2, D.Rec>, st: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+             +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match rs:
     case Nil{}:
       st

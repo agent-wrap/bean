@@ -87,7 +87,7 @@ def feq_ex(x: T.Ex, y: T.Ex) -> Bool:
     case T.ESort{l} T.ESort{m}:
       U32.is_eq(l, m)
     case T.EConst{n, us} T.EConst{m, vs}:
-      U32.is_eq(n, m) && feq_us(us, vs)
+      U32.is_eq(n, m) && U32.is_eq(us, vs)
     case T.EApp{f, a} T.EApp{g, b}:
       U32.is_eq(f, g) && U32.is_eq(a, b)
     case T.ELam{n, t, b, bi} T.ELam{m, u, c, b2}:
@@ -102,9 +102,9 @@ def feq_ex(x: T.Ex, y: T.Ex) -> Bool:
     case T.EProj{tn, i, s} T.EProj{t2, j, s2}:
       U32.is_eq(tn, t2) && U32.is_eq(i, j) && U32.is_eq(s, s2)
     case T.ENat{d} T.ENat{e}:
-      feq_us(d, e)
+      U32.is_eq(d, e)
     case T.EStr{d} T.EStr{e}:
-      feq_us(d, e)
+      U32.is_eq(d, e)
     case _ _:
       False{}
 

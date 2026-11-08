@@ -97,7 +97,7 @@ def eq_shape(x: T.Ex, y: T.Ex, +tln: R.Tr<L.LN>, +flnt: R.Tr<L.LN>) -> ES:
       ES{feq_ln(R.get(L.LN, 64n, tln, l, L.LNun{}),
                 R.get(L.LN, 64n, flnt, m, L.LNun{})), Nil{}}
     case T.EConst{n, us} T.EConst{m, vs}:
-      ES{U32.is_eq(n, m) && feq_lvls(us, vs, tln, flnt), Nil{}}
+      ES{U32.is_eq(n, m) && U32.is_eq(us, vs), Nil{}}
     case T.EApp{f, a} T.EApp{g, b}:
       ES{True{}, Con{TP{f, g}, Con{TP{a, b}, Nil{}}}}
     case T.ELam{n, t, b, bi} T.ELam{m, u, c, b2}:
@@ -112,9 +112,9 @@ def eq_shape(x: T.Ex, y: T.Ex, +tln: R.Tr<L.LN>, +flnt: R.Tr<L.LN>) -> ES:
     case T.EProj{tn, i, s} T.EProj{t2, j, s2}:
       ES{U32.is_eq(tn, t2) && U32.is_eq(i, j), Con{TP{s, s2}, Nil{}}}
     case T.ENat{d} T.ENat{e}:
-      ES{feq_us(d, e), Nil{}}
+      ES{U32.is_eq(d, e), Nil{}}
     case T.EStr{d} T.EStr{e}:
-      ES{feq_us(d, e), Nil{}}
+      ES{U32.is_eq(d, e), Nil{}}
     case _ _:
       zr_bad()
 

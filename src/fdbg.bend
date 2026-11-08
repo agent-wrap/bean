@@ -88,63 +88,64 @@ def dmp_us(us: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
       dmp_us(t, Con{h, Con{15, acc}})
 
 def dmp(fuel: Nat, pr: Array<T.Ex> & T.Ex, work: List<&2, U32>,
-        acc: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
+        acc: List<&2, U32>, +lt: R.Tr<L.LN>) -> Array<T.Ex> & List<&2, U32>:
   match fuel pr:
     case 0n Tuple{a, nd}:
       (a, acc)
     case 1n+p Tuple{a, nd}:
       match nd:
         case T.EApp{f, g}:
-          dmp(p, Array.get(T.Ex, a, f), Con{g, work}, Con{1, acc})
+          dmp(p, Array.get(T.Ex, a, f), Con{g, work}, Con{1, acc}, lt)
         case T.ELam{n, t, b, bi}:
-          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{2, acc})
+          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{2, acc}, lt)
         case T.EAll{n, t, b, bi}:
-          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{3, acc})
+          dmp(p, Array.get(T.Ex, a, t), Con{b, work}, Con{3, acc}, lt)
         case T.ELet{n, t, v, b}:
-          dmp(p, Array.get(T.Ex, a, t), Con{v, Con{b, work}}, Con{4, acc})
+          dmp(p, Array.get(T.Ex, a, t), Con{v, Con{b, work}}, Con{4, acc}, lt)
         case T.EProj{tn, i, sx}:
-          dmp(p, Array.get(T.Ex, a, sx), work, Con{i, Con{tn, Con{5, acc}}})
+          dmp(p, Array.get(T.Ex, a, sx), work, Con{i, Con{tn, Con{5, acc}}}, lt)
         case T.EConst{n, us}:
           match work:
             case Nil{}:
-              (a, dmp_us(us, Con{n, Con{6, acc}}))
+              (a, dmp_us(L.lst_get(lt, us), Con{n, Con{6, acc}}))
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, dmp_us(us, Con{n, Con{6, acc}}))
+              dmp(p, Array.get(T.Ex, a, h), t, dmp_us(L.lst_get(lt, us), Con{n, Con{6, acc}}), lt)
         case T.EBVar{i}:
           match work:
             case Nil{}:
               (a, Con{i, Con{7, acc}})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{i, Con{7, acc}})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{i, Con{7, acc}}, lt)
         case T.ESort{l}:
           match work:
             case Nil{}:
               (a, Con{l, Con{12, acc}})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{l, Con{12, acc}})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{l, Con{12, acc}}, lt)
         case T.ENat{d}:
           match work:
             case Nil{}:
-              (a, Con{I.dec_u32(d, 0), Con{9, acc}})
+              (a, Con{I.dec_u32(L.lst_get(lt, d), 0), Con{9, acc}})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{I.dec_u32(d, 0), Con{9, acc}})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{I.dec_u32(L.lst_get(lt, d), 0), Con{9, acc}}, lt)
         case T.EStr{d}:
           match work:
             case Nil{}:
               (a, Con{10, acc})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{10, acc})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{10, acc}, lt)
         case _:
           match work:
             case Nil{}:
               (a, Con{11, acc})
             case Con{h, t}:
-              dmp(p, Array.get(T.Ex, a, h), t, Con{11, acc})
+              dmp(p, Array.get(T.Ex, a, h), t, Con{11, acc}, lt)
 
-def dmp2(pr: Array<T.Ex> & List<&2, U32>, +y: U32) -> Array<T.Ex> & List<&2, U32>:
+def dmp2(pr: Array<T.Ex> & List<&2, U32>, +y: U32,
+         +lt: R.Tr<L.LN>) -> Array<T.Ex> & List<&2, U32>:
   match pr:
     case Tuple{a, acc}:
-      dmp(400n, Array.get(T.Ex, a, y), Nil{}, Con{4294966001, acc})
+      dmp(400n, Array.get(T.Ex, a, y), Nil{}, Con{4294966001, acc}, lt)
 
 # the levels of the Sort nodes in a dump (tokens `l, 12`), as records
 # 13 l <level> after a 4294966003 marker: level tokens 30 unknown, 31
@@ -182,6 +183,8 @@ def lnser(fuel: Nat, l: L.LN, acc: List<&2, U32>) -> List<&2, U32>:
       +p2 : Nat = p
       +xs2 : List<&2, L.Atom> = xs
       lnser(p2, r, lnser(p2, y, lnser_atoms(xs2, Con{lnlen(xs2, 0), Con{34, acc}})))
+    case 1n+p L.LNlst{xs}:
+      Con{36, acc}
 
 def lvl_rec1(+go: Bool, +a: U32, +lt: R.Tr<L.LN>,
              acc: List<&2, U32>) -> List<&2, U32>:
@@ -225,7 +228,8 @@ def dump_pair(fs: Array<T.Ex> & U32, +x: U32,
       +x2 : U32 = x
       +y2 : U32 = y
       dump_fin(lvl_pass(dmp2(dmp(400n, Array.get(T.Ex, ex, x2), Nil{},
-                                 Con{y2, Con{x2, Con{4294966000, Nil{}}}}), y2),
+                                 Con{y2, Con{x2, Con{4294966000, Nil{}}}}, lt),
+                             y2, lt),
                         lt), nx)
 
 def dump_if(+z: Bool, fs: Array<T.Ex> & U32, +x: U32,
@@ -370,11 +374,12 @@ def fck_all_d(ds: List<&2, K.Dcl>, +st: I.IS, +mt: R.Tr<I.Meta>,
                           st, mt, nt, lp, vt, nmt, h, basenx, natn, qtt,
                           krestart(fs, basenx)))
 
-def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
-           +nlv: Nat, +rounds: Nat, +nx: U32, +only: U32) -> List<&2, U32>:
-  +ex = B.build_ex(recs, R.TNil{})
+def fjudge_d3(arr: Array<T.Ex>, +ex: R.Tr<T.Ex>, +lt: R.Tr<L.LN>,
+              +recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
+              +nlv: Nat, +rounds: Nat, +nx: U32,
+              +only: U32) -> List<&2, U32>:
   +ln = M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
-                                       R.TNil{}))
+                                       lt))
   +dn = C.mark_names(Con{0, C.declared(ds, Nil{})}, R.TNil{})
   # Nat (key 20) and String (key 10) come from build_wk4's two passes
   +wk = K.build_wk4(recs, R.TNil{})
@@ -394,11 +399,28 @@ def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
                 R.TNil{},
                  R.TNil{}, R.TNil{}, K.build_nm(recs, R.TNil{}), nx,
                  natn, qtt, 0, 0, only, Nil{},
-                 ((M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
-                   F.fb_ex(recs,
-                           Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
-                                     T.EBad{}))),
-                   (nx + M.ktbl(nx) + 2 : U32)), Con{0, Nil{}}))}
+                 ((arr, (nx + M.ktbl(nx) + 2 : U32)), Con{0, Nil{}}))}
+
+def fjudge_d2(ab: Array<T.Ex> & R.Tr<T.Ex>, +lt: R.Tr<L.LN>,
+              +recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
+              +nlv: Nat, +rounds: Nat, +nx: U32,
+              +only: U32) -> List<&2, U32>:
+  match ab:
+    case Tuple{arr, ex}:
+      fjudge_d3(arr, ex, lt, recs, ds, nex, nlv, rounds, nx, only)
+
+def fjudge_d1(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
+              +ds: List<&2, K.Dcl>, +nex: Nat, +nlv: Nat, +rounds: Nat,
+              +nx: U32, +only: U32) -> List<&2, U32>:
+  match r:
+    case Tuple{arr, lt}:
+      fjudge_d2(FC.fj_abA(arr, nx), lt, recs, ds, nex, nlv, rounds, nx, only)
+
+# the records routed as fmain routes them (FC.fj_rt: the lists interned),
+# the structural checks' expression trie rebuilt from the store
+def fjudge_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
+           +nlv: Nat, +rounds: Nat, +nx: U32, +only: U32) -> List<&2, U32>:
+  fjudge_d1(FC.fj_rt(recs, nx), recs, ds, nex, nlv, rounds, nx, only)
 
 def show_all(xs: List<&2, U32>) -> String:
   match xs:

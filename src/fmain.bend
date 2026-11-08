@@ -26,6 +26,7 @@ import ./store.bend as K
 import ./check.bend as C
 import ./fcheck.bend as FC
 import ./fstore.bend as F
+import ./trie.bend as R
 
 def unwrap_arg(m: Maybe<&1, String>) -> String:
   match m:
@@ -330,22 +331,22 @@ def stream(fuel: Nat, +chunk: U32,
         stream(p, chunk, nxt, ingest(bs, st))
 
 # ---- the nx path: expressions decoded straight into the store ----------
-def route_fin(r: (Array<T.Ex> & U32) & List<&2, D.Rec>,
-              out: List<&2, D.Rec>) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+def route_fin(r: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+              out: List<&2, D.Rec>) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match r:
     case Tuple{ab, kept}:
       (ab, app_recs(F.rev_recs(kept, Nil{}), out))
 
-def route_into(batch: List<&2, D.Rec>, so: (Array<T.Ex> & U32) & List<&2, D.Rec>,
-               +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+def route_into(batch: List<&2, D.Rec>, so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>,
+               +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match so:
     case Tuple{ab, out}:
       route_fin(F.fb_route(batch, (ab, Nil{}), cap), out)
 
 def ingest2A(+full: Bool, pr: List<&2, U32> & List<&2, U32>,
              parts: List<&2, List<&2, U32>>, +np: U32,
-             so: (Array<T.Ex> & U32) & List<&2, D.Rec>, +cap: U32)
-    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & U32) & List<&2, D.Rec>))):
+             so: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +cap: U32)
+    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
   match full pr:
     case True{} Tuple{comp, tail}:
       (tail, (Nil{}, (0, route_into(pdec(3n, Con{comp, parts}, (np + 1 : U32)), so, cap))))
@@ -353,17 +354,17 @@ def ingest2A(+full: Bool, pr: List<&2, U32> & List<&2, U32>,
       (tail, (Con{comp, parts}, ((np + 1 : U32), so)))
 
 def ingestA(bs: List<&2, U32>,
-            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & U32) & List<&2, D.Rec>))),
+            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))),
             +cap: U32)
-    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & U32) & List<&2, D.Rec>))):
+    -> List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))):
   match st:
     case Tuple{carry, Tuple{parts, Tuple{np, so}}}:
       +n2 : U32 = np
       ingest2A(U32.is_ge((n2 + 1 : U32), 8), split_nl(carry, bs), parts, n2,
                so, cap)
 
-def flushA(st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & U32) & List<&2, D.Rec>))),
-           +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+def flushA(st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))),
+           +cap: U32) -> (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>:
   match st:
     case Tuple{carry, Tuple{parts, Tuple{np, so}}}:
       +n2 : U32 = np
@@ -371,16 +372,16 @@ def flushA(st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> &
 
 def streamA(fuel: Nat, +chunk: U32, +cap: U32,
             pr: File & Result<&1, &1, U32 & String, List<&2, U32>>,
-            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & U32) & List<&2, D.Rec>))))
-    -> IO((Array<T.Ex> & U32) & List<&2, D.Rec>):
+            st: List<&2, U32> & (List<&2, List<&2, U32>> & (U32 & ((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>))))
+    -> IO((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>):
   match fuel pr:
     case 0n Tuple{f, r}:
-      do IO<(Array<T.Ex> & U32) & List<&2, D.Rec>>:
+      do IO<(Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>>:
         bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
         File.close(f)
-        IO.pure((Array<T.Ex> & U32) & List<&2, D.Rec>, flushA(ingestA(bs, st, cap), cap))
+        IO.pure((Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, flushA(ingestA(bs, st, cap), cap))
     case 1n+p Tuple{f, r}:
-      do IO<(Array<T.Ex> & U32) & List<&2, D.Rec>>:
+      do IO<(Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>>:
         bs : List<&2, U32> <- IO.pass(List<&2, U32>, r)
         nxt : File & Result<&1, &1, U32 & String, List<&2, U32>>
           <- File.read_bytes(f, chunk)
@@ -443,54 +444,54 @@ def run_pick(+recs: List<&2, D.Rec>, +wk: U32, +wn: U32,
     case SCon{head, tail}:
       run_dyn(recs, wk, wn, SCon{head, tail})
 
-def judge_recsA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32, +wn: U32,
+def judge_recsA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32, +wn: U32,
                 +nx: U32) -> C.V:
   +r2 = recs
-  FC.fjudgeA(r2, arr, K.decls_of(r2, Nil{}),
+  FC.fjudgeA(r2, arr, lt, K.decls_of(r2, Nil{}),
              U32.to_nat((K.max_lvl_ix(r2, 0) + 1 : U32)), 32n, nx, wk, wn)
 
-def judge_recs2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32,
+def judge_recs2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32,
                  +wn: U32, +nx: U32) -> FC.FL:
   +r2 = recs
-  FC.fjudge2A(r2, arr, K.decls_of(r2, Nil{}),
+  FC.fjudge2A(r2, arr, lt, K.decls_of(r2, Nil{}),
               U32.to_nat((K.max_lvl_ix(r2, 0) + 1 : U32)), 32n, nx, wk, wn)
 
-def judge_wkA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32, +wn: U32,
+def judge_wkA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32, +wn: U32,
               +nx: U32) -> C.V:
   +k2 : U32 = wk
   +n2 : U32 = wn
   +ok : Bool = U32.is_lt(k2, n2) && U32.is_gt(n2, 0)
-  judge_recsA(recs, arr, S.pick(ok, k2, 0), S.pick(ok, n2, 1), nx)
+  judge_recsA(recs, arr, lt, S.pick(ok, k2, 0), S.pick(ok, n2, 1), nx)
 
-def run_dynA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32, +wn: U32,
+def run_dynA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32, +wn: U32,
              +dir: String, +nx: U32) -> IO(Unit):
   do IO<Unit>:
     v : C.V <- dyn_step(4194304n, dir, 0, wk, wn,
-                        FC.fl_more(judge_recs2A(recs, arr, wk, wn, nx)))
+                        FC.fl_more(judge_recs2A(recs, arr, lt, wk, wn, nx)))
     finish(v)
 
-def run_pickA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32, +wn: U32,
+def run_pickA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32, +wn: U32,
               dir: String, +nx: U32) -> IO(Unit):
   match dir:
     case SNil{}:
-      finish(judge_wkA(recs, arr, wk, wn, nx))
+      finish(judge_wkA(recs, arr, lt, wk, wn, nx))
     case SCon{head, tail}:
-      run_dynA(recs, arr, wk, wn, SCon{head, tail}, nx)
+      run_dynA(recs, arr, lt, wk, wn, SCon{head, tail}, nx)
 
-def run_a2(+ok: Bool, +recs: List<&2, D.Rec>, arr: Array<T.Ex>, +wk: U32,
+def run_a2(+ok: Bool, +recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>, +wk: U32,
            +wn: U32, dir: String, +nx: U32) -> IO(Unit):
   match ok:
     case True{}:
-      run_pickA(recs, arr, wk, wn, dir, nx)
+      run_pickA(recs, arr, lt, wk, wn, dir, nx)
     case False{}:
       finish(C.VDecline{})
 
 # an expression index at or past the store's capacity: decline (no read)
-def run_a(res: (Array<T.Ex> & U32) & List<&2, D.Rec>, +wk: U32, +wn: U32,
+def run_a(res: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +wk: U32, +wn: U32,
           dir: String, +nx: U32) -> IO(Unit):
   match res:
-    case Tuple{Tuple{arr, bad}, recs}:
-      run_a2(U32.is_eq(bad, 0), recs, arr, wk, wn, dir, nx)
+    case Tuple{Tuple{arr, Tuple{bad, lt}}, recs}:
+      run_a2(U32.is_eq(bad, 0), recs, arr, lt, wk, wn, dir, nx)
 
 def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
   do IO<Unit>:
@@ -498,8 +499,8 @@ def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
     f : File <- open_or_fail(oh)
     pr : File & Result<&1, &1, U32 & String, List<&2, U32>>
       <- File.read_bytes(f, 4194304)
-    res : (Array<T.Ex> & U32) & List<&2, D.Rec> <- streamA(2400n, 4194304, nx, pr,
-      Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Tuple{Tuple{FC.new_store(nx), 0}, Nil{}}}}})
+    res : (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec> <- streamA(2400n, 4194304, nx, pr,
+      Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Tuple{Tuple{FC.new_store(nx), Tuple{0, R.TNil{}}}, Nil{}}}}})
     run_a(res, wk, wn, dir, nx)
 
 def main_go(pw: String & ((U32 & U32) & String)) -> IO(Unit):

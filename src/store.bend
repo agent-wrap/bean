@@ -243,7 +243,7 @@ def place_cat(+isn: Bool, +isl: Bool, +ise: Bool, +k: U32, +ix: U32,
     case False{} True{} _:
       set_lvl(ix, T.mk_lvl(k, flds), st)
     case False{} False{} True{}:
-      set_ex(ix, T.mk_ex(k, bi, flds, sb), st)
+      set_ex(ix, T.mk_ex(k, bi, flds, T.xhandle(ix)), st)
     case False{} False{} False{}:
       st
 

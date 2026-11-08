@@ -99,7 +99,7 @@ def show_ex(+fuel: Nat, +ex: R.Tr<T.Ex>, +x: T.Ex) -> String:
     case 1n+q T.ESort{l}:
       "Sort(l" ++ U32.show(l) ++ ")"
     case 1n+q T.EConst{n, us}:
-      "C" ++ U32.show(n) ++ "[" ++ show_us(us, "") ++ "]"
+      "C" ++ U32.show(n) ++ "[" ++ U32.show(us) ++ "]"
     case 1n+q T.EApp{f, a}:
       "(" ++ show_ex(q, ex, U.ex_at(ex, f)) ++ " "
       ++ show_ex(q, ex, U.ex_at(ex, a)) ++ ")"
@@ -142,6 +142,8 @@ def show_ln(+a: L.LN) -> String:
       "imax+" ++ U32.show(o) ++ "(?,?)"
     case L.LNmx{xs, y, r}:
       "max{" ++ show_atoms(xs, "") ++ " imax(?,?) }"
+    case L.LNlst{xs}:
+      "LIST"
 
 def show_tri(+t: L.Tri) -> String:
   match t:

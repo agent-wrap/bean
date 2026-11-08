@@ -86,7 +86,7 @@ def inst0(+st: I.IS, +b: U32, +v: U32) -> I.IR:
 # --- free variables ------------------------------------------------------
 # A free variable is listed as the flat triple [name, node, type].
 def fv_new(+st: I.IS, +kc: U32) -> NR:
-  +r = I.alloc_ex(st, T.EConst{(fvb() + kc : U32), Nil{}})
+  +r = I.alloc_ex(st, T.EConst{(fvb() + kc : U32), 4294967295})
   NR{I.ir_st(r), (kc + 1 : U32), I.ir_ty(r)}
 
 # Peel up to `n` Pi binders of `ty`, each instantiated with a fresh free
@@ -246,12 +246,15 @@ def spine_go(fuel: Nat, +st: I.IS, +nd: T.Ex,
 def spine_args(+st: I.IS, +x: U32) -> List<&2, U32>:
   spine_go(256n, st, node(st, x), Nil{})
 
-def const_us(+x: T.Ex) -> List<&2, U32>:
+def const_uh(+x: T.Ex) -> U32:
   match x:
     case T.EConst{n, us}:
       us
     case _:
-      Nil{}
+      4294967295
+
+def const_us(+st: I.IS, +x: T.Ex) -> List<&2, U32>:
+  L.lst_get(I.is_lnt(st), const_uh(x))
 
 # levels equal by normal form
 def lvls_eq(+lnt: R.Tr<L.LN>, xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
@@ -278,7 +281,9 @@ def ex_eq(+fuel: Nat, +st: I.IS, +a: U32, +b: U32, +x: T.Ex,
       L.tri_is_yes(L.ln_cmp(R.get(L.LN, 64n, I.is_lnt(st), l, L.LNun{}),
                             R.get(L.LN, 64n, I.is_lnt(st), m, L.LNun{})))
     case 1n+p T.EConst{n, us} T.EConst{m, vs}:
-      U32.is_eq(n, m) && lvls_eq(I.is_lnt(st), us, vs)
+      U32.is_eq(n, m)
+      && lvls_eq(I.is_lnt(st), L.lst_get(I.is_lnt(st), us),
+                 L.lst_get(I.is_lnt(st), vs))
     case 1n+p T.EApp{f, a1} T.EApp{g, b1}:
       U32.is_eq(a, b)
       || ex_eq(p, st, f, g, node(st, f), node(st, g))
@@ -300,9 +305,9 @@ def ex_eq(+fuel: Nat, +st: I.IS, +a: U32, +b: U32, +x: T.Ex,
       U32.is_eq(tn, t2) && U32.is_eq(i, j)
       && ex_eq(p, st, s1, s2, node(st, s1), node(st, s2))
     case 1n+p T.ENat{d} T.ENat{e}:
-      I.eq_u32s(d, e)
+      L.lst_same(I.is_lnt(st), d, e)
     case 1n+p T.EStr{d} T.EStr{e}:
-      I.eq_u32s(d, e)
+      L.lst_same(I.is_lnt(st), d, e)
     case 1n+p _ _:
       False{}
 
@@ -650,7 +655,7 @@ def spec_go(specs: List<&2, SP>, +st: I.IS, +j: U32, +hn: U32,
 
 def spec_of(+specs: List<&2, SP>, +st: I.IS, +x: U32) -> SO:
   +h : T.Ex = spine_hd(st, x)
-  spec_go(specs, st, 0, I.const_nm2(h), const_us(h), spine_args(st, x))
+  spec_go(specs, st, 0, I.const_nm2(h), const_us(st, h), spine_args(st, x))
 
 # --- small list helpers ------------------------------------------------------
 def fv_types(xs: List<&2, U32>, acc: List<&2, U32>) -> List<&2, U32>:
@@ -733,7 +738,7 @@ def disc_fields(flds: List<&2, U32>, +st: I.IS, +kc: U32,
       +inval : Bool = occursi(s1, fres, tn) && Bool.not(known)
                       && Bool.not(isnew)
       disc_fields(t, s1, tl_kc(tw),
-                  pick_lsp(isnew, app_sp(specs, SP{hn, const_us(h), pa}),
+                  pick_lsp(isnew, app_sp(specs, SP{hn, const_us(st, h), pa}),
                            specs),
                   bad || ndom || inval, tn, items, itab, mt, nt, lp, vt)
 
@@ -815,7 +820,7 @@ def spec_tele(+sp: SP, +st: I.IS, +kc: U32, +items: List<&2, K.IItem>,
   +r = at_spec(st, ii_ty(ii), ii_lps(ii), sp_us(sp), sp_ps(sp))
   +tl = tele(I.ir_st(r), kc, I.ir_ty(r))
   +ifv : List<&2, U32> = strip_fvs(tl_fvs(tl), tl_st(tl), ann, Nil{})
-  +hc = I.alloc_ex(tl_st(tl), T.EConst{sp_n(sp), sp_us(sp)})
+  +hc = I.alloc_cst(tl_st(tl), sp_n(sp), sp_us(sp))
   +ap = I.app_args(List.append(&2, U32, sp_ps(sp), fv_nodes(ifv, Nil{})),
                    I.ir_st(hc), I.ir_ty(hc))
   +t = fv_new(I.ir_st(ap), tl_kc(tl))
@@ -976,7 +981,7 @@ def mk_minors_c(cs: List<&2, U32>, +j: U32, +sp: SP, +lps: List<&2, U32>,
       +s2 : I.IS = il_st(il)
       +idx : List<&2, U32> = I.skip_u(spine_args(s2, tl_ty(tl)),
                                       I.len_u(sp_ps(sp), 0))
-      +cc = I.alloc_ex(s2, T.EConst{c, sp_us(sp)})
+      +cc = I.alloc_cst(s2, c, sp_us(sp))
       +ca = I.app_args(List.append(&2, U32, sp_ps(sp),
                                    fv_nodes(flds, Nil{})),
                        I.ir_st(cc), I.ir_ty(cc))
@@ -1129,8 +1134,7 @@ def ih_vals(ihs: List<&2, IH>, +st: I.IS, +rnames: List<&2, U32>,
     case Con{IH{f, k, zs, ix}, t}:
       +zs2 : List<&2, U32> = zs
       +fa = I.app_args(fv_nodes(zs2, Nil{}), st, f)
-      +rc = I.alloc_ex(I.ir_st(fa), T.EConst{I.nth_u(rnames, k, 4294967295),
-                                             rus})
+      +rc = I.alloc_cst(I.ir_st(fa), I.nth_u(rnames, k, 4294967295), rus)
       +ap = I.app_args(List.append(&2, U32, pre,
                                    List.append(&2, U32, ix, [I.ir_ty(fa)])),
                        I.ir_st(rc), I.ir_ty(rc))
@@ -1449,11 +1453,13 @@ def sh_eq(+fuel: Nat, +st: I.IS, +a: U32, +b: U32, +c: U32, +s: U32,
                                R.get(L.LN, 64n, I.is_lnt(st), k, L.LNun{}))),
          m}
     case 1n+p MHnone{} T.EConst{n, us} T.EConst{n2, vs}:
-      SM{U32.is_eq(n, n2) && lvls_eq(I.is_lnt(st), us, vs), m}
+      SM{U32.is_eq(n, n2)
+         && lvls_eq(I.is_lnt(st), L.lst_get(I.is_lnt(st), us),
+                    L.lst_get(I.is_lnt(st), vs)), m}
     case 1n+p MHnone{} T.ENat{d} T.ENat{e}:
-      SM{I.eq_u32s(d, e), m}
+      SM{L.lst_same(I.is_lnt(st), d, e), m}
     case 1n+p MHnone{} T.EStr{d} T.EStr{e}:
-      SM{I.eq_u32s(d, e), m}
+      SM{L.lst_same(I.is_lnt(st), d, e), m}
     case 1n+p MHnone{} T.EApp{f, a1} T.EApp{g, b1}:
       +r1 = sh_eq(p, st, f, g, c, s, memo_of(m, f, g, c, s), node(st, f),
                   node(st, g), m)
@@ -1647,7 +1653,7 @@ def lvl_params(+lnt: R.Tr<L.LN>, us: List<&2, U32>, ns: List<&2, U32>) -> Bool:
 def capp(+st: I.IS, +x: U32, +c: U32, +lps: List<&2, U32>,
          +es: List<&2, U32>) -> Bool:
   +h : T.Ex = spine_hd(st, x)
-  U32.is_eq(I.const_nm2(h), c) && lvl_params(I.is_lnt(st), const_us(h), lps)
+  U32.is_eq(I.const_nm2(h), c) && lvl_params(I.is_lnt(st), const_us(st, h), lps)
   && bvs_eq(st, spine_args(st, x), es)
 
 # `x` is `#f a_1 .. a_n` with the a's the bvars es

@@ -16,6 +16,7 @@
 import Base
 import ./scan.bend as S
 import ./term.bend as T
+import ./trie.bend as R
 
 type Atom is Data:
   At{base: U32, off: U32}
@@ -48,6 +49,10 @@ type LN is Data:
   # and `cond` over two PULifts become once s is an imax. Equality is
   # structural (order-sensitive): sound for YES, compared YES-or-unknown.
   LNmx{xs: List<&2, Atom>, y: LN, r: LN}
+  # not a level: a list (a constant's universe arguments, a literal's
+  # digits or bytes) kept in the level table under a handle (T.EConst's us,
+  # T.ENat / T.EStr's d) so that every T.Ex field is a U32
+  LNlst{xs: List<&2, U32>}
 
 def ln_zero() -> LN:
   LNmax{[At{0, 0}]}
@@ -175,6 +180,8 @@ def ln_add_off(+k: U32, +a: LN) -> LN:
       LNun{}
     case LNsym{}:
       LNsym{}
+    case LNlst{xs}:
+      LNun{}
 
 def ln_succ(+a: LN) -> LN:
   match a:
@@ -188,6 +195,8 @@ def ln_succ(+a: LN) -> LN:
       LNun{}
     case LNsym{}:
       LNsym{}
+    case LNlst{xs}:
+      LNun{}
 
 def atom_small(+x: Atom) -> Bool:
   match x:
@@ -590,6 +599,15 @@ def tri_both(+a: Tri, +b: Tri) -> Tri:
     case _ _:
       TYes{}
 
+def lst_eq(xs: List<&2, U32>, ys: List<&2, U32>) -> Bool:
+  match xs ys:
+    case Nil{} Nil{}:
+      True{}
+    case Con{h1, t1} Con{h2, t2}:
+      U32.is_eq(h1, h2) && lst_eq(t1, t2)
+    case _ _:
+      False{}
+
 # Structural, and three-valued. Two `imax` forms are equal when both halves
 # and the offset are; anything else mixing the two shapes is "cannot decide",
 # never "no" -- an `imax` really can equal a max-of-atoms for some
@@ -633,6 +651,9 @@ def ln_cmp_f(fuel: Nat, +a: LN, +b: LN) -> Tri:
     case 1n+p LNimax{x1, y1, o1} LNmx{ys, y2, r2}:
       +pf = p
       ln_cmp_f(pf, LNmx{Nil{}, a, LNmax{Nil{}}}, b)
+    # two lists (handles of the level table): equal or not, decided
+    case 1n+p LNlst{xs} LNlst{ys}:
+      tri_of(lst_eq(xs, ys))
     case 1n+p _ _:
       TUnk{}
 
@@ -742,6 +763,8 @@ def ln_subst_f(fuel: Nat, +a: LN, +ps: List<&2, U32>,
       LNun{}
     case 1n+p LNsym{}:
       LNsym{}
+    case 1n+p LNlst{xs}:
+      LNun{}
 
 def ln_subst(+a: LN, +ps: List<&2, U32>, +qs: List<&2, LN>) -> LN:
   ln_subst_f(32n, a, ps, qs)
@@ -849,3 +872,212 @@ def resolve(rounds: Nat, +n: Nat, p: P1) -> P1:
       p
     case 1n+q:
       resolve(q, n, one_pass(n, 0, p))
+
+def ln_list(+l: LN) -> List<&2, U32>:
+  match l:
+    case LNlst{xs}:
+      xs
+    case _:
+      Nil{}
+
+# ---- lists in the level table ---------------------------------------------
+# T.EConst's universe arguments and T.ENat / T.EStr's digits and bytes are
+# U32 handles, so that every T.Ex field is a U32 and Bend packs a store
+# slot into 32 B instead of 64 (the arena's runner has 16 GB). A short list
+# is the handle itself (lst_enc, canonical: no table entry):
+#   4294967295            the empty list
+#   3221225472 + x        [x], x < 2^29 (a constant's single universe)
+#   3758096384 + o_L + v  L = 2..7 decimal digit characters, value v
+#                         (o_L = 0, 100, 1100, ...: a literal below 10^7,
+#                         every character code)
+#   4026531840 + 8192 x + y   [x, y], x, y < 2^13
+# Any other list is a key of the level table holding an LNlst: an export
+# record's xhandle(ix) = 2^30 + ix, a list the machine builds a fresh level
+# index. Equal lists share a handle -- the first one's -- through a hash
+# slot per content at 3 * 2^29 + (hash mod 2^29), above every handle and
+# below the level slots (km's klv_key, >= 2^31); a slot collision only
+# loses the sharing (handles compare equal only for equal lists, never
+# the converse -- compare contents when the handles differ).
+def lst_off(+l: U32) -> U32:
+  S.pick(U32.is_le(l, 2), 0, S.pick(U32.is_eq(l, 3), 100,
+    S.pick(U32.is_eq(l, 4), 1100, S.pick(U32.is_eq(l, 5), 11100,
+      S.pick(U32.is_eq(l, 6), 111100, 1111100)))))
+
+# (all decimal digit characters, length, value) -- the value only
+# meaningful up to 7 digits
+def lst_alld2(+ok: Bool, r: (Bool & U32) & U32) -> (Bool & U32) & U32:
+  match r:
+    case Tuple{Tuple{b, c}, w}:
+      ((ok && b, c), w)
+
+
+def lst_alld(xs: List<&2, U32>, +n: U32,
+             +v: U32) -> (Bool & U32) & U32:
+  match xs:
+    case Nil{}:
+      ((True{}, n), v)
+    case Con{h, t}:
+      +h2 : U32 = h
+      lst_alld2(U32.is_ge(h2, 48) && U32.is_lt(h2, 58),
+                lst_alld(t, (n + 1 : U32), ((v * 10 : U32) + (h2 - 48 : U32) : U32)))
+
+def lst_one(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      4294967293
+    case Con{a, t}:
+      +a2 : U32 = a
+      S.pick(U32.is_lt(a2, 536870912), (3221225472 + a2 : U32), 4294967293)
+
+def lst_two(xs: List<&2, U32>) -> U32:
+  match xs:
+    case Nil{}:
+      4294967293
+    case Con{a, t}:
+      match t:
+        case Nil{}:
+          4294967293
+        case Con{b, t2}:
+          +a2 : U32 = a
+          +b2 : U32 = b
+          S.pick(U32.is_lt(a2, 8192) && U32.is_lt(b2, 8192),
+                 (4026531840 + ((a2 * 8192 : U32) + b2 : U32) : U32), 4294967293)
+
+def lst_enc2(r: (Bool & U32) & U32, +one: U32, +two: U32) -> U32:
+  match r:
+    case Tuple{Tuple{b, c}, v}:
+      +c2 : U32 = c
+      S.pick(U32.is_eq(c2, 0), 4294967295,
+        S.pick(b && U32.is_ge(c2, 2) && U32.is_le(c2, 7),
+               (3758096384 + (lst_off(c2) + v : U32) : U32),
+          S.pick(U32.is_eq(c2, 1), one,
+                 S.pick(U32.is_eq(c2, 2), two, 4294967293))))
+
+# xs as an inline handle, or 4294967293 (it needs the table)
+def lst_enc(+xs: List<&2, U32>) -> U32:
+  lst_enc2(lst_alld(xs, 0, 0), lst_one(xs), lst_two(xs))
+
+def lst_digs(n: Nat, +v: U32, acc: List<&2, U32>) -> List<&2, U32>:
+  match n:
+    case 0n:
+      acc
+    case 1n+p:
+      lst_digs(p, (v / 10 : U32), Con{(48 + (v % 10 : U32) : U32), acc})
+
+def lst_dec_d(+k: U32) -> List<&2, U32>:
+  +l : U32 = S.pick(U32.is_lt(k, 100), 2, S.pick(U32.is_lt(k, 1100), 3,
+               S.pick(U32.is_lt(k, 11100), 4, S.pick(U32.is_lt(k, 111100), 5,
+                 S.pick(U32.is_lt(k, 1111100), 6, 7)))))
+  lst_digs(U32.to_nat(l), (k - lst_off(l) : U32), Nil{})
+
+def lst_dec2(+hi: Bool, +h: U32) -> List<&2, U32>:
+  match hi:
+    case True{}:
+      lst_dec_d((h - 3758096384 : U32))
+    case False{}:
+      [(h - 3221225472 : U32)]
+
+def lst_dec1(+two: Bool, +h: U32) -> List<&2, U32>:
+  match two:
+    case True{}:
+      +k : U32 = (h - 4026531840 : U32)
+      S.pick_l(U32.is_lt(k, 67108864), [(k / 8192 : U32), (k % 8192 : U32)],
+               Nil{})
+    case False{}:
+      lst_dec2(U32.is_ge(h, 3758096384), h)
+
+def lst_dec(+h: U32) -> List<&2, U32>:
+  lst_dec1(U32.is_ge(h, 4026531840), h)
+
+def lst_get2(+inl: Bool, +lnt: R.Tr<LN>, +h: U32) -> List<&2, U32>:
+  match inl:
+    case True{}:
+      lst_dec(h)
+    case False{}:
+      ln_list(R.get(LN, 64n, lnt, h, LNun{}))
+
+def lst_get(+lnt: R.Tr<LN>, +h: U32) -> List<&2, U32>:
+  lst_get2(U32.is_ge(h, 3221225472), lnt, h)
+
+def lst_hash(xs: List<&2, U32>, +h: U32) -> U32:
+  match xs:
+    case Nil{}:
+      h
+    case Con{head, tail}:
+      lst_hash(tail, (U32.xor(h, head) * 16777619 : U32))
+
+def lst_key(xs: List<&2, U32>) -> U32:
+  (1610612736 + U32.and(lst_hash(xs, 2166136261), 536870911) : U32)
+
+def lst_ptr(+a: LN) -> U32:
+  match a:
+    case LNimax{x, y, off}:
+      off
+    case _:
+      4294967295
+
+# the table's handle of xs, else 4294967295
+def lst_look(+lnt: R.Tr<LN>, xs: List<&2, U32>) -> U32:
+  +t : R.Tr<LN> = lnt
+  +x : List<&2, U32> = xs
+  +c : U32 = lst_ptr(R.get(LN, 64n, t, lst_key(x), LNun{}))
+  S.pick(U32.is_ne(c, 4294967295) && lst_eq(lst_get(t, c), x), c,
+         4294967295)
+
+# record xs under the fresh handle h (and its slot)
+def lst_put(+lnt: R.Tr<LN>, +h: U32, xs: List<&2, U32>) -> R.Tr<LN>:
+  +x : List<&2, U32> = xs
+  R.set(LN, 64n, R.set(LN, 64n, lnt, h, LNlst{x}, LNun{}), lst_key(x),
+        LNimax{LNun{}, LNun{}, h}, LNun{})
+
+def lst_tab2(+nw: Bool, +t: R.Tr<LN>, +fresh: U32, +c: U32,
+             xs: List<&2, U32>) -> (R.Tr<LN> & U32) & Bool:
+  match nw:
+    case True{}:
+      ((lst_put(t, fresh, xs), fresh), True{})
+    case False{}:
+      ((t, c), False{})
+
+
+def lst_tab(+lnt: R.Tr<LN>, +fresh: U32,
+            xs: List<&2, U32>) -> (R.Tr<LN> & U32) & Bool:
+  +t : R.Tr<LN> = lnt
+  +x : List<&2, U32> = xs
+  +c : U32 = lst_look(t, x)
+  lst_tab2(U32.is_eq(c, 4294967295), t, fresh, c, x)
+
+def lst_in2(+tab: Bool, +e: U32, +lnt: R.Tr<LN>, +fresh: U32,
+            xs: List<&2, U32>) -> (R.Tr<LN> & U32) & Bool:
+  match tab:
+    case True{}:
+      lst_tab(lnt, fresh, xs)
+    case False{}:
+      ((lnt, e), False{})
+
+# intern xs, a fresh one under handle `fresh`: (table, handle, fresh used)
+def lst_in(+lnt: R.Tr<LN>, +fresh: U32,
+           +xs: List<&2, U32>) -> (R.Tr<LN> & U32) & Bool:
+  +e : U32 = lst_enc(xs)
+  lst_in2(U32.is_eq(e, 4294967293), e, lnt, fresh, xs)
+
+# the machine's interning: a fresh handle is the next level index
+def lst_inx2(r: (R.Tr<LN> & U32) & Bool,
+             +nlx: U32) -> (R.Tr<LN> & U32) & U32:
+  match r:
+    case Tuple{Tuple{t, h}, nw}:
+      ((t, S.pick(nw, (nlx + 1 : U32), nlx)), h)
+
+def lst_inx(+lnt: R.Tr<LN>, +nlx: U32,
+            +xs: List<&2, U32>) -> (R.Tr<LN> & U32) & U32:
+  lst_inx2(lst_in(lnt, nlx, xs), nlx)
+
+# two handles' lists equal (the handles first)
+def lst_same2(+eq: Bool, +lnt: R.Tr<LN>, +a: U32, +b: U32) -> Bool:
+  match eq:
+    case True{}:
+      True{}
+    case False{}:
+      lst_eq(lst_get(lnt, a), lst_get(lnt, b))
+
+def lst_same(+lnt: R.Tr<LN>, +a: U32, +b: U32) -> Bool:
+  lst_same2(U32.is_eq(a, b), lnt, a, b)

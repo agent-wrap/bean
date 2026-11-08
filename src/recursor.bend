@@ -232,7 +232,7 @@ def ind_app(+st: I.IS, +nm: U32, +us: List<&2, U32>, +p: U32, +k: U32,
   +bn = bvar_nodes(List.append(&2, U32, desc(p, (abase + p - 1 : U32)),
                                desc(k, (k - 1 : U32))),
                    st, Nil{})
-  +ic = I.alloc_ex(I.ls_st(bn), T.EConst{nm, us})
+  +ic = I.alloc_cst(I.ls_st(bn), nm, us)
   apply_spine(D.rev_u32(I.ls_xs(bn), Nil{}), I.ir_st(ic), I.ir_ty(ic))
 
 # forall (i_1..i_k) (t : I a-bar i-bar), Sort v
@@ -256,7 +256,7 @@ def minor_ty(+st: I.IS, +cnm: U32, +us: List<&2, U32>, +p: U32, +k: U32,
                                desc(p, (m + j + p - 1 : U32)),
                                desc(m, (m - 1 : U32))),
                    I.ls_st(el), Nil{})
-  +cc = I.alloc_ex(I.ls_st(bn), T.EConst{cnm, us})
+  +cc = I.alloc_cst(I.ls_st(bn), cnm, us)
   +capp = apply_spine(D.rev_u32(I.ls_xs(bn), Nil{}), I.ir_st(cc),
                       I.ir_ty(cc))
   +mv = I.alloc_ex(I.ir_st(capp), T.EBVar{(m + j - 1 : U32)})

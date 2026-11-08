@@ -24,7 +24,7 @@ def ex_step(+go: Bool, +t: R.Tr<T.Ex>, +ix: U32, +k: U32, +b: U32,
             +flds: List<&2, D.Fld>, +sb: List<&2, U32>) -> R.Tr<T.Ex>:
   match go:
     case True{}:
-      R.set(T.Ex, 64n, t, ix, T.mk_ex(k, b, flds, sb), T.EBad{})
+      R.set(T.Ex, 64n, t, ix, T.mk_ex(k, b, flds, T.xhandle(ix)), T.EBad{})
     case False{}:
       t
 

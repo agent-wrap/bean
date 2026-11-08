@@ -38,19 +38,18 @@ else
   M=$(( NX + 1 + 4194304 + 2097152 )); D=0; while (( (1 << (D + 1)) <= M )); do D=$(( D + 1 )); done
   # km's sdepth: one doubling of room, two when that leaves under 2^21 free
   SD=$(( D + 2 )); (( (1 << (D + 1)) - M >= 2097152 )) && SD=$(( D + 1 ))
-  # measured peak RSS / store: con-leche 1.82 (2^26 slots), navier-stokes
-  # 2.1 (2^27): 2.0 up to 2^26 slots, 2.2 above. con-leche's wall time is
-  # set by the worker count (8: 808 s, 9: 725-759, 10: 644, 11: 647; limit 720)
-  # compact expression records (decode.bend RecK, 2026-10-29): a worker's
-  # peak is its load's -- std 6.77 GB (1.58x, the whole run), navier-stokes
-  # 14.5 GB (1.69x) -- so 1.7x up to 2^26 slots, 1.8x above
-  RF=18; (( SD <= 25 )) && RF=17
+  # con-leche's wall time is set by the worker count (8: 808 s, 9: 725-759,
+  # 10: 644, 11: 647; limit 720)
   # the budget: FBEAN_MEM bytes, else 85% of the machine's RAM (the arena's
   # runner has 16 GB; this machine 96 GB, of which 88 GB was the old fixed
   # budget)
   MEMB=$(sysctl -n hw.memsize 2>/dev/null || awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 16000000000)
   BUDGET=${FBEAN_MEM:-$(( MEMB * 85 / 100 ))}
-  RSS=$(( (1 << (SD + 1)) * 64 * RF / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
+  # all-U32 expression nodes (2026-11-07): a store slot is 32 B, and the
+  # rest of a worker's peak (kept records, expression trie, decode) ~200 B
+  # per record -- init measured 2.62 GB (store 1.07), std's 64-B build
+  # 6.25 GB (store 4.29); 10% margin
+  RSS=$(( ((1 << (SD + 1)) * 32 + NX * 200) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir

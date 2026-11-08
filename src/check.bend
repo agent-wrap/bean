@@ -382,7 +382,7 @@ def lps_ex_ok(fuel: Nat, pr: T.Ex & List<&2, U32>, +ex: R.Tr<T.Ex>,
           +e2 : R.Tr<T.Ex> = ex
           +l2 : R.Tr<L.LN> = lnt
           +p2 : R.Tr<Bool> = ps
-          lps_us_ok(us, l2, p2) && lps_ex_ok(p, lps_pk(e2, work), e2, l2, p2)
+          lps_us_ok(L.lst_get(l2, us), l2, p2) && lps_ex_ok(p, lps_pk(e2, work), e2, l2, p2)
         case T.EApp{f, a}:
           +e2 : R.Tr<T.Ex> = ex
           lps_ex_ok(p, lps_pk(e2, Con{f, Con{a, work}}), e2, lnt, ps)
@@ -1430,7 +1430,7 @@ def build_cs(k: Nat, +j: U32, +items: List<&2, K.IItem>, +ind: U32,
     case 0n:
       I.LS{st, acc}
     case 1n+p:
-      +ce = I.alloc_ex(st, T.EConst{ctor_by_cidx(items, ind, j, 0), us})
+      +ce = I.alloc_cst(st, ctor_by_cidx(items, ind, j, 0), us)
       build_cs(p, (j + 1 : U32), items, ind, us, I.ir_st(ce),
                Con{I.ir_ty(ce), acc})
 
@@ -1700,7 +1700,7 @@ def minor_full(+st: I.IS, +mt: R.Tr<I.Meta>,
                                  W.desc(p, (r + m + j + p - 1 : U32)),
                                  W.desc(m, (r + m - 1 : U32))),
                      I.ls_st(e2), Nil{})
-  +cc = I.alloc_ex(I.ls_st(bn), T.EConst{cnm, us})
+  +cc = I.alloc_cst(I.ls_st(bn), cnm, us)
   +capp = W.apply_spine(D.rev_u32(I.ls_xs(bn), Nil{}), I.ir_st(cc),
                         I.ir_ty(cc))
   +mv = I.alloc_ex(I.ir_st(capp), T.EBVar{(r + m + j - 1 : U32)})

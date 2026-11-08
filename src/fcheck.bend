@@ -443,14 +443,6 @@ def fl_fin(s: FL) -> C.V:
 # built as a balanced tree of parallel calls (Bend's `a b = f(x) g(y)`):
 # the load's wall time is its slowest branch, not the sum (navier-stokes:
 # ~165 s of sequential table building after the read).
-def fj_arr(+recs: List<&2, D.Rec>, +nx: U32) -> Array<T.Ex>:
-  M.klb_init(U32.to_nat(nx), 0, M.khalf(nx),
-             F.fb_ex(recs, Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n),
-                                     T.EBad{})))
-
-def fj_ex(+recs: List<&2, D.Rec>) -> R.Tr<T.Ex>:
-  B.build_ex(recs, R.TNil{})
-
 def fj_wq(+recs: List<&2, D.Rec>) -> R.Tr<U32> & R.Tr<U32>:
   +wk = K.build_wk4(recs, R.TNil{})
   (wk, K.add_hts(recs, wk))
@@ -458,9 +450,11 @@ def fj_wq(+recs: List<&2, D.Rec>) -> R.Tr<U32> & R.Tr<U32>:
 def fj_ht(+recs: List<&2, D.Rec>) -> R.Tr<U32>:
   K.build_ht(recs, R.TNil{})
 
-def fj_ln(+recs: List<&2, D.Rec>, +nlv: Nat, +rounds: Nat) -> R.Tr<L.LN>:
+# lt: the expressions' lists (F.fb_route), at keys no level index reaches
+def fj_ln(+recs: List<&2, D.Rec>, +nlv: Nat, +rounds: Nat,
+          +lt: R.Tr<L.LN>) -> R.Tr<L.LN>:
   M.klv_seed(nlv, 0, B.lv_resolve(rounds, nlv, B.build_lv(recs, R.TNil{}),
-                                  R.TNil{}))
+                                  lt))
 
 def fj_nm(+recs: List<&2, D.Rec>) -> R.Tr<T.Nm>:
   K.build_nm(recs, R.TNil{})
@@ -476,17 +470,13 @@ def fj_c(+recs: List<&2, D.Rec>) -> (R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>:
 
 # branch D: levels, names, declared names, string table, pre-check
 def fj_d(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nlv: Nat,
-         +rounds: Nat) -> (R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)):
-  ln n = fj_ln(recs, nlv, rounds) fj_nm(recs)
+         +rounds: Nat, +lt: R.Tr<L.LN>) -> (R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)):
+  ln n = fj_ln(recs, nlv, rounds, lt) fj_nm(recs)
   ((ln, n), fj_dn(ds))
 
-def fj_ab(+recs: List<&2, D.Rec>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
-  a e = fj_arr(recs, nx) fj_ex(recs)
-  (a, e)
-
 def fj_cd(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nlv: Nat,
-          +rounds: Nat) -> ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))):
-  c d = fj_c(recs) fj_d(recs, ds, nlv, rounds)
+          +rounds: Nat, +lt: R.Tr<L.LN>) -> ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))):
+  c d = fj_c(recs) fj_d(recs, ds, nlv, rounds, lt)
   (c, d)
 
 # the two whole-export scans, each over [lo, lo+cnt) split in halves to
@@ -570,62 +560,6 @@ def lit_marks(+q: R.Tr<U32>) -> R.Tr<U32>:
   lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(lit_mark1(q,
     5), 6), 7), 11), 12), 13), 14), 15), 26), 27), 28), 29), 30), 31)
 
-def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
-          ab: Array<T.Ex> & R.Tr<T.Ex>,
-          cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
-          +wid: U32, +wcnt: U32) -> C.V:
-  match ab cd:
-    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
-      +wk2 : R.Tr<U32> = wk
-      +ex2 : R.Tr<T.Ex> = ex
-      +q2 : R.Tr<U32> = lit_marks(qtt)
-      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
-      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
-      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
-      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
-                                                R.get(U32, 64n, wk2, 1, 4294967295),
-                                                R.get(U32, 64n, wk2, 2, 4294967295)))
-      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
-             nx, natn, q2, arr, wid, wcnt)
-
-def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
-           +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
-  ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
-  fj_go(ds, nex, nx, ab, cd, wid, wcnt)
-
-# the dynamic-sharing variants: the load as above, the loop state returned
-def fj_fin2(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
-            +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32, +natn: U32,
-            +qtt: R.Tr<U32>, arr: Array<T.Ex>) -> FL:
-  match mv:
-    case Tuple{mt, sv}:
-      FL{ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{}, nmt, nx, natn, qtt,
-         kpow2(M.sdepth(nx)), False{}, C.comb(pre, sv), 0,
-         ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})}
-
-def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
-           ab: Array<T.Ex> & R.Tr<T.Ex>,
-           cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
-           +wid: U32, +wcnt: U32) -> FL:
-  match ab cd:
-    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
-      +wk2 : R.Tr<U32> = wk
-      +ex2 : R.Tr<T.Ex> = ex
-      +q2 : R.Tr<U32> = lit_marks(qtt)
-      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
-      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
-      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
-      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
-                                                R.get(U32, 64n, wk2, 1, 4294967295),
-                                                R.get(U32, 64n, wk2, 2, 4294967295)))
-      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
-              nx, natn, q2, arr)
-
-def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
-            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
-  ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
-  fj_go2(ds, nex, nx, ab, cd, wid, wcnt)
-
 # --- the streamed store (fmain's nx path) ---------------------------------
 # The expressions are already in the flat store (F.fb_route); the
 # expression trie the structural checks read is rebuilt from it.
@@ -661,14 +595,97 @@ def fj_abA(arr: Array<T.Ex>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
 def new_store(+nx: U32) -> Array<T.Ex>:
   Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n), T.EBad{})
 
-def fjudgeA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +ds: List<&2, K.Dcl>,
-            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
+def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
+          ab: Array<T.Ex> & R.Tr<T.Ex>,
+          cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
+          +wid: U32, +wcnt: U32) -> C.V:
+  match ab cd:
+    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+      +wk2 : R.Tr<U32> = wk
+      +ex2 : R.Tr<T.Ex> = ex
+      +q2 : R.Tr<U32> = lit_marks(qtt)
+      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
+      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
+      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
+      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
+                                                R.get(U32, 64n, wk2, 1, 4294967295),
+                                                R.get(U32, 64n, wk2, 2, 4294967295)))
+      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
+             nx, natn, q2, arr, wid, wcnt)
+
+# the whole-list path routes the records into the store as the streamed
+# one does (F.fb_route), so both intern the lists in record order
+def fj_rt2(r: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>)
+    -> Array<T.Ex> & R.Tr<L.LN>:
+  match r:
+    case Tuple{Tuple{a, Tuple{bad, lt}}, kept}:
+      (a, lt)
+
+def fj_rt(+recs: List<&2, D.Rec>, +nx: U32) -> Array<T.Ex> & R.Tr<L.LN>:
+  fj_rt2(F.fb_route(recs, ((new_store(nx), (0, R.TNil{})), Nil{}), nx))
+
+def fjudge_r(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
+             +ds: List<&2, K.Dcl>, +nex: U32, +nlv: Nat, +rounds: Nat,
+             +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
+  match r:
+    case Tuple{arr, lt}:
+      ab cd = fj_abA(arr, nx) fj_cd(recs, ds, nlv, rounds, lt)
+      fj_go(ds, nex, nx, ab, cd, wid, wcnt)
+
+def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
+           +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
+  fjudge_r(fj_rt(recs, nx), recs, ds, nex, nlv, rounds, nx, wid, wcnt)
+
+# the dynamic-sharing variants: the load as above, the loop state returned
+def fj_fin2(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
+            +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32, +natn: U32,
+            +qtt: R.Tr<U32>, arr: Array<T.Ex>) -> FL:
+  match mv:
+    case Tuple{mt, sv}:
+      FL{ds, st, mt, R.TNil{}, R.TNil{}, R.TNil{}, nmt, nx, natn, qtt,
+         kpow2(M.sdepth(nx)), False{}, C.comb(pre, sv), 0,
+         ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})}
+
+def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
+           ab: Array<T.Ex> & R.Tr<T.Ex>,
+           cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
+           +wid: U32, +wcnt: U32) -> FL:
+  match ab cd:
+    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+      +wk2 : R.Tr<U32> = wk
+      +ex2 : R.Tr<T.Ex> = ex
+      +q2 : R.Tr<U32> = lit_marks(qtt)
+      +natn : U32 = R.get(U32, 64n, wk2, 20, 4294967295)
+      +strn : U32 = R.get(U32, 64n, wk2, 10, 4294967295)
+      +st : I.IS = I.IS{ex2, nx, ln, nx, R.TNil{}, ht, natn, strn, q2}
+      +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
+                                                R.get(U32, 64n, wk2, 1, 4294967295),
+                                                R.get(U32, 64n, wk2, 2, 4294967295)))
+      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
+              nx, natn, q2, arr)
+
+def fjudge2_r(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
+              +ds: List<&2, K.Dcl>, +nex: U32, +nlv: Nat, +rounds: Nat,
+              +nx: U32, +wid: U32, +wcnt: U32) -> FL:
+  match r:
+    case Tuple{arr, lt}:
+      ab cd = fj_abA(arr, nx) fj_cd(recs, ds, nlv, rounds, lt)
+      fj_go2(ds, nex, nx, ab, cd, wid, wcnt)
+
+def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
+            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
+  fjudge2_r(fj_rt(recs, nx), recs, ds, nex, nlv, rounds, nx, wid, wcnt)
+
+def fjudgeA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
+            +ds: List<&2, K.Dcl>, +nlv: Nat, +rounds: Nat, +nx: U32,
+            +wid: U32, +wcnt: U32) -> C.V:
   +n2 : U32 = nx
-  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds)
+  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds, lt)
   fj_go(ds, n2, n2, ab, cd, wid, wcnt)
 
-def fjudge2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +ds: List<&2, K.Dcl>,
-             +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
+def fjudge2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
+             +ds: List<&2, K.Dcl>, +nlv: Nat, +rounds: Nat, +nx: U32,
+             +wid: U32, +wcnt: U32) -> FL:
   +n2 : U32 = nx
-  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds)
+  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds, lt)
   fj_go2(ds, n2, n2, ab, cd, wid, wcnt)
