@@ -67,6 +67,105 @@ def fck_fold(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
     case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
       fck_fold2(M.kfl_flags(ex, base), nx, v, sv)
 
+# A declaration may not name itself (check.bend self_ref_v), checked over
+# the store after the machine (export nodes are never written): a memoised
+# worklist from the type and value; 1 found, 0 not, 2 out of fuel
+def sr_kids(+x: T.Ex, +nm: U32, wl: List<&2, U32>) -> List<&2, U32> & U32:
+  match x:
+    case T.EConst{n, us}:
+      (wl, S.pick(U32.is_eq(n, nm), 1, 0))
+    case T.EApp{f, a}:
+      (Con{f, Con{a, wl}}, 0)
+    case T.ELam{n, t, b, bi}:
+      (Con{t, Con{b, wl}}, 0)
+    case T.EAll{n, t, b, bi}:
+      (Con{t, Con{b, wl}}, 0)
+    case T.ELet{n, t, v, b}:
+      (Con{t, Con{v, Con{b, wl}}}, 0)
+    case T.EProj{tn, i, sx}:
+      (Con{sx, wl}, 0)
+    case _:
+      (wl, 0)
+
+def sr_step4(a: Array<T.Ex>, r: List<&2, U32> & U32, +vis: R.Tr<U32>,
+             +f: U32) -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<U32> & U32):
+  match r:
+    case Tuple{wl, g}:
+      +g2 : U32 = g
+      ((a, S.pick_l(U32.is_eq(g2, 1), Nil{}, wl)), (vis, (f + g2 : U32)))
+
+def sr_step3(pr: Array<T.Ex> & T.Ex, t: List<&2, U32>, +vis: R.Tr<U32>,
+             +f: U32, +nm: U32)
+    -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<U32> & U32):
+  match pr:
+    case Tuple{a, x}:
+      sr_step4(a, sr_kids(x, nm, t), vis, f)
+
+def sr_step2(+skip: Bool, +h: U32, a: Array<T.Ex>, t: List<&2, U32>,
+             +vis: R.Tr<U32>, +f: U32, +nm: U32)
+    -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<U32> & U32):
+  match skip:
+    case True{}:
+      ((a, t), (vis, f))
+    case False{}:
+      sr_step3(Array.get(T.Ex, a, h), t, R.set(U32, 64n, vis, h, 1, 0), f, nm)
+
+def sr_go(fuel: Nat, +nm: U32, +lim: U32,
+          st: (Array<T.Ex> & List<&2, U32>) & (R.Tr<U32> & U32))
+    -> Array<T.Ex> & U32:
+  match fuel st:
+    case 0n Tuple{Tuple{a, wl}, Tuple{vis, f}}:
+      (a, S.pick(U32.is_ge(f, 1), 1, 2))
+    case 1n+p Tuple{Tuple{a, Nil{}}, Tuple{vis, f}}:
+      (a, S.pick(U32.is_ge(f, 1), 1, 0))
+    case 1n+p Tuple{Tuple{a, Con{h, t}}, Tuple{vis, f}}:
+      +h2 : U32 = h
+      +v2 : R.Tr<U32> = vis
+      sr_go(p, nm, lim,
+            sr_step2(U32.is_ge(h2, lim)
+                     || U32.is_ne(R.get(U32, 64n, v2, h2, 0), 0),
+                     h2, a, t, v2, f, nm))
+
+def sr_v(+c: U32) -> C.V:
+  match c:
+    case 0:
+      C.VAccept{}
+    case 1:
+      C.VReject{}
+    case _:
+      C.VDecline{}
+
+def fsr2(pr: Array<T.Ex> & U32) -> Array<T.Ex> & C.V:
+  match pr:
+    case Tuple{a, c}:
+      (a, sr_v(c))
+
+def fsr3(+none: Bool, a: Array<T.Ex>, +nm: U32, +ti: U32, +vi: U32,
+         +lim: U32) -> Array<T.Ex> & C.V:
+  match none:
+    case True{}:
+      (a, C.VAccept{})
+    case False{}:
+      fsr2(sr_go(Nat.mul(4294967295n, 4n), nm, lim,
+                 ((a, [ti, vi]), (R.TNil{}, 0))))
+
+def fsr(a: Array<T.Ex>, +d: K.Dcl, +lim: U32) -> Array<T.Ex> & C.V:
+  +d2 : K.Dcl = d
+  +nm : U32 = K.dcl_name(d2)
+  fsr3(U32.is_eq(nm, 0), a, nm, K.dcl_type(d2), K.dcl_value(d2), lim)
+
+def fck_fold_s2(pr: Array<T.Ex> & C.V, +nx: U32, +v: U32,
+                +base: U32) -> (Array<T.Ex> & U32) & C.V:
+  match pr:
+    case Tuple{ex, sv}:
+      fck_fold2(M.kfl_flags(ex, base), nx, v, sv)
+
+def fck_fold_s(kr: ((Array<T.Ex> & U32) & U32) & ((R.Tr<L.LN> & U32) & R.Tr<U32>),
+               +d: K.Dcl, +base: U32) -> (Array<T.Ex> & U32) & C.V:
+  match kr:
+    case Tuple{Tuple{Tuple{ex, nx}, v}, Tuple{lt, wm}}:
+      fck_fold_s2(fsr(ex, d, base), nx, v, base)
+
 # one declaration: structural checks on the trie, the typed check on the
 # machine; the machine state re-enters with the base nx (slot recycling)
 # an inductive block: the structural checks, and the recursors -- derived
@@ -198,12 +297,12 @@ def fck_one(+st: I.IS, +mt: R.Tr<I.Meta>, +nt: R.Tr<U32>,
       # 0..2 to a reject)
       # fck_sel's first two passes run on 2^32 steps (~2 min); a
       # declaration they cannot settle declines into the next pass
-      fck_fold(M.fck_typed(fck_fuel(R.get(U32, 64n, qtt, 48, 0)),
-                           (ex, nx), I.is_lnt(st),
-                           I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
-                           nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
-                           K.dcl_value(pd), basenx),
-               C.self_ref_v(I.is_ex(st), pd), basenx)
+      fck_fold_s(M.fck_typed(fck_fuel(R.get(U32, 64n, qtt, 48, 0)),
+                             (ex, nx), I.is_lnt(st),
+                             I.is_nlx(st), mt, lp, vt, qtt, natn, R.TNil{},
+                             nt, K.dcl_is_theorem(pd), K.dcl_type(pd),
+                             K.dcl_value(pd), basenx),
+                 pd, basenx)
 
 # each declaration is checked against the environment built from the ones
 # before it, then added -- exactly check.bend's ck_all, with the flat store
@@ -523,8 +622,7 @@ def fj_scans(+nex: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>,
 def fj_post(+ds: List<&2, K.Dcl>, +st: I.IS, +nex: U32, +ex: R.Tr<T.Ex>,
             +dn: R.Tr<Bool>, +strt: R.Tr<U32>, +wid: U32,
             +wcnt: U32) -> R.Tr<I.Meta> & C.V:
-  m v = fj_meta(ds, st, wid, wcnt) fj_scans(nex, ex, dn, strt)
-  (m, v)
+  (fj_meta(ds, st, wid, wcnt), C.VAccept{})
 
 def fj_fin(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
            +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32, +natn: U32,
@@ -588,19 +686,216 @@ def fj_abA2(pr: Array<T.Ex> & R.Tr<T.Ex>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
       +n2 : U32 = nx
       (M.klb_init(U32.to_nat(n2), 0, M.khalf(n2), a), t)
 
-def fj_abA(arr: Array<T.Ex>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
+# --- the structural checks' trie: what they can reach, not the export ----
+# The structural checks (inductive blocks, recursors, quotients) read
+# expressions from a trie; km reads the flat store. Every node they read
+# is a subterm of an inductive block's types, constructor and recursor types
+# or rule right-hand sides, or of a quotient's type -- or of the declared type
+# or value of a constant one of those mentions (I.infer / I.sl through nt,
+# I.whd's delta through vt), transitively. That closure is 8-9% of std's and
+# cslib's expressions (tools/closure.py); the whole-export trie was ~200 B
+# a record of a worker's peak (the arena's runner has 16 GB). A node outside
+# it reads as EBad, which some walkers take as "absent" -- so the closure
+# must be exact: every constant reached contributes its type AND value. The
+# whole-export scans and the self-reference check walk the store instead
+# (fj_scan_a, fsr_v).
+# cl_tab: key 2n the type of constant n, 2n + 1 its value
+def cl_tab_items(items: List<&2, K.IItem>, +t: R.Tr<U32>) -> R.Tr<U32>:
+  match items:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      +h = head
+      +nm : U32 = B.item_name(h)
+      cl_tab_items(tail, R.set_if(U32, U32.is_gt(nm, 0), t, (nm * 2 : U32),
+                                  B.item_type(h), 4294967295))
+
+def cl_tab1(+d: K.Dcl, +t: R.Tr<U32>) -> R.Tr<U32>:
+  match d:
+    case K.DInd{nms, items}:
+      cl_tab_items(items, t)
+    case _:
+      +pd : K.Dcl = d
+      +nm : U32 = K.dcl_name(pd)
+      +ok : Bool = U32.is_gt(nm, 0)
+      R.set_if(U32, ok,
+               R.set_if(U32, ok, t, (nm * 2 : U32), K.dcl_type(pd), 4294967295),
+               ((nm * 2 : U32) + 1 : U32), K.dcl_value(pd), 4294967295)
+
+def cl_tab(ds: List<&2, K.Dcl>, +t: R.Tr<U32>) -> R.Tr<U32>:
+  match ds:
+    case Nil{}:
+      t
+    case Con{head, tail}:
+      cl_tab(tail, cl_tab1(head, t))
+
+def cl_item_root(+it: K.IItem, acc: List<&2, U32>) -> List<&2, U32>:
+  match it:
+    case K.IRule{ct, nf, rhs}:
+      Con{rhs, acc}
+    case K.IOther{}:
+      acc
+    case _:
+      Con{B.item_type(it), acc}
+
+def cl_roots_items(items: List<&2, K.IItem>,
+                   acc: List<&2, U32>) -> List<&2, U32>:
+  match items:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      cl_roots_items(tail, cl_item_root(head, acc))
+
+def cl_roots(ds: List<&2, K.Dcl>, acc: List<&2, U32>) -> List<&2, U32>:
+  match ds:
+    case Nil{}:
+      acc
+    case Con{head, tail}:
+      match head:
+        case K.DInd{nms, items}:
+          cl_roots(tail, cl_roots_items(items, acc))
+        case K.DQuot{n, lps, t}:
+          cl_roots(tail, Con{t, acc})
+        case _:
+          cl_roots(tail, acc)
+
+# a node's children; a constant seen for the first time adds its type and
+# value (cs: the constants seen)
+def cl_kc(+seen: Bool, +n: U32, +tab: R.Tr<U32>, +cs: R.Tr<U32>,
+          wl: List<&2, U32>) -> List<&2, U32> & R.Tr<U32>:
+  match seen:
+    case True{}:
+      (wl, cs)
+    case False{}:
+      +t2 : R.Tr<U32> = tab
+      (Con{R.get(U32, 64n, t2, (n * 2 : U32), 4294967295),
+           Con{R.get(U32, 64n, t2, ((n * 2 : U32) + 1 : U32), 4294967295),
+               wl}},
+       R.set(U32, 64n, cs, n, 1, 0))
+
+def cl_kids(+x: T.Ex, +tab: R.Tr<U32>, +cs: R.Tr<U32>,
+            wl: List<&2, U32>) -> List<&2, U32> & R.Tr<U32>:
+  match x:
+    case T.EApp{f, a}:
+      (Con{f, Con{a, wl}}, cs)
+    case T.ELam{n, t, b, bi}:
+      (Con{t, Con{b, wl}}, cs)
+    case T.EAll{n, t, b, bi}:
+      (Con{t, Con{b, wl}}, cs)
+    case T.ELet{n, t, v, b}:
+      (Con{t, Con{v, Con{b, wl}}}, cs)
+    case T.EProj{tn, i, sx}:
+      (Con{sx, wl}, cs)
+    case T.EConst{n, us}:
+      +n2 : U32 = n
+      +c2 : R.Tr<U32> = cs
+      cl_kc(U32.is_ne(R.get(U32, 64n, c2, n2, 0), 0), n2, tab, c2, wl)
+    case _:
+      (wl, cs)
+
+
+# state: ((store, worklist), (trie, constants seen)); one step pops an index
+def cl_step4(a: Array<T.Ex>, r: List<&2, U32> & R.Tr<U32>,
+             +tr: R.Tr<T.Ex>)
+    -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<T.Ex> & R.Tr<U32>):
+  match r:
+    case Tuple{wl, cs}:
+      ((a, wl), (tr, cs))
+
+def cl_step3(pr: Array<T.Ex> & T.Ex, +h: U32, t: List<&2, U32>,
+             +tab: R.Tr<U32>, +tr: R.Tr<T.Ex>, +cs: R.Tr<U32>)
+    -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<T.Ex> & R.Tr<U32>):
+  match pr:
+    case Tuple{a, x}:
+      +x2 : T.Ex = x
+      cl_step4(a, cl_kids(x2, tab, cs, t),
+               R.set_if(T.Ex, Bool.not(exa_bad(x2)), tr, h, x2, T.EBad{}))
+
+
+def cl_step2(+skip: Bool, +h: U32, a: Array<T.Ex>, t: List<&2, U32>,
+             +tab: R.Tr<U32>, +tr: R.Tr<T.Ex>, +cs: R.Tr<U32>)
+    -> (Array<T.Ex> & List<&2, U32>) & (R.Tr<T.Ex> & R.Tr<U32>):
+  match skip:
+    case True{}:
+      ((a, t), (tr, cs))
+    case False{}:
+      cl_step3(Array.get(T.Ex, a, h), h, t, tab, tr, cs)
+
+def cl_go(fuel: Nat, +nx: U32, +tab: R.Tr<U32>,
+          st: (Array<T.Ex> & List<&2, U32>) & (R.Tr<T.Ex> & R.Tr<U32>))
+    -> (Array<T.Ex> & R.Tr<T.Ex>) & Bool:
+  match fuel st:
+    case 0n Tuple{Tuple{a, wl}, Tuple{tr, cs}}:
+      ((a, tr), False{})
+    case 1n+p Tuple{Tuple{a, Nil{}}, Tuple{tr, cs}}:
+      ((a, tr), True{})
+    case 1n+p Tuple{Tuple{a, Con{h, t}}, Tuple{tr, cs}}:
+      +h2 : U32 = h
+      +tr2 : R.Tr<T.Ex> = tr
+      cl_go(p, nx, tab,
+            cl_step2(U32.is_ge(h2, nx)
+                     || Bool.not(exa_bad(R.get(T.Ex, 64n, tr2, h2, T.EBad{}))),
+                     h2, a, t, tab, tr2, cs))
+
+# (store, trie, complete): an incomplete walk (fuel) declines the export
+def fj_cl(arr: Array<T.Ex>, +nx: U32,
+          +ds: List<&2, K.Dcl>) -> (Array<T.Ex> & R.Tr<T.Ex>) & Bool:
+  +d2 : List<&2, K.Dcl> = ds
+  cl_go(Nat.mul(4294967295n, 64n), nx, cl_tab(d2, R.TNil{}),
+        ((arr, cl_roots(d2, Nil{})), (R.TNil{}, R.TNil{})))
+
+def fj_abA3(r: (Array<T.Ex> & R.Tr<T.Ex>) & Bool,
+            +nx: U32) -> (Array<T.Ex> & R.Tr<T.Ex>) & Bool:
+  match r:
+    case Tuple{pr, ok}:
+      (fj_abA2(pr, nx), ok)
+
+# the whole-export trie (fdbg: its scans and self-reference check read it)
+def fj_abF(arr: Array<T.Ex>, +nx: U32) -> (Array<T.Ex> & R.Tr<T.Ex>) & Bool:
   +n2 : U32 = nx
-  fj_abA2(ex_from_arr(U32.to_nat(n2), 0, (Array.get(T.Ex, arr, 0), R.TNil{})), n2)
+  (fj_abA2(ex_from_arr(U32.to_nat(n2), 0, (Array.get(T.Ex, arr, 0), R.TNil{})),
+           n2), True{})
+
+def fj_abA(arr: Array<T.Ex>, +nx: U32,
+           +ds: List<&2, K.Dcl>) -> (Array<T.Ex> & R.Tr<T.Ex>) & Bool:
+  +n2 : U32 = nx
+  fj_abA3(fj_cl(arr, n2, ds), n2)
 
 def new_store(+nx: U32) -> Array<T.Ex>:
   Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n), T.EBad{})
 
+# the whole-export scans over the store: an undeclared constant, a
+# projection out of a non-structure (check.bend scan_consts / scan_projs)
+def sca_go(n: Nat, +i: U32, +dn: R.Tr<Bool>, +strt: R.Tr<U32>, +bad: Bool,
+           +v: C.V, pr: Array<T.Ex> & T.Ex) -> Array<T.Ex> & C.V:
+  match n pr:
+    case 0n Tuple{a, x}:
+      (a, C.comb(C.bad_v(bad), v))
+    case 1n+p Tuple{a, x}:
+      +x2 : T.Ex = x
+      +i2 : U32 = i
+      sca_go(p, (i2 + 1 : U32), dn, strt, bad || C.bad_const_x(x2, dn),
+             C.comb(v, C.proj_x(x2, strt)),
+             Array.get(T.Ex, a, (i2 + 1 : U32)))
+
+def fj_scan_a(arr: Array<T.Ex>, +nex: U32, +dn: R.Tr<Bool>,
+              +strt: R.Tr<U32>) -> Array<T.Ex> & C.V:
+  sca_go(U32.to_nat(nex), 0, dn, strt, False{}, C.VAccept{},
+         Array.get(T.Ex, arr, 0))
+
+def fj_fin_s(sp: Array<T.Ex> & C.V, mv: R.Tr<I.Meta> & C.V, +pre: C.V,
+             +ds: List<&2, K.Dcl>, +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32,
+             +natn: U32, +qtt: R.Tr<U32>, +wid: U32, +wcnt: U32) -> C.V:
+  match sp:
+    case Tuple{arr, sv}:
+      fj_fin(mv, C.comb(pre, sv), ds, st, nmt, nx, natn, qtt, arr, wid, wcnt)
+
 def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
-          ab: Array<T.Ex> & R.Tr<T.Ex>,
+          ab: (Array<T.Ex> & R.Tr<T.Ex>) & Bool,
           cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
           +wid: U32, +wcnt: U32) -> C.V:
   match ab cd:
-    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+    case Tuple{Tuple{arr, ex}, clok} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
       +wk2 : R.Tr<U32> = wk
       +ex2 : R.Tr<T.Ex> = ex
       +q2 : R.Tr<U32> = lit_marks(qtt)
@@ -610,8 +905,12 @@ def fj_go(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
       +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
                                                 R.get(U32, 64n, wk2, 1, 4294967295),
                                                 R.get(U32, 64n, wk2, 2, 4294967295)))
-      fj_fin(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
-             nx, natn, q2, arr, wid, wcnt)
+      +dn2 : R.Tr<Bool> = dn
+      +sr2 : R.Tr<U32> = strt
+      fj_fin_s(fj_scan_a(arr, nex, dn2, sr2),
+               fj_post(ds, st, nex, ex2, dn2, sr2, wid, wcnt),
+               C.comb(pre2, C.pick_v(clok, C.VAccept{}, C.VDecline{})), ds, st,
+               nmt, nx, natn, q2, wid, wcnt)
 
 # the whole-list path routes the records into the store as the streamed
 # one does (F.fb_route), so both intern the lists in record order
@@ -629,7 +928,7 @@ def fjudge_r(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
              +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
   match r:
     case Tuple{arr, lt}:
-      ab cd = fj_abA(arr, nx) fj_cd(recs, ds, nlv, rounds, lt)
+      ab cd = fj_abA(arr, nx, ds) fj_cd(recs, ds, nlv, rounds, lt)
       fj_go(ds, nex, nx, ab, cd, wid, wcnt)
 
 def fjudge(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
@@ -646,12 +945,19 @@ def fj_fin2(mv: R.Tr<I.Meta> & C.V, +pre: C.V, +ds: List<&2, K.Dcl>,
          kpow2(M.sdepth(nx)), False{}, C.comb(pre, sv), 0,
          ((arr, (nx + M.ktbl(nx) + 2 : U32)), C.VAccept{})}
 
+def fj_fin2_s(sp: Array<T.Ex> & C.V, mv: R.Tr<I.Meta> & C.V, +pre: C.V,
+              +ds: List<&2, K.Dcl>, +st: I.IS, +nmt: R.Tr<T.Nm>, +nx: U32,
+              +natn: U32, +qtt: R.Tr<U32>) -> FL:
+  match sp:
+    case Tuple{arr, sv}:
+      fj_fin2(mv, C.comb(pre, sv), ds, st, nmt, nx, natn, qtt, arr)
+
 def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
-           ab: Array<T.Ex> & R.Tr<T.Ex>,
+           ab: (Array<T.Ex> & R.Tr<T.Ex>) & Bool,
            cd: ((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V))),
            +wid: U32, +wcnt: U32) -> FL:
   match ab cd:
-    case Tuple{arr, ex} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
+    case Tuple{Tuple{arr, ex}, clok} Tuple{Tuple{Tuple{wk, qtt}, ht}, Tuple{Tuple{ln, nmt}, Tuple{dn, Tuple{strt, pre}}}}:
       +wk2 : R.Tr<U32> = wk
       +ex2 : R.Tr<T.Ex> = ex
       +q2 : R.Tr<U32> = lit_marks(qtt)
@@ -661,15 +967,19 @@ def fj_go2(+ds: List<&2, K.Dcl>, +nex: U32, +nx: U32,
       +pre2 : C.V = C.comb(pre, C.quot_clash_v(ds, R.get(U32, 64n, wk2, 0, 4294967295),
                                                 R.get(U32, 64n, wk2, 1, 4294967295),
                                                 R.get(U32, 64n, wk2, 2, 4294967295)))
-      fj_fin2(fj_post(ds, st, nex, ex2, dn, strt, wid, wcnt), pre2, ds, st, nmt,
-              nx, natn, q2, arr)
+      +dn2 : R.Tr<Bool> = dn
+      +sr2 : R.Tr<U32> = strt
+      fj_fin2_s(fj_scan_a(arr, nex, dn2, sr2),
+                fj_post(ds, st, nex, ex2, dn2, sr2, wid, wcnt),
+                C.comb(pre2, C.pick_v(clok, C.VAccept{}, C.VDecline{})), ds,
+                st, nmt, nx, natn, q2)
 
 def fjudge2_r(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
               +ds: List<&2, K.Dcl>, +nex: U32, +nlv: Nat, +rounds: Nat,
               +nx: U32, +wid: U32, +wcnt: U32) -> FL:
   match r:
     case Tuple{arr, lt}:
-      ab cd = fj_abA(arr, nx) fj_cd(recs, ds, nlv, rounds, lt)
+      ab cd = fj_abA(arr, nx, ds) fj_cd(recs, ds, nlv, rounds, lt)
       fj_go2(ds, nex, nx, ab, cd, wid, wcnt)
 
 def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
@@ -680,12 +990,12 @@ def fjudgeA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
             +ds: List<&2, K.Dcl>, +nlv: Nat, +rounds: Nat, +nx: U32,
             +wid: U32, +wcnt: U32) -> C.V:
   +n2 : U32 = nx
-  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds, lt)
+  ab cd = fj_abA(arr, n2, ds) fj_cd(recs, ds, nlv, rounds, lt)
   fj_go(ds, n2, n2, ab, cd, wid, wcnt)
 
 def fjudge2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
              +ds: List<&2, K.Dcl>, +nlv: Nat, +rounds: Nat, +nx: U32,
              +wid: U32, +wcnt: U32) -> FL:
   +n2 : U32 = nx
-  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds, lt)
+  ab cd = fj_abA(arr, n2, ds) fj_cd(recs, ds, nlv, rounds, lt)
   fj_go2(ds, n2, n2, ab, cd, wid, wcnt)

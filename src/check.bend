@@ -212,10 +212,12 @@ def const_nm_of(+x: T.Ex) -> U32:
     case _:
       0
 
-def bad_const_at(+i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> Bool:
-  +x = R.get(T.Ex, 64n, ex, i, T.EBad{})
+def bad_const_x(+x: T.Ex, +dn: R.Tr<Bool>) -> Bool:
   U32.is_gt(const_nm_of(x), 0)
   && Bool.not(R.get(Bool, 64n, dn, const_nm_of(x), False{}))
+
+def bad_const_at(+i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>) -> Bool:
+  bad_const_x(R.get(T.Ex, 64n, ex, i, T.EBad{}), dn)
 
 def scan_consts(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +dn: R.Tr<Bool>,
                 +bad: Bool) -> Bool:
@@ -1341,10 +1343,12 @@ def proj_idx(+x: T.Ex) -> U32:
     case _:
       0
 
-def proj_at(+i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>) -> V:
-  +x = U.ex_at(ex, i)
+def proj_x(+x: T.Ex, +strt: R.Tr<U32>) -> V:
   pick_v(not_projx(x), VAccept{},
          proj_code_v(R.get(U32, 64n, strt, proj_tn(x), 0), proj_idx(x)))
+
+def proj_at(+i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>) -> V:
+  proj_x(U.ex_at(ex, i), strt)
 
 def scan_projs(n: Nat, +i: U32, +ex: R.Tr<T.Ex>, +strt: R.Tr<U32>,
                +acc: V) -> V:

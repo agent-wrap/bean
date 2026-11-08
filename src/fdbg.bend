@@ -401,12 +401,12 @@ def fjudge_d3(arr: Array<T.Ex>, +ex: R.Tr<T.Ex>, +lt: R.Tr<L.LN>,
                  natn, qtt, 0, 0, only, Nil{},
                  ((arr, (nx + M.ktbl(nx) + 2 : U32)), Con{0, Nil{}}))}
 
-def fjudge_d2(ab: Array<T.Ex> & R.Tr<T.Ex>, +lt: R.Tr<L.LN>,
+def fjudge_d2(ab: (Array<T.Ex> & R.Tr<T.Ex>) & Bool, +lt: R.Tr<L.LN>,
               +recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: Nat,
               +nlv: Nat, +rounds: Nat, +nx: U32,
               +only: U32) -> List<&2, U32>:
   match ab:
-    case Tuple{arr, ex}:
+    case Tuple{Tuple{arr, ex}, ok}:
       fjudge_d3(arr, ex, lt, recs, ds, nex, nlv, rounds, nx, only)
 
 def fjudge_d1(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
@@ -414,7 +414,7 @@ def fjudge_d1(r: Array<T.Ex> & R.Tr<L.LN>, +recs: List<&2, D.Rec>,
               +nx: U32, +only: U32) -> List<&2, U32>:
   match r:
     case Tuple{arr, lt}:
-      fjudge_d2(FC.fj_abA(arr, nx), lt, recs, ds, nex, nlv, rounds, nx, only)
+      fjudge_d2(FC.fj_abF(arr, nx), lt, recs, ds, nex, nlv, rounds, nx, only)
 
 # the records routed as fmain routes them (FC.fj_rt: the lists interned),
 # the structural checks' expression trie rebuilt from the store
