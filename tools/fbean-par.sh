@@ -14,6 +14,15 @@ IN="$1"
 BIN="${FBEAN_BIN:-$(cd "$(dirname "$0")" && pwd)/../build/fbean-bin}"
 CORES=${FBEAN_CORES:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}
 SIZE=$(wc -c < "$IN" | tr -d " ")
+# NX1: the largest record index + 1, read from the file's tail (ids grow in
+# file order); fmain's 5th argument -- the store is allocated before decoding
+# and the expressions go straight into it (0: the old path). FBEAN_STREAM=0
+# turns it off.
+NX1=0
+if [[ "${FBEAN_STREAM:-1}" != "0" ]]; then
+  NXT=$(tail -c 4000000 "$IN" | grep -o '"i[enl]":[0-9]*' | sed 's/.*://' | sort -n | tail -1)
+  [[ -n "$NXT" ]] && NX1=$(( NXT + 1 ))
+fi
 if [[ -n "${FBEAN_WORKERS:-}" ]]; then N=$FBEAN_WORKERS
 elif (( SIZE < 4000000 )); then N=1
 else
@@ -58,7 +67,7 @@ if (( N >= 2 )) && [[ "${FBEAN_DYN:-1}" != "0" ]]; then
   /bin/rm -rf "$TMP/claims"; mkdir -p "$TMP/claims"; CL=("$TMP/claims")
 fi
 for (( k=0; k<N; k++ )); do
-  ( "$BIN" "$IN" "$k" "$N" ${CL[@]+"${CL[@]}"} >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
+  ( "$BIN" "$IN" "$k" "$N" "${CL[0]:-}" "$NX1" >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
   PIDS+=($!)
 done
 wait "${PIDS[@]}"

@@ -625,3 +625,50 @@ def fjudge2(+recs: List<&2, D.Rec>, +ds: List<&2, K.Dcl>, +nex: U32,
             +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
   ab cd = fj_ab(recs, nx) fj_cd(recs, ds, nlv, rounds)
   fj_go2(ds, nex, nx, ab, cd, wid, wcnt)
+
+# --- the streamed store (fmain's nx path) ---------------------------------
+# The expressions are already in the flat store (F.fb_route); the
+# expression trie the structural checks read is rebuilt from it.
+def exa_bad(+x: T.Ex) -> Bool:
+  match x:
+    case T.EBad{}:
+      True{}
+    case _:
+      False{}
+
+def ex_from_arr(n: Nat, +i: U32, pr: (Array<T.Ex> & T.Ex) & R.Tr<T.Ex>)
+    -> Array<T.Ex> & R.Tr<T.Ex>:
+  match n pr:
+    case 0n Tuple{Tuple{a, x}, t}:
+      (a, t)
+    case 1n+p Tuple{Tuple{a, x}, t}:
+      +x2 : T.Ex = x
+      +i2 : U32 = i
+      ex_from_arr(p, (i2 + 1 : U32),
+                  (Array.get(T.Ex, a, (i2 + 1 : U32)),
+                   R.set_if(T.Ex, Bool.not(exa_bad(x2)), t, i2, x2, T.EBad{})))
+
+def fj_abA2(pr: Array<T.Ex> & R.Tr<T.Ex>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
+  match pr:
+    case Tuple{a, t}:
+      +n2 : U32 = nx
+      (M.klb_init(U32.to_nat(n2), 0, M.khalf(n2), a), t)
+
+def fj_abA(arr: Array<T.Ex>, +nx: U32) -> Array<T.Ex> & R.Tr<T.Ex>:
+  +n2 : U32 = nx
+  fj_abA2(ex_from_arr(U32.to_nat(n2), 0, (Array.get(T.Ex, arr, 0), R.TNil{})), n2)
+
+def new_store(+nx: U32) -> Array<T.Ex>:
+  Array.new(T.Ex, Nat.add(M.sdepth(nx), 1n), T.EBad{})
+
+def fjudgeA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +ds: List<&2, K.Dcl>,
+            +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> C.V:
+  +n2 : U32 = nx
+  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds)
+  fj_go(ds, n2, n2, ab, cd, wid, wcnt)
+
+def fjudge2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +ds: List<&2, K.Dcl>,
+             +nlv: Nat, +rounds: Nat, +nx: U32, +wid: U32, +wcnt: U32) -> FL:
+  +n2 : U32 = nx
+  ab cd = fj_abA(arr, n2) fj_cd(recs, ds, nlv, rounds)
+  fj_go2(ds, n2, n2, ab, cd, wid, wcnt)

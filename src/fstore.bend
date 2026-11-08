@@ -159,3 +159,59 @@ def flv_resolve(rounds: Nat, +n: Nat, st: Array<T.Lvl> & Array<L.LN>)
       st
     case 1n+p:
       flv_resolve(p, n, flv_pass(n, 0, st))
+
+# --- streaming the expressions straight into the store -------------------
+# (fmain's nx path) An expression record is set into the flat store as its
+# batch is decoded, and dropped; every other record is kept, in order. The
+# list of decoded records was half a worker's peak (init: 2.5 of 4.9 GB) --
+# the arena's runner has 16 GB. An index at or past the store's capacity is
+# counted (Bend's array indexes wrap): the caller declines.
+def rt_set(+ok: Bool, a: Array<T.Ex>, +ix: U32, +v: T.Ex) -> Array<T.Ex>:
+  match ok:
+    case True{}:
+      Array.set(T.Ex, a, ix, v)
+    case False{}:
+      a
+
+def rt_rec(+isx: Bool, +k: U32, +ix: U32, flds: List<&2, D.Fld>, +b1: U32,
+           +b2: U32, sb: List<&2, U32>, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
+           +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+  match isx st:
+    case True{} Tuple{Tuple{a, bad}, acc}:
+      +i2 : U32 = ix
+      +bd : U32 = bad
+      +ok : Bool = U32.is_lt(i2, cap)
+      ((rt_set(ok, a, i2, T.mk_ex(k, ((b1 * 256 : U32) + b2 : U32), flds, sb)),
+        S.pick(ok, bd, (bd + 1 : U32))), acc)
+    case False{} Tuple{ab, acc}:
+      (ab, Con{D.Rec{k, ix, flds, b1, b2, sb}, acc})
+
+def rt_one(r: D.Rec, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
+           +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+  match r st:
+    case D.Rec{kind, ix, flds, b1, b2, sb} _:
+      +k = kind
+      rt_rec(K.is_ex_kind(k), k, ix, flds, b1, b2, sb, st, cap)
+    case D.RecK{kind, ix, b1, b2, ka, kb, kc, kd} Tuple{Tuple{a, bad}, acc}:
+      +i2 : U32 = ix
+      +bd : U32 = bad
+      +ok : Bool = U32.is_lt(i2, cap)
+      ((rt_set(ok, a, i2, T.mk_exk(kind, ((b1 * 256 : U32) + b2 : U32), ka, kb,
+                                    kc, kd)),
+        S.pick(ok, bd, (bd + 1 : U32))), acc)
+
+# kept records come out reversed (the caller reverses them)
+def fb_route(rs: List<&2, D.Rec>, st: (Array<T.Ex> & U32) & List<&2, D.Rec>,
+             +cap: U32) -> (Array<T.Ex> & U32) & List<&2, D.Rec>:
+  match rs:
+    case Nil{}:
+      st
+    case Con{head, tail}:
+      fb_route(tail, rt_one(head, st, cap), cap)
+
+def rev_recs(xs: List<&2, D.Rec>, acc: List<&2, D.Rec>) -> List<&2, D.Rec>:
+  match xs:
+    case Nil{}:
+      acc
+    case Con{h, t}:
+      rev_recs(t, Con{h, acc})
