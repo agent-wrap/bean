@@ -45,11 +45,11 @@ else
   # budget)
   MEMB=$(sysctl -n hw.memsize 2>/dev/null || awk '/MemTotal/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 16000000000)
   BUDGET=${FBEAN_MEM:-$(( MEMB * 85 / 100 ))}
-  # all-U32 expression nodes (2026-11-07): a store slot is 32 B, and the
-  # rest of a worker's peak (kept records, expression trie, decode) ~200 B
-  # per record -- init measured 2.62 GB (store 1.07), std's 64-B build
-  # 6.25 GB (store 4.29); 10% margin
-  RSS=$(( ((1 << (SD + 1)) * 32 + NX * 200) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
+  # all-U32 expression nodes (2026-11-07): a store slot is 32 B; the rest
+  # of a worker's peak (kept records, the structural checks' closure trie,
+  # decode) ~1 GB + 45 B a record -- single-worker peaks std 3.51 GB (store
+  # 2.15), cslib 6.89 (store 4.29); 10% margin
+  RSS=$(( ((1 << (SD + 1)) * 32 + 1000000000 + NX * 45) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir

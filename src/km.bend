@@ -6714,9 +6714,12 @@ def krigid(+x: T.Ex, +hd: T.Ex) -> Bool:
     case _:
       False{}
 
-# a bare (nullary) constructor counts only when its inductive is not a
-# structure: a structure's nullary constructor is unit-like, and unit eta
-# can equate it with anything of its type
+# a bare constructor counts unless it is a structure's constructor with no
+# parameters and no fields: that one is unit-like, and unit eta can equate
+# it with anything of its type. With a parameter or a field the bare
+# constructor is a function (its type a Pi), which neither unit-like nor
+# structure eta applies to -- Lean's is_def_eq answers false for `f =?=
+# Box.mk` once lazy delta is exhausted (bugs/eta-ctor-alias)
 def kproj_struct(+e: T.Ex) -> U32:
   match e:
     case T.EProj{tn, i, s}:
@@ -6819,8 +6822,9 @@ def kctor_headed(+x: T.Ex, +hd: T.Ex, +mt: R.Tr<I.Meta>) -> Bool:
       +mi : I.Meta = R.get(I.Meta, 64n, m2, n, I.MNone{})
       +mi2 : I.Meta = mi
       I.meta_is_ctor(mi2)
-      && Bool.not(I.meta_is_ind(R.get(I.Meta, 64n, m2, I.meta_ind(mi2),
-                                      I.MNone{})))
+      && (Bool.not(I.meta_is_ind(R.get(I.Meta, 64n, m2, I.meta_ind(mi2),
+                                       I.MNone{})))
+          || U32.is_gt((I.meta_p(mi2) + I.meta_nf(mi2) : U32), 0))
     case _:
       False{}
 
