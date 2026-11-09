@@ -48,8 +48,10 @@ else
   # all-U32 expression nodes (2026-11-07): a store slot is 32 B; the rest
   # of a worker's peak (kept records, the structural checks' closure trie,
   # decode) ~1 GB + 45 B a record -- single-worker peaks std 3.51 GB (store
-  # 2.15), cslib 6.89 (store 4.29); 10% margin
-  RSS=$(( ((1 << (SD + 1)) * 32 + 1000000000 + NX * 45) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
+  # 2.15), cslib 6.89 (store 4.29); the per-record term capped at cslib's
+  # 40M records (mathlib's 105M: a measured 10.25 GB, store 8.59); 10% margin
+  NXC=$NX; (( NXC > 40000000 )) && NXC=40000000
+  RSS=$(( ((1 << (SD + 1)) * 32 + 1000000000 + NXC * 45) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir
