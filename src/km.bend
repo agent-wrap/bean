@@ -4041,16 +4041,17 @@ def kalloc(fs: Array<T.Ex> & U32, +node: T.Ex,
       +n2 : U32 = nx
       +fp : U32 = kfp(nd)
       +s0 : U32 = (base + U32.and(fp, kmask(base)) : U32)
-      # 96 steps, not 24: in one long declaration rollbacks leave
+      # 160 steps, not 24: in one long declaration rollbacks leave
       # tombstones (the table is cleared only between declarations), a
       # chain longer than the scan allocates the node unentered, and the
       # twins defeat every node-keyed memo -- mathlib's CoalgCat
       # comul_tensorObj_tensorObj_right/left declined after 900 s (Lean:
-      # 0.4 s) and accept in 575 / 841 s; 64 still declined. The cost is
-      # the miss path's longer walk: perf/magma-list-deep-n36 300 -> 332 s.
-      # Rebuilding the table instead (at full chains, after rollbacks) was
-      # slower on both
-      kfin(kscan(96n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
+      # 0.4 s); with the pair keys' DAG masks (kfv_maskd) they accept in
+      # 114 / 378 s -- at 96 _left still declined, 64 both. The cost is the
+      # miss path's longer walk: perf/magma-list-deep-n36 300 -> 359 s
+      # (limit 390). Rebuilding the table instead (at full chains, after
+      # rollbacks) was slower on both
+      kfin(kscan(160n, False{}, base, nd, s0, 4294967295, 4294967295, False{}, n2, fp,
                  kprobe_slot(ex, s0, n2, fp, True{}, nd, base)),
            nd, n2, base)
 
@@ -4831,6 +4832,199 @@ def kfv_or_all(+bad: Bool, +m: FM) -> FM:
     case False{}:
       m
 
+def fm_or(+m: FM, +n: FM) -> FM:
+  match m n:
+    case FM{a0, a1, a2, a3} FM{b0, b1, b2, b3}:
+      FM{U32.or(a0, b0), U32.or(a1, b1), U32.or(a2, b2), U32.or(a3, b3)}
+
+
+# --- free-variable masks over the DAG ------------------------------------
+# A node's mask is the union of its children's, a binder body's shifted
+# down one level (its #0 is bound): computed once per node, post-order,
+# memoised in the mask slots (kfv_w2). The tree walk (kfv_w, 2048 nodes)
+# gives up on mathlib's shared instance terms -- all ones -- and the
+# open-pair YES cache then keyed every binder of the context, inner ones
+# included, and missed: Scheme.exists_hom_comp_eq_comp_of_locallyOfFiniteType
+# entered 9.3M defeq pairs over 75k distinct ones and declined after 2232 s
+# (Lean: 0.3 s); 63 s with this pass where the walk gives up (kfv_maskd,
+# the pair keys only -- the inference memo's key keeps the walk: with the
+# pass there the same theorem declined again). A child whose mask is not in
+# the memo (evicted) makes its parent's all ones: a larger key, never a
+# smaller one.
+def fm0() -> FM:
+  FM{0, 0, 0, 0}
+
+def fm_one(+i: U32) -> FM:
+  +i2 : U32 = i
+  kfv_or_all(U32.is_ge(i2, 128), fm_set(fm0(), U32.and(i2, 127)))
+
+def fm_shr1b(+all: Bool, +m: FM) -> FM:
+  match all m:
+    case True{} _:
+      fm_all()
+    case False{} FM{w0, w1, w2, w3}:
+      FM{U32.or((w0 / 2 : U32), (w1 * 2147483648 : U32)),
+         U32.or((w1 / 2 : U32), (w2 * 2147483648 : U32)),
+         U32.or((w2 / 2 : U32), (w3 * 2147483648 : U32)),
+         (w3 / 2 : U32)}
+
+def fm_shr1(+m: FM) -> FM:
+  +m2 : FM = m
+  fm_shr1b(fm_is_all(m2), m2)
+
+def fm_pick(+z: Bool, +a: FM, +b: FM) -> FM:
+  match z:
+    case True{}:
+      a
+    case False{}:
+      b
+
+def kfvd_memo(a: Array<T.Ex>, +x: U32, +base: U32) -> Array<T.Ex> & (Bool & FM):
+  +k : U32 = (ksh_key(x) + 2 : U32)
+  kfv_r1(Array.get(T.Ex, a, kfl_slot(base, k)), base, k, x)
+
+def kfvd_m2(pr: Array<T.Ex> & (Bool & FM)) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, Tuple{hit, m}}:
+      (a, kfv_or_all(Bool.not(hit), m))
+
+def kfvd_mc3(+closed: Bool, a: Array<T.Ex>, +c: U32,
+             +base: U32) -> Array<T.Ex> & FM:
+  match closed:
+    case True{}:
+      (a, fm0())
+    case False{}:
+      kfvd_m2(kfvd_memo(a, c, base))
+
+def kfvd_mc4(pr: Array<T.Ex> & U32, +c: U32, +base: U32) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, l}:
+      kfvd_mc3(U32.is_eq(l, 0), a, c, base)
+
+def kfvd_mc2(pr: Array<T.Ex> & T.Ex, +c: U32, +base: U32) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, T.EBVar{i}}:
+      (a, fm_one(i))
+    case Tuple{a, e}:
+      kfvd_mc4(klb_get(a, c, khalf(base)), c, base)
+
+# a child's mask: a bvar's own bit, a closed one's nothing, else the memo
+def kfvd_mc(a: Array<T.Ex>, +c: U32, +base: U32) -> Array<T.Ex> & FM:
+  kfvd_mc2(Array.get(T.Ex, a, c), c, base)
+
+def kfvd_or2b(pr: Array<T.Ex> & FM, +m1: FM, +sh: Bool) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, m2}:
+      +m3 : FM = m2
+      (a, fm_or(m1, fm_pick(sh, fm_shr1(m3), m3)))
+
+def kfvd_or2(pr: Array<T.Ex> & FM, +c2: U32, +base: U32,
+             +sh: Bool) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, m1}:
+      kfvd_or2b(kfvd_mc(a, c2, base), m1, sh)
+
+def kfvd_fst(pr: Array<T.Ex> & FM) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, m}:
+      a
+
+def kfvd_st(pr: Array<T.Ex> & FM, +x: U32, +base: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, m}:
+      +k : U32 = (ksh_key(x) + 2 : U32)
+      kfvd_fst(kfv_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, k, x, m))
+
+# leaving node x: its children's masks are memoised (or it is all ones)
+def kfvd_x(pr: Array<T.Ex> & T.Ex, +x: U32, +base: U32) -> Array<T.Ex>:
+  match pr:
+    case Tuple{a, T.EApp{f, g}}:
+      kfvd_st(kfvd_or2(kfvd_mc(a, f, base), g, base, False{}), x, base)
+    case Tuple{a, T.ELam{n, t, b, bi}}:
+      kfvd_st(kfvd_or2(kfvd_mc(a, t, base), b, base, True{}), x, base)
+    case Tuple{a, T.EAll{n, t, b, bi}}:
+      kfvd_st(kfvd_or2(kfvd_mc(a, t, base), b, base, True{}), x, base)
+    case Tuple{a, T.ELet{n, t, v, b}}:
+      kfvd_st(kfvd_or2(kfvd_or2(kfvd_mc(a, t, base), v, base, False{}), b,
+                       base, True{}), x, base)
+    case Tuple{a, T.EProj{tn, i, sx}}:
+      kfvd_st(kfvd_mc(a, sx, base), x, base)
+    case Tuple{a, e}:
+      a
+
+def kfvd_need4(pr: Array<T.Ex> & (Bool & FM)) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, Tuple{hit, m}}:
+      (a, Bool.not(hit))
+
+def kfvd_need3(+closed: Bool, a: Array<T.Ex>, +x: U32,
+               +base: U32) -> Array<T.Ex> & Bool:
+  match closed:
+    case True{}:
+      (a, False{})
+    case False{}:
+      kfvd_need4(kfvd_memo(a, x, base))
+
+def kfvd_need2(pr: Array<T.Ex> & U32, +x: U32, +base: U32) -> Array<T.Ex> & Bool:
+  match pr:
+    case Tuple{a, l}:
+      kfvd_need3(U32.is_eq(l, 0), a, x, base)
+
+def kfvd_e3(+need: Bool, a: Array<T.Ex>, +x: U32, cs: List<&2, U32>,
+            t: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
+  match need:
+    case True{}:
+      (a, List.append(&2, U32, cs, Con{((x * 2 : U32) + 1 : U32), t}))
+    case False{}:
+      (a, t)
+
+def kfvd_e2(pr: Array<T.Ex> & Bool, +x: U32, cs: List<&2, U32>,
+            t: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
+  match pr:
+    case Tuple{a, need}:
+      kfvd_e3(need, a, x, cs, t)
+
+def klb_need(a: Array<T.Ex>, +x: U32, +base: U32) -> Array<T.Ex> & Bool:
+  kfvd_need2(klb_get(a, x, khalf(base)), x, base)
+
+
+# entering node x: unless it is closed or memoised, its children first
+def kfvd_e(pr: Array<T.Ex> & T.Ex, +x: U32, +base: U32,
+           t: List<&2, U32>) -> Array<T.Ex> & List<&2, U32>:
+  match pr:
+    case Tuple{a, T.EApp{f, g}}:
+      kfvd_e2(klb_need(a, x, base), x, [(f * 2 : U32), (g * 2 : U32)], t)
+    case Tuple{a, T.ELam{n, ty, b, bi}}:
+      kfvd_e2(klb_need(a, x, base), x, [(ty * 2 : U32), (b * 2 : U32)], t)
+    case Tuple{a, T.EAll{n, ty, b, bi}}:
+      kfvd_e2(klb_need(a, x, base), x, [(ty * 2 : U32), (b * 2 : U32)], t)
+    case Tuple{a, T.ELet{n, ty, v, b}}:
+      kfvd_e2(klb_need(a, x, base), x,
+              [(ty * 2 : U32), (v * 2 : U32), (b * 2 : U32)], t)
+    case Tuple{a, T.EProj{tn, i, sx}}:
+      kfvd_e2(klb_need(a, x, base), x, [(sx * 2 : U32)], t)
+    case Tuple{a, e}:
+      (a, t)
+
+def kfvd_step(+ex: Bool, a: Array<T.Ex>, +x: U32, t: List<&2, U32>,
+              +base: U32) -> Array<T.Ex> & List<&2, U32>:
+  match ex:
+    case True{}:
+      (kfvd_x(Array.get(T.Ex, a, x), x, base), t)
+    case False{}:
+      kfvd_e(Array.get(T.Ex, a, x), x, base, t)
+
+def kfvd(fuel: Nat, st: Array<T.Ex> & List<&2, U32>, +base: U32) -> Array<T.Ex>:
+  match fuel st:
+    case 0n Tuple{a, l}:
+      a
+    case 1n+p Tuple{a, Nil{}}:
+      a
+    case 1n+p Tuple{a, Con{h, t}}:
+      +h2 : U32 = h
+      kfvd(p, kfvd_step(U32.is_eq(U32.and(h2, 1), 1), a, (h2 / 2 : U32), t,
+                        base), base)
+
 # walked: the mask, or all ones (unknown) when over budget
 def kfv_c2(pr: Array<T.Ex> & (U32 & FM), +base: U32, +k: U32,
            +x: U32) -> Array<T.Ex> & FM:
@@ -4839,38 +5033,65 @@ def kfv_c2(pr: Array<T.Ex> & (U32 & FM), +base: U32, +k: U32,
       kfv_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, k, x,
              kfv_or_all(U32.is_ne(st, 0), m))
 
-def kfv_c1b(+hit: Bool, a: Array<T.Ex>, +m: FM, +base: U32, +k: U32,
+def kfv_c2g(+ok: Bool, +dag: Bool, a: Array<T.Ex>, +m: FM, +base: U32, +k: U32,
+            +x: U32) -> Array<T.Ex> & FM:
+  match ok dag:
+    case True{} _:
+      kfv_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, k, x, m)
+    case False{} True{}:
+      +x2 : U32 = x
+      kfvd_mc(kfvd(4194304n, (a, [(x2 * 2 : U32)]), base), x2, base)
+    case False{} False{}:
+      kfv_w2(Array.get(T.Ex, a, kg_slot(khalf(base))), base, k, x, fm_all())
+
+
+# the tree walk's answer, or the DAG pass when it was over budget
+def kfv_c2h(pr: Array<T.Ex> & (U32 & FM), +dag: Bool, +base: U32, +k: U32,
+            +x: U32) -> Array<T.Ex> & FM:
+  match pr:
+    case Tuple{a, Tuple{st, m}}:
+      kfv_c2g(U32.is_eq(st, 0), dag, a, m, base, k, x)
+
+def kfv_c1b(+hit: Bool, +dag: Bool, a: Array<T.Ex>, +m: FM, +base: U32, +k: U32,
             +x: U32) -> Array<T.Ex> & FM:
   match hit:
     case True{}:
       (a, m)
     case False{}:
+      # the tree walk first (cheap, exact when it fits in 2048 nodes); the
+      # DAG pass only when it gives up -- running the DAG pass on every miss
+      # made CoalgCat's comul theorems 4x slower per step and decline
       +hb : U32 = khalf(base)
       +n0 : List<&2, U32> = Con{x, Nil{}}
       +d0 : List<&2, U32> = Con{0, Nil{}}
-      kfv_c2(kfv_w(2048n, n0, d0, kfv_pick(a, n0, d0, hb), 0, FM{0, 0, 0, 0},
-                   hb), base, k, x)
+      kfv_c2h(kfv_w(2048n, n0, d0, kfv_pick(a, n0, d0, hb), 0, FM{0, 0, 0, 0},
+                    hb), dag, base, k, x)
 
-def kfv_c1(pr: Array<T.Ex> & (Bool & FM), +base: U32, +k: U32,
+def kfv_c1(pr: Array<T.Ex> & (Bool & FM), +dag: Bool, +base: U32, +k: U32,
            +x: U32) -> Array<T.Ex> & FM:
   match pr:
     case Tuple{a, Tuple{hit, m}}:
-      kfv_c1b(hit, a, m, base, k, x)
+      kfv_c1b(hit, dag, a, m, base, k, x)
 
-def kfv_mask2(+go: Bool, a: Array<T.Ex>, +x: U32, +l: U32,
+def kfv_mask2(+go: Bool, +dag: Bool, a: Array<T.Ex>, +x: U32, +l: U32,
               +base: U32) -> Array<T.Ex> & FM:
   match go:
     case True{}:
       +k : U32 = (ksh_key(x) + 2 : U32)
-      kfv_c1(kfv_r1(Array.get(T.Ex, a, kfl_slot(base, k)), base, k, x), base,
-             k, x)
+      kfv_c1(kfv_r1(Array.get(T.Ex, a, kfl_slot(base, k)), base, k, x), dag,
+             base, k, x)
     case False{}:
       (a, kfv_or_all(U32.is_ne(l, 0), FM{0, 0, 0, 0}))
 
 # x's loose-bvar mask (closed: 0; lbr past 128 or unknown: all ones)
 def kfv_mask(a: Array<T.Ex>, +x: U32, +l: U32,
              +base: U32) -> Array<T.Ex> & FM:
-  kfv_mask2(U32.is_ne(l, 0) && U32.is_le(l, 128), a, x, l, base)
+  kfv_mask2(U32.is_ne(l, 0) && U32.is_le(l, 128), False{}, a, x, l, base)
+
+# the same, the DAG pass when the tree walk gives up (the pair keys)
+def kfv_maskd(a: Array<T.Ex>, +x: U32, +l: U32,
+              +base: U32) -> Array<T.Ex> & FM:
+  kfv_mask2(U32.is_ne(l, 0) && U32.is_le(l, 128), True{}, a, x, l, base)
 
 # fold the reached entries: entry j when its bit is set or j < tb (an
 # included entry's type reaches tb = j + 1 + its lbr)
@@ -4959,11 +5180,6 @@ def kctxm_tin(fs: Array<T.Ex> & U32, +x: U32, +l: U32, xs: List<&2, U32>,
 # eta), and context entries are types. The whole-prefix key missed every
 # time the pair came back under another binder stack: mathlib's
 # tensorQuotientEquiv met 23k distinct pairs 11.8M times (Lean: fvars)
-def fm_or(+m: FM, +n: FM) -> FM:
-  match m n:
-    case FM{a0, a1, a2, a3} FM{b0, b1, b2, b3}:
-      FM{U32.or(a0, b0), U32.or(a1, b1), U32.or(a2, b2), U32.or(a3, b3)}
-
 def kctxp_2(pr: Array<T.Ex> & FM, +m: FM, xs: List<&2, U32>, +l: U32,
             +base: U32) -> Array<T.Ex> & U32:
   match pr:
@@ -4976,13 +5192,13 @@ def kctxp_1(pr: Array<T.Ex> & FM, +y: U32, xs: List<&2, U32>, +l: U32,
     case Tuple{a, m}:
       +l2 : U32 = l
       +b2 : U32 = base
-      kctxp_2(kfv_mask(a, y, l2, b2), m, xs, l2, b2)
+      kctxp_2(kfv_maskd(a, y, l2, b2), m, xs, l2, b2)
 
 def kctxp(a: Array<T.Ex>, +x: U32, +y: U32, xs: List<&2, U32>, +l: U32,
           +base: U32) -> Array<T.Ex> & U32:
   +l2 : U32 = l
   +b2 : U32 = base
-  kctxp_1(kfv_mask(a, x, l2, b2), y, xs, l2, b2)
+  kctxp_1(kfv_maskd(a, x, l2, b2), y, xs, l2, b2)
 
 def kctxp_tin(fs: Array<T.Ex> & U32, +x: U32, +y: U32, +l: U32,
               xs: List<&2, U32>, +base: U32) -> ((Array<T.Ex> & U32) & MG) & U32:
