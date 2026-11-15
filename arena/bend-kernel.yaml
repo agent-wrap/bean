@@ -1,4 +1,4 @@
-version: "0.1.0-ingest"
+version: "0.2.0"
 description: |
   **bean** — a Lean 4 kernel checker written in [Bend 2](https://bend-lang.org),
   a total functional language whose programs are checked by a kernel that is
@@ -7,9 +7,34 @@ description: |
   Bend forbids mutual recursion, requires every recursion to terminate, has no
   mutable state, and will not let `match` scrutinise a computed value, so the
   checker is one fuel-indexed abstract machine rather than the usual mutually
-  recursive `whnf`/`infer`/`isDefEq` cluster. It contains no `@unsafe`
-  definitions, so Bend's own proof guarantees cover it.
+  recursive `whnf`/`infer`/`isDefEq` cluster. It runs over a flat, hash-consed
+  node store threaded linearly through the machine, so updates are in place.
+  It contains no `@unsafe` definitions, so Bend's own proof guarantees cover it.
 
-  At this version it streams and tokenises the export and then declines; the
-  kernel is not written yet.
-run: ./build/bean "$IN"
+  The definitional-equality loop follows the reference kernel
+  (`type_checker.cpp`): lazy delta reduction by definition height, the
+  failure cache, proof irrelevance, eta and structure eta, `Nat`/`String`
+  literal extensions, quotients, and iota reduction for nested and mutual
+  inductives. Recursor data is derived and compared with the export's claim
+  rather than trusted. An undecided comparison is a decline, never a guess.
+
+  Large exports are checked by several worker processes, each holding the
+  whole export and checking its share of the declarations; the worker count
+  is sized from the machine's cores and memory.
+url: https://github.com/agent-wrap/bean
+ref: flat
+build: |
+  # Bend 2.0.36's Linux release, checked against its SHA-256
+  python3 - <<'__END__'
+  import hashlib, io, tarfile, urllib.request
+  url = "https://github.com/bendlang/bend/releases/download/v2.0.36/bend-2.0.36-linux-x64.tar.gz"
+  data = urllib.request.urlopen(url).read()
+  digest = hashlib.sha256(data).hexdigest()
+  assert digest == "02089dc0eed0fd5fd6d73c74cc9cffcb2c6638dd3b02ae83f7b8cc57fbe381ba", digest
+  tarfile.open(fileobj=io.BytesIO(data)).extractall("_bend")
+  __END__
+  mkdir -p build
+  _bend/bend/bin/bend src/fmain.bend -o build/fbean.c
+  ${CC:-cc} -O2 -o build/fbean-bin build/fbean.c -lpthread
+run: tools/fbean-par.sh "$IN"
+threads: 8
