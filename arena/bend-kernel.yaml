@@ -22,7 +22,7 @@ description: |
   whole export and checking its share of the declarations; the worker count
   is sized from the machine's cores and memory.
 url: https://github.com/agent-wrap/bean
-ref: flat
+ref: main
 build: |
   # Bend 2.0.36's Linux release, checked against its SHA-256
   python3 - <<'__END__'

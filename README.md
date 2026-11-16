@@ -17,7 +17,7 @@ a goal: **zero `@unsafe` defs, and `bend --verdict` must pass.**
 
 ## Status
 
-Work in progress, on the `flat` branch. On the arena's corpus up to 20 MB
+Work in progress. On the arena's corpus up to 20 MB
 (`tools/score.py --max-size 20`):
 
     198/198 scorable tests correct
