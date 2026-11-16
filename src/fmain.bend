@@ -190,7 +190,41 @@ def nx_of(av: List<&1, String>) -> U32:
     case Nil{}:
       0
 
-# Pure: pull the record list out of a threaded decode triple.
+# argv[6] (optional, from tools/fbean-par.sh): F >= 2 loads the export once
+# and forks F workers that share it (Fork.workers); the streamed path
+# (argv[5] > 0) with a claim directory only. The wrapper passes worker 0 of
+# 1 beside it, so a binary without fork mode checks everything alone.
+def fork_of(av: List<&1, String>) -> U32:
+  match av:
+    case Con{a0, r1}:
+      match r1:
+        case Con{a1, r2}:
+          match r2:
+            case Con{a2, r3}:
+              match r3:
+                case Con{a3, r4}:
+                  match r4:
+                    case Con{a4, r5}:
+                      match r5:
+                        case Con{a5, r6}:
+                          match r6:
+                            case Con{a6, r7}:
+                              arg_u32(Some{a6}, 0)
+                            case Nil{}:
+                              0
+                        case Nil{}:
+                          0
+                    case Nil{}:
+                      0
+                case Nil{}:
+                  0
+            case Nil{}:
+              0
+        case Nil{}:
+          0
+    case Nil{}:
+      0
+
 # Pure: pull the record list out of a threaded decode triple.
 def trip_out(trip: S.Sc & D.Acc & List<&2, D.Rec>) -> List<&2, D.Rec>:
   match trip:
@@ -701,14 +735,68 @@ def run_a2(+ok: Bool, +recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
     case False{}:
       finish(C.VDecline{})
 
+# Fork n worker processes (src/fork.c): each answers its index 0..n-1; the
+# parent exits with their joined verdict and never answers. 4294967295: no
+# fork happened, this process is the only worker.
+def Fork.workers(n: U32) -> IO(U32):
+  import "./fork.c"
+  import "./fork.js"
+
+def run_fl(+wk: U32, +wn: U32, +dir: String, s: FC.FL & Bool) -> IO(Unit):
+  do IO<Unit>:
+    v : C.V <- dyn_step(4194304n, dir, 0, wk, wn, s)
+    finish(v)
+
+def run_fk2(+k: U32, su: ((Array<T.Ex> & R.Tr<T.Ex>) & Bool) & (((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)))), +ds: List<&2, K.Dcl>, +wn: U32,
+            +dir: String, +nx: U32) -> IO(Unit):
+  +one : Bool = U32.is_eq(k, 4294967295)
+  +wk : U32 = S.pick(one, 0, k)
+  +wn2 : U32 = S.pick(one, 1, wn)
+  run_fl(wk, wn2, dir, FC.fl_more(FC.fgo2A(ds, nx, su, wk, wn2)))
+
+# Bend is strict: the store and the tables in su are built before the effect
+# runs, so the forked workers share them
+def run_fk(su: ((Array<T.Ex> & R.Tr<T.Ex>) & Bool) & (((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)))), +ds: List<&2, K.Dcl>, +wn: U32, +dir: String,
+           +nx: U32) -> IO(Unit):
+  do IO<Unit>:
+    k : U32 <- Fork.workers(wn)
+    run_fk2(k, su, ds, wn, dir, nx)
+
+def run_fk0(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
+            +wn: U32, +dir: String, +nx: U32) -> IO(Unit):
+  +r2 = recs
+  +ds : List<&2, K.Dcl> = K.decls_of(r2, Nil{})
+  run_fk(FC.fsetupA(r2, arr, lt, ds,
+                    U32.to_nat((K.max_lvl_ix(r2, 0) + 1 : U32)), 32n, nx),
+         ds, wn, dir, nx)
+
+# fork mode needs the claim directory (fl's chunks); without one, or on a
+# store overflow, the one-process path
+def run_af3(+ok: Bool, +recs: List<&2, D.Rec>, arr: Array<T.Ex>,
+            +lt: R.Tr<L.LN>, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
+  match dir:
+    case SNil{}:
+      run_a2(ok, recs, arr, lt, wk, wn, SNil{}, nx)
+    case SCon{head, tail}:
+      run_fk0(recs, arr, lt, wn, SCon{head, tail}, nx)
+
+def run_af(+fk: Bool, +ok: Bool, +recs: List<&2, D.Rec>, arr: Array<T.Ex>,
+           +lt: R.Tr<L.LN>, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
+  match fk ok:
+    case True{} True{}:
+      run_af3(True{}, recs, arr, lt, wk, wn, dir, nx)
+    case _ _:
+      run_a2(ok, recs, arr, lt, wk, wn, dir, nx)
+
 # an expression index at or past the store's capacity: decline (no read)
 def run_a(res: (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec>, +wk: U32, +wn: U32,
-          dir: String, +nx: U32) -> IO(Unit):
+          dir: String, +nx: U32, +fk: U32) -> IO(Unit):
   match res:
     case Tuple{Tuple{arr, Tuple{bad, lt}}, recs}:
-      run_a2(U32.is_eq(bad, 0), recs, arr, lt, wk, wn, dir, nx)
+      +fm : Bool = U32.is_gt(fk, 1)
+      run_af(fm, U32.is_eq(bad, 0), recs, arr, lt, wk, S.pick(fm, fk, wn), dir, nx)
 
-def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
+def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32, +fk: U32) -> IO(Unit):
   do IO<Unit>:
     oh : Result<&1, &1, U32 & String, File> <- File.open(path, "r")
     f : File <- open_or_fail(oh)
@@ -716,7 +804,7 @@ def main_a(path: String, +wk: U32, +wn: U32, dir: String, +nx: U32) -> IO(Unit):
       <- File.read_bytes(f, 4194304)
     res : (Array<T.Ex> & (U32 & R.Tr<L.LN>)) & List<&2, D.Rec> <- streamA(2400n, 4194304, nx, pr,
       Tuple{Tuple{S.Sc.start(), D.Acc.start()}, Tuple{Nil{}, Tuple{0, Tuple{Tuple{FC.new_store(nx), Tuple{0, R.TNil{}}}, Nil{}}}}})
-    run_a(res, wk, wn, dir, nx)
+    run_a(res, wk, wn, dir, nx, fk)
 
 def main_go(pw: String & ((U32 & U32) & String)) -> IO(Unit):
   match pw:
@@ -730,21 +818,22 @@ def main_go(pw: String & ((U32 & U32) & String)) -> IO(Unit):
           Tuple{Nil{}, Tuple{Nil{}, Tuple{0, Nil{}}}})
         run_pick(recs, wk, wn, dir)
 
-def main_sel2(+go: Bool, +nx: U32, path: String, +wk: U32, +wn: U32,
+def main_sel2(+go: Bool, +nx: U32, +fk: U32, path: String, +wk: U32, +wn: U32,
               dir: String) -> IO(Unit):
   match go:
     case True{}:
-      main_a(path, wk, wn, dir, nx)
+      main_a(path, wk, wn, dir, nx, fk)
     case False{}:
       main_go((path, ((wk, wn), dir)))
 
-def main_sel(+nx: U32, pw: String & ((U32 & U32) & String)) -> IO(Unit):
+def main_sel(+nx: U32, +fk: U32, pw: String & ((U32 & U32) & String)) -> IO(Unit):
   match pw:
     case Tuple{path, Tuple{Tuple{wk, wn}, dir}}:
-      main_sel2(U32.is_gt(nx, 0), nx, path, wk, wn, dir)
+      main_sel2(U32.is_gt(nx, 0), nx, fk, path, wk, wn, dir)
 
 def main() -> IO(Unit):
   do IO<Unit>:
     av : List<&1, String> <- IO.args()
     bv : List<&1, String> <- IO.args()
-    main_sel(nx_of(bv), args_of(av))
+    cv : List<&1, String> <- IO.args()
+    main_sel(nx_of(bv), fork_of(cv), args_of(av))

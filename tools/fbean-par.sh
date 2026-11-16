@@ -53,12 +53,20 @@ else
   NXC=$NX; (( NXC > 40000000 )) && NXC=40000000
   RSS=$(( ((1 << (SD + 1)) * 32 + 1000000000 + NXC * 45) * 11 / 10 )); NM=$(( BUDGET / RSS )); (( NM < 1 )) && NM=1
   N=$(( CORES - 2 )); (( N > 12 )) && N=12; (( N > NM )) && N=$NM; (( N < 1 )) && N=1
+  # fork mode: one process holds the loaded export and the shared tables
+  # (RSS); each forked worker adds only what it writes -- measured 0.26 GB
+  # (std), 0.29-0.55 GB (cslib): 0.6 GB a worker. The parent only waits,
+  # so the workers take every core.
+  if [[ "${FBEAN_FORK:-1}" == "1" ]] && (( NX1 > 0 )); then
+    PRIV=600000000; NF=$(( (BUDGET - RSS) / PRIV )); (( NF < 1 )) && NF=1
+    N=$CORES; (( N > 12 )) && N=12; (( N > NF )) && N=$NF; (( N < 1 )) && N=1
+  fi
 fi
 # the workers' files: in FBEAN_KEEP when set (kept), else a temp dir
 if [[ -n "${FBEAN_KEEP:-}" ]]; then TMP="$FBEAN_KEEP"; mkdir -p "$TMP"; /bin/rm -f "$TMP"/err.* "$TMP"/rc.* "$TMP"/out.*; CLEAN=0
 else TMP=$(mktemp -d); CLEAN=1; fi
 PIDS=()
-trap 'kill "${PIDS[@]}" 2>/dev/null; (( CLEAN )) && /bin/rm -rf "$TMP"' EXIT
+trap 'kill ${PIDS[@]+"${PIDS[@]}"} 2>/dev/null; (( CLEAN )) && /bin/rm -rf "$TMP"' EXIT
 echo "workers=$N bin=$BIN" >"$TMP/run.txt"
 # dynamic sharing (FBEAN_DYN=0 turns it off): the workers claim chunks of
 # 256 declarations through files in CL -- each still walks every
@@ -67,11 +75,21 @@ CL=()
 if (( N >= 2 )) && [[ "${FBEAN_DYN:-1}" != "0" ]]; then
   /bin/rm -rf "$TMP/claims"; mkdir -p "$TMP/claims"; CL=("$TMP/claims")
 fi
+# fork mode (FBEAN_FORK=0 turns it off; the streamed path only): one process
+# loads the export and forks the N workers (argv[6]), which share it
+# copy-on-write (src/fork.c); it exits with their join. It is worker 0 of 1
+# to a binary without fork mode, which then checks everything alone.
+if [[ "${FBEAN_FORK:-1}" == "1" ]] && (( N >= 2 && NX1 > 0 )); then
+  echo "fork=1" >>"$TMP/run.txt"
+  "$BIN" "$IN" 0 1 "${CL[0]:-}" "$NX1" "$N" >"$TMP/out.0" 2>"$TMP/err.0"; echo $? >"$TMP/rc.0"
+  N=1
+else
 for (( k=0; k<N; k++ )); do
   ( "$BIN" "$IN" "$k" "$N" "${CL[0]:-}" "$NX1" >"$TMP/out.$k" 2>"$TMP/err.$k"; echo $? >"$TMP/rc.$k" ) &
   PIDS+=($!)
 done
 wait "${PIDS[@]}"
+fi
 REJ=0; DEC=0; MSG=""
 for (( k=0; k<N; k++ )); do
   rc=$(cat "$TMP/rc.$k" 2>/dev/null || echo 2)

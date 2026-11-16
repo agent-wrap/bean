@@ -999,3 +999,19 @@ def fjudge2A(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
   +n2 : U32 = nx
   ab cd = fj_abA(arr, n2, ds) fj_cd(recs, ds, nlv, rounds, lt)
   fj_go2(ds, n2, n2, ab, cd, wid, wcnt)
+
+# fork mode (fmain run_fk): fjudge2A in two halves. fsetupA builds the
+# tables every worker reads (the structural closure, the declaration
+# tables) once, before the workers are forked, so they share them; fgo2A is
+# a worker's rest
+def fsetupA(+recs: List<&2, D.Rec>, arr: Array<T.Ex>, +lt: R.Tr<L.LN>,
+            +ds: List<&2, K.Dcl>, +nlv: Nat, +rounds: Nat, +nx: U32) -> ((Array<T.Ex> & R.Tr<T.Ex>) & Bool) & (((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)))):
+  +n2 : U32 = nx
+  ab cd = fj_abA(arr, n2, ds) fj_cd(recs, ds, nlv, rounds, lt)
+  (ab, cd)
+
+def fgo2A(+ds: List<&2, K.Dcl>, +nx: U32, su: ((Array<T.Ex> & R.Tr<T.Ex>) & Bool) & (((R.Tr<U32> & R.Tr<U32>) & R.Tr<U32>) & ((R.Tr<L.LN> & R.Tr<T.Nm>) & (R.Tr<Bool> & (R.Tr<U32> & C.V)))),
+          +wid: U32, +wcnt: U32) -> FL:
+  match su:
+    case Tuple{ab, cd}:
+      fj_go2(ds, nx, nx, ab, cd, wid, wcnt)
