@@ -1,3 +1,6 @@
+-- Derived from Lean 4's Lean.Replay (src/Lean/Replay.lean), Copyright (c)
+-- 2023 Kim Morrison, Apache License 2.0; built against the
+-- arena's official checker by tools/kdiag/build.sh.
 import Export.Parse
 import Lean
 open Lean

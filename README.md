@@ -129,7 +129,7 @@ memory budget.
                            debug entries and differential checks, not the checker
     tests/                 regression exports beyond the arena's suite (tests/README.md)
     bench/                 micro-benchmarks behind the design decisions
-    docs/                  design notes, measurements, dead ends (see below)
+    docs/                  design notes, measurements, dead ends (not yet published)
     arena/bend-kernel.yaml the arena checker definition
 
 ## Build and score
